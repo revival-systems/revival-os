@@ -1,0 +1,22 @@
+# Build output (make clean removes it)
+/build/
+
+# Python
+__pycache__/
+*.pyc
+
+# Never commit vendor or device material, even by accident:
+# Samsung firmware packages, partition tables, raw images, private evidence.
+*.tar.md5
+*.pit
+*.img
+*.mbn
+/firmware/
+/evidence-private/
+**/private/
+
+# Editors and OS
+.vscode/
+.idea/
+*.swp
+.DS_Store
