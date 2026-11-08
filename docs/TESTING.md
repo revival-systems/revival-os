@@ -25,16 +25,23 @@ Emulator and device tests are separate on purpose. No device milestone is marked
 | Test | Pass when |
 | --- | --- |
 | `build-runtime-surface` | The probe's Goose-generated C needs exactly `calloc gs_idxfail gs_panic gs_rt_start_<runtime>`, nothing more or less |
-| `build-no-undefined` | Every probe image links with no undefined symbol, using only the stub and libgcc (no C library) |
+| `build-link-map` | Every image (the four probe images and the allocator test image) is linked from exactly its own objects: entry stub, driver, Goose program if any, runtime stub. The link uses no archive but the toolchain's ARMv7-A libgcc, and no libgcc member that is not approved; none is approved today. Every reference of every input, strong or weak, resolves. It reads each link's map and the symbol tables of its inputs ([check_link.py](../tests/build/check_link.py)) |
+| `build-link-map-rejects-c-library` (negative) | A link that also uses the C library (`strlen` from newlib's `libc.a`) **is rejected**, naming the member and what pulled it in |
+| `build-link-map-rejects-unapproved-libgcc` (negative) | A link that needs a libgcc helper (a 64-bit division: `__aeabi_uldivmod`) **is rejected**, naming each member |
+| `build-link-map-rejects-weak-unresolved` (negative) | A weak reference to a function that nothing defines **is rejected**. The linker accepts it silently as address 0, and the image's symbol table does not show it. |
+| `build-link-map-rejects-ignored-unresolved` (negative) | A reference to a missing function, linked with `--unresolved-symbols=ignore-all`, **is rejected** |
+| `build-link-map-rejects-unexpected-object` (negative) | A link with one object more than expected **is rejected** |
 | `build-elf-attributes` | The image is ARMv7-A, application profile, soft-float EABI |
 | `build-no-system-calls` | The Goose-generated object contains no `svc`/`swi`/`smc`/`hvc` instruction |
 | `build-hosted-code-is-rejected` (negative) | Linking Goose code that needs the hosted runtime **fails**, with an undefined reference to `gs_os_clock_ns` |
+
+`build-link-map` replaces `build-no-undefined`, which counted the undefined symbols in each image. With this project's link flags, the linker already rejects an undefined strong reference in code it keeps, so the count added nothing. The image's symbol table can also leave out a reference that the linker accepted: always for a weak one, and for an ignored one when sections are not garbage-collected.
 
 ### `make test-unit`
 
 | Test | Pass when |
 | --- | --- |
-| `unit-python` | The Python unit tests pass: the documentation checker, including its failure cases, and the checksum oracle |
+| `unit-python` | The Python unit tests pass: the documentation checker, including its failure cases, the checksum oracle, and the link check's parsing and rules |
 | `unit-host-checksum` | `probe_checksum(1000)` through the hosted Goose runtime prints the oracle's value |
 | `unit-host-index` | `probe_index(2)` returns 30 |
 | `unit-host-index-out-of-range` (negative) | `probe_index(7)` **fails** with "index 7 out of bounds (length 4)" |

@@ -41,7 +41,8 @@ ARM_CFLAGS  := $(ARM_ARCH) -std=gnu11 -O2 -g -ffreestanding -fno-builtin -fno-co
                -ffunction-sections -fdata-sections $(REPRO)
 OWN_CFLAGS  := $(ARM_CFLAGS) -Wall -Wextra -Werror
 FIXTURE     := tests/qemu/virt-armv7
-ARM_LDFLAGS := -nostdlib -T $(FIXTURE)/link.ld -Wl,--gc-sections -Wl,--build-id=none
+# The target flags select libgcc's ARMv7-A build, the one the code is compiled for.
+ARM_LDFLAGS := $(ARM_ARCH) -nostdlib -T $(FIXTURE)/link.ld -Wl,--gc-sections -Wl,--build-id=none
 
 GEN      := $(OUT)/gen
 QEMU_OUT := $(OUT)/qemu-virt-armv7
@@ -62,7 +63,7 @@ ALLOC_CASES    := 28
 
 SHELL_SCRIPTS := $(wildcard tools/*.sh tests/*.sh tests/*/*.sh)
 PY_FILES      := $(wildcard tests/*.py tests/*/*.py)
-OWN_C         := $(wildcard $(FIXTURE)/*.c tests/host/*.c)
+OWN_C         := $(wildcard $(FIXTURE)/*.c tests/host/*.c tests/build/link-negative/*.c)
 
 .PHONY: help doctor install-toolchain build test test-build test-unit test-qemu \
         test-repro lint check-docs check clean qemu-run qemu-debug \
@@ -127,9 +128,10 @@ $(QEMU_OUT)/main-%.o: $(FIXTURE)/probe_main.c $(FIXTURE)/minirt.h $(GEN)/probe.h
 	$(ARM_CC) $(OWN_CFLAGS) -DPROBE_CASE=$* -DPROBE_N=$(PROBE_N) -DPROBE_EXPECT=$(PROBE_EXPECT) \
 	    -I$(GEN) -I$(FIXTURE) -c $< -o $@
 
-$(QEMU_OUT)/probe-%.elf: $(QEMU_OUT)/start.o $(QEMU_OUT)/main-%.o $(QEMU_OUT)/probe.o $(QEMU_OUT)/minirt.o $(FIXTURE)/link.ld
-	$(ARM_CC) $(ARM_LDFLAGS) -o $@ $(QEMU_OUT)/start.o $(QEMU_OUT)/main-$*.o \
-	    $(QEMU_OUT)/probe.o $(QEMU_OUT)/minirt.o -lgcc
+# Each link also writes its map, which build-link-map checks.
+$(QEMU_OUT)/probe-%.elf $(QEMU_OUT)/probe-%.map: $(QEMU_OUT)/start.o $(QEMU_OUT)/main-%.o $(QEMU_OUT)/probe.o $(QEMU_OUT)/minirt.o $(FIXTURE)/link.ld
+	$(ARM_CC) $(ARM_LDFLAGS) -Wl,-Map=$(QEMU_OUT)/probe-$*.map -o $(QEMU_OUT)/probe-$*.elf \
+	    $(QEMU_OUT)/start.o $(QEMU_OUT)/main-$*.o $(QEMU_OUT)/probe.o $(QEMU_OUT)/minirt.o -lgcc
 
 $(QEMU_OUT)/probe-%.bin: $(QEMU_OUT)/probe-%.elf
 	$(ARM_OBJCOPY) -O binary $< $@
@@ -138,11 +140,40 @@ $(QEMU_OUT)/alloc_main.o: $(FIXTURE)/alloc_main.c $(FIXTURE)/minirt.h | need-arm
 	@mkdir -p $(@D)
 	$(ARM_CC) $(OWN_CFLAGS) -I$(FIXTURE) -c $< -o $@
 
-$(ALLOC_ELF): $(QEMU_OUT)/start.o $(QEMU_OUT)/alloc_main.o $(QEMU_OUT)/minirt.o $(FIXTURE)/link.ld
-	$(ARM_CC) $(ARM_LDFLAGS) -o $@ $(QEMU_OUT)/start.o $(QEMU_OUT)/alloc_main.o $(QEMU_OUT)/minirt.o -lgcc
+$(ALLOC_ELF) $(ALLOC_ELF:.elf=.map) &: $(QEMU_OUT)/start.o $(QEMU_OUT)/alloc_main.o $(QEMU_OUT)/minirt.o $(FIXTURE)/link.ld
+	$(ARM_CC) $(ARM_LDFLAGS) -Wl,-Map=$(ALLOC_ELF:.elf=.map) -o $(ALLOC_ELF) \
+	    $(QEMU_OUT)/start.o $(QEMU_OUT)/alloc_main.o $(QEMU_OUT)/minirt.o -lgcc
 
 build: $(PROBE_ELFS) $(PROBE_BINS) $(ALLOC_ELF) ## Build every artifact that exists today (the ARMv7-A probe and allocator test images)
 	@cd $(QEMU_OUT) && sha256sum probe-*.elf probe-*.bin alloc.elf
+
+# ---- link check (build-link-map) -------------------------------------------
+
+# libgcc members an image may contain, each listed with the reason it is
+# needed. None today. Any other member fails build-link-map until reviewed.
+LIBGCC_APPROVED :=
+LIBGCC     = $(shell $(ARM_CC) $(ARM_LDFLAGS) -print-libgcc-file-name)
+CHECK_LINK = $(PYTHON) -I tests/build/check_link.py --nm $(ARM_NM) --libgcc $(LIBGCC) \
+             $(addprefix --approve ,$(LIBGCC_APPROVED))
+
+# Deliberately bad links that the check must reject: the probe-0 inputs plus
+# one object from tests/build/link-negative/, kept with -u neg_entry.
+LINKNEG       := $(OUT)/link-negative
+LINKNEG_CASES := c_library libgcc_helper weak_unresolved strong_unresolved extra_object
+LINKNEG_BASE  := $(QEMU_OUT)/start.o $(QEMU_OUT)/main-0.o $(QEMU_OUT)/probe.o $(QEMU_OUT)/minirt.o
+LINKNEG_LIBS_c_library          := -lc
+LINKNEG_FLAGS_strong_unresolved := -Wl,--unresolved-symbols=ignore-all
+# Everything build-link-map reads: the images' maps and the bad links.
+LINK_CHECKED  := $(PROBE_ELFS:.elf=.map) $(ALLOC_ELF:.elf=.map) \
+                 $(LINKNEG_CASES:%=$(LINKNEG)/%.elf) $(LINKNEG_CASES:%=$(LINKNEG)/%.map)
+
+$(LINKNEG)/%.o: tests/build/link-negative/%.c | need-arm
+	@mkdir -p $(@D)
+	$(ARM_CC) $(OWN_CFLAGS) -c $< -o $@
+
+$(LINKNEG)/%.elf $(LINKNEG)/%.map: $(LINKNEG)/%.o $(LINKNEG_BASE) $(FIXTURE)/link.ld
+	$(ARM_CC) $(ARM_LDFLAGS) $(LINKNEG_FLAGS_$*) -Wl,-u,neg_entry -Wl,-Map=$(LINKNEG)/$*.map \
+	    -o $(LINKNEG)/$*.elf $(LINKNEG_BASE) $< $(LINKNEG_LIBS_$*) -lgcc
 
 # ---- host build of the probe (hosted Goose runtime) ------------------------
 
@@ -168,16 +199,37 @@ $(HOST_OUT)/probe_host_asan: $(HOST_OUT)/probe_gen_asan.o $(HOST_OUT)/probe_main
 
 test: test-build test-unit test-qemu test-repro ## Run every automated test (build, unit, QEMU, reproducibility)
 
-test-build: build $(QEMU_OUT)/hosted_probe.o ## Check the freestanding build: symbols, ELF attributes, no system calls
+test-build: build $(QEMU_OUT)/hosted_probe.o $(LINK_CHECKED) ## Check the freestanding build: link inputs, symbols, ELF attributes, no system calls
 	@mkdir -p $(LOGS)
 	@got=$$($(ARM_NM) -u $(QEMU_OUT)/probe.o | awk '{print $$2}' | sort | tr '\n' ' ' | sed 's/ $$//'); \
 	want=$$(printf '%s\n' $(PROBE_SURFACE) | sort | tr '\n' ' ' | sed 's/ $$//'); \
 	if [ "$$got" = "$$want" ]; then echo "PASS build-runtime-surface ($$got)"; \
 	else echo "FAIL build-runtime-surface: generated C needs '$$got', expected '$$want'"; exit 1; fi
-	@for elf in $(PROBE_ELFS); do \
-	  n=$$($(ARM_NM) -u $$elf | wc -l); \
-	  [ "$$n" -eq 0 ] || { echo "FAIL build-no-undefined: $$elf has $$n undefined symbols"; exit 1; }; \
-	done; echo "PASS build-no-undefined (no C library linked: only the stub and libgcc)"
+	@for c in $(PROBE_CASES); do \
+	  $(CHECK_LINK) --map $(QEMU_OUT)/probe-$$c.map --elf $(QEMU_OUT)/probe-$$c.elf \
+	      $(QEMU_OUT)/start.o $(QEMU_OUT)/main-$$c.o $(QEMU_OUT)/probe.o $(QEMU_OUT)/minirt.o \
+	    || { echo "FAIL build-link-map: probe-$$c.elf"; exit 1; }; \
+	done; \
+	$(CHECK_LINK) --map $(QEMU_OUT)/alloc.map --elf $(ALLOC_ELF) \
+	    $(QEMU_OUT)/start.o $(QEMU_OUT)/alloc_main.o $(QEMU_OUT)/minirt.o \
+	  || { echo "FAIL build-link-map: alloc.elf"; exit 1; }; \
+	echo "PASS build-link-map ($(words $(PROBE_ELFS) $(ALLOC_ELF)) images: only their own objects, no C library," \
+	     "no libgcc member that is not approved, every reference resolved)"
+	@$(EXPECT) build-link-map-rejects-c-library nonzero "archive member not approved: libc.a(libc_a-strlen.o)" \
+	    $(LOGS)/link-neg-c_library.log -- $(CHECK_LINK) --map $(LINKNEG)/c_library.map \
+	    --elf $(LINKNEG)/c_library.elf $(LINKNEG_BASE) $(LINKNEG)/c_library.o
+	@$(EXPECT) build-link-map-rejects-unapproved-libgcc nonzero "libgcc member not approved: _aeabi_uldivmod.o" \
+	    $(LOGS)/link-neg-libgcc_helper.log -- $(CHECK_LINK) --map $(LINKNEG)/libgcc_helper.map \
+	    --elf $(LINKNEG)/libgcc_helper.elf $(LINKNEG_BASE) $(LINKNEG)/libgcc_helper.o
+	@$(EXPECT) build-link-map-rejects-weak-unresolved nonzero "unresolved weak reference to neg_missing" \
+	    $(LOGS)/link-neg-weak_unresolved.log -- $(CHECK_LINK) --map $(LINKNEG)/weak_unresolved.map \
+	    --elf $(LINKNEG)/weak_unresolved.elf $(LINKNEG_BASE) $(LINKNEG)/weak_unresolved.o
+	@$(EXPECT) build-link-map-rejects-ignored-unresolved nonzero "unresolved reference to neg_missing" \
+	    $(LOGS)/link-neg-strong_unresolved.log -- $(CHECK_LINK) --map $(LINKNEG)/strong_unresolved.map \
+	    --elf $(LINKNEG)/strong_unresolved.elf $(LINKNEG_BASE) $(LINKNEG)/strong_unresolved.o
+	@$(EXPECT) build-link-map-rejects-unexpected-object nonzero "unexpected input object: extra_object.o" \
+	    $(LOGS)/link-neg-extra_object.log -- $(CHECK_LINK) --map $(LINKNEG)/extra_object.map \
+	    --elf $(LINKNEG)/extra_object.elf $(LINKNEG_BASE)
 	@a=$$($(ARM_READELF) -A $(QEMU_OUT)/probe-0.elf); \
 	grep -q 'Tag_CPU_arch: v7$$' <<<"$$a" && grep -q 'Tag_CPU_arch_profile: Application' <<<"$$a" \
 	  && $(ARM_READELF) -h $(QEMU_OUT)/probe-0.elf | grep -q 'soft-float ABI' \
