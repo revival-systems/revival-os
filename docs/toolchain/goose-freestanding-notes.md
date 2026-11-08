@@ -56,3 +56,5 @@ These are for review, not decided here:
 2. **Data stacks:** which constructs need `gs_reserve_region`, and a reservation size that suits a 32-bit, 1.5 GB device.
 3. **Floating point:** keep the soft-float ABI, or move to hard-float after Phase 0 confirms the VFP features on the device.
 4. **Overflow policy:** `--debug` builds for kernel code, explicit checks, or both.
+
+Research for these decisions (2026-11-08): the [runtime dependency map](goose-runtime-dependency-map.md), the [comparison of routes A, B and C](goose-runtime-options.md), the [draft questions for Goose developers](goose-upstream-questions.md) and the [proposed next experiment](next-runtime-experiment.md).

@@ -53,7 +53,7 @@ The only buildable artifact today is the **Goose toolchain probe**: a tiny Goose
 | [docs/CI-STRATEGY.md](docs/CI-STRATEGY.md) | Local-first CI: the manual-only workflow and its cost controls |
 | [docs/hardware/](docs/hardware/gt-i9195.md) | GT-I9195 research and the [support matrix](docs/hardware/support-matrix.md) |
 | [docs/phase-0/](docs/phase-0/hardware-verification-checklist.md) | The Phase 0 hardware verification checklist |
-| [docs/toolchain/](docs/toolchain/goose-freestanding-notes.md) | Goose freestanding feasibility findings |
+| [docs/toolchain/](docs/toolchain/goose-freestanding-notes.md) | Goose freestanding feasibility findings, and the runtime research: [dependency map](docs/toolchain/goose-runtime-dependency-map.md), [runtime routes](docs/toolchain/goose-runtime-options.md), [upstream questions](docs/toolchain/goose-upstream-questions.md), [next experiment](docs/toolchain/next-runtime-experiment.md) |
 | [tools/](tools/pins.env) | Pinned versions and the installers |
 | [tests/](tests/qemu/virt-armv7/minirt.c) | Test fixtures: the Goose probe, the QEMU harness, host tests and the docs checker |
 
