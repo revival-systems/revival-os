@@ -1,6 +1,6 @@
 # Goose runtime dependency map (pinned v2026.3)
 
-**Status:** research for the runtime-route decision ([decisions needed](goose-freestanding-notes.md#decisions-needed-before-phase-1-implementation)), 2026-11-08. Everything here ran on the development machine and in QEMU. **Nothing ran on the Samsung.** No Revival OS code depends on this document yet.
+**Status:** research for the runtime-route decision ([decisions needed](goose-freestanding-notes.md#decisions-needed-before-phase-1-implementation)), 2026-11-08. It was revised the same day, after the foundation corrections were merged. Everything here ran on the development machine and in QEMU. **Nothing ran on the Samsung.** No Revival OS code depends on this document yet. Each finding says whether it was measured, compiled and read, or only read.
 
 **Sources:**
 
@@ -120,13 +120,13 @@ Samples use `-o` alone (they have `main`). Nothing is linked or run, except the 
 | --- | --- | --- | --- | --- |
 | [Startup](#startup) | program half; `gs_rt_start` in the runtime object | Yes, with the fixture stub | Entry stub, a `goose_init` call, a `gs_rt_start` that honours or refuses the sizes it is given | Now (exists as a fixture) |
 | [Runtime-internal allocation](#runtime-internal-allocation) | `calloc` (stack block), `malloc`/`free` (messages, queues) | Yes, with a bounded allocator | A zeroing, bounded allocator that fails loudly | Now; a freeing allocator with threads |
-| [Data stacks](#data-stacks) | compiler (bump, no capacity check); `gs_reserve_region` | **No**: needs `mmap`, `mprotect` and signals | Reserved regions with an unmapped guard gap, and a fault path that reports overruns | **Next**: needs the MMU |
+| [Data stacks](#data-stacks) | compiler (bump, no capacity check); `gs_reserve_region` | **No**: needs `mmap`, `mprotect` and signals | Reserved regions with an unmapped guard gap, and a fault path that reports overruns. Gaps catch growth written front to back; an unwritten advance can pass them ([finding 8](#32-bit-findings)), an open blocker | **Next**: needs the MMU |
 | [Strings](#strings-and-arrays) | compiler; builders on data stacks | Literals yes; building no | Data stacks | With data stacks |
 | [Arrays](#strings-and-arrays) | compiler; resizable kinds on data stacks; slice pools in the runtime object | Fixed arrays and slices yes | Data stacks; `gs_spans_*` is portable C | With data stacks |
 | [Bounds checks](#bounds-checks) | compiler + `gs_idxfail` | Yes (shown in QEMU) | The failure path | Now |
 | [Panic, abort, assert, exit](#panic-abort-assert-and-exit) | `gs_fail` in the runtime object | Only through a stub | Message, location and status to a console, then halt or reset, with no heap | Now |
 | [Integer overflow](#integer-overflow) | compiler; `--debug` calls `gs_ovf`, `gs_asfail_*` | Yes | The failure path | Now |
-| [Division](#division) | compiler checks; libgcc 64-bit helpers | Yes (libgcc is linked) | The failure path | Now |
+| [Division](#division) | compiler checks; libgcc 64-bit helpers | Yes, once the libgcc members are approved (`build-link-map`) | The failure path | Now |
 | [Floating point and math](#floating-point-and-math) | soft-float in libgcc; `libm` behind `math` and float-to-int `as` | Arithmetic yes; `libm` no | A licence-reviewed `libm` subset, or the functions in Goose | When a service needs them |
 | [Native call stack](#native-call-stack) | nothing in generated code; the hosted runtime uses signals | No detection | A guard page below each native stack and a fault path | With the MMU (a Phase 1 negative test) |
 | [Threads, queues, TLS, atomics](#threads-queues-tls-and-atomics) | runtime object (pthreads); `__thread` | No | TLS blocks and `TPIDRURO` per thread, a scheduler, locks, atomics on Normal memory | Later (after Phase 3 scheduling) |
@@ -149,8 +149,8 @@ Samples use `-o` alone (they have `main`). Nothing is linked or run, except the 
   - `calloc` allocates the stack block at startup ([`runtime.h:888`](https://github.com/aardappel/goose/blob/v2026.3/src/runtime/runtime.h#L888)).
   - `malloc` allocates failure messages (`gs_fail`), queue nodes, the region registry and the alternate signal stack.
   - `free` releases them.
-- **Revival OS:** a bounded, zeroing allocator for the startup block, which the fixture's 64 KiB arena already provides. The failure path should not need a heap. A freeing allocator is needed only with threads and queues.
-- **Test:** exhaust the allocator (a small arena), then check for `out of memory allocating stack block` and a failure status.
+- **Revival OS:** a bounded, zeroing allocator for the startup block. The fixture's 64 KiB arena provides it. Its boundaries are tested on the 32-bit target by `qemu-alloc-bounds`: overflowing sizes, rounding overflow, exact capacity, exhaustion and zero-size requests. The failure path should not need a heap. A freeing allocator is needed only with threads and queues.
+- **Test:** besides `qemu-alloc-bounds`, a Goose-level test (not written yet): exhaust a small arena from a program, then check for `out of memory allocating stack block` and a failure status.
 
 ### Data stacks
 
@@ -159,17 +159,34 @@ Samples use `-o` alone (they have `main`). Nothing is linked or run, except the 
   - Allocation is `top += size`, and scope exit restores a watermark.
   - Nothing moves, so references stay valid as stacks grow.
   - An overrun must end in a **safe abort, never corruption**.
-  - A stack is at most 2^48 bytes. A platform may reserve less.
-- **What the compiler relies on:** generated code bumps the top **with no capacity check**. A `push` compiles to `*(int64_t *)t7 = v; t7 += 8;` and a text append to `memcpy(top, p, n); top += n` ([`runtime_ext.h:22`](https://github.com/aardappel/goose/blob/v2026.3/src/runtime/runtime_ext.h#L22)). Safety comes from three things:
-  - the unmapped guard gap behind each region (default 1 MiB, `GS_STACK_GAP`)
-  - construction writing front to back
-  - the runtime's rule that the checks the compiler leaves out "assume no more than `GS_STACK_RESERVE` bytes in a stack", so a smaller region is always safe ([`runtime_impl.h:548-555`](https://github.com/aardappel/goose/blob/v2026.3/src/runtime/runtime_impl.h#L548-L555))
+  - A stack is at most 2^48 bytes. §10.4 says a region "may be reserved smaller, which nothing the implementation elides depends on". That is upstream's statement; it is not verified here.
+
+**Terms**, kept apart because a 32-bit target treats them differently:
+
+| Term | Meaning | What it costs |
+| --- | --- | --- |
+| Address space | The 4 GiB of virtual addresses on ARMv7-A. The kernel's own mappings (the RAM it maps, device registers, its image) and every data-stack region share it | It is the scarce resource. Regions get what the kernel's mappings leave: roughly 1 to 2 GiB on the GT-I9195 ([budget](goose-runtime-options.md#the-constraint-behind-every-option)) |
+| Reserved | Addresses set aside for one region, which nothing else may use | Address space only, no RAM |
+| Mapped | Reserved addresses backed by physical pages, readable and writable | RAM equal to the mapped size, plus page tables: a 16 KiB first-level table, and 1 KiB per MiB mapped with 4 KiB pages (1 MiB sections need none) |
+| Guard gap | Reserved and never mapped, so every access to it faults | Address space only |
+| Region | One data stack's usable part, then its gap | Address space: usable plus gap. RAM: what is mapped, all of the usable part if backed up front, only touched pages if committed on fault |
+
+- **What generated code assumes** (read from v2026.3's generator, and from its output where noted):
+  - **No capacity check on growth.** A `push` compiles to `*(int64_t *)t7 = v; t7 += 8;` and a text append to `memcpy(top, p, n); top += n` ([`runtime_ext.h:22`](https://github.com/aardappel/goose/blob/v2026.3/src/runtime/runtime_ext.h#L22)). Scope exit sets `top` back to a watermark, so later values reuse the space.
+  - **The first write past a region lands in its gap.** Construction writes front to back ([spec App. C.4](https://github.com/aardappel/goose/blob/v2026.3/docs/goose_spec.md#c4-guard-pages-and-commit-order)), so growth that is written as it goes reaches the gap first and faults there.
+  - **Not every advance is written.** `[..cap]`, a limited array with a run-time capacity, writes an 8-byte header and advances `top` by `8 + cap × element size` with the slots unwritten. Its capacity is checked only against `UINT32_MAX`. The next write on the same stack lands that far ahead, past any gap smaller than the advance ([finding 8](#32-bit-findings): compiled, not run). Static-capacity limited arrays and enum payloads can also hold unwritten bytes, bounded by their type's size ([`codegen_types.h:1211-1213`](https://github.com/aardappel/goose/blob/v2026.3/src/codegen_types.h#L1211-L1213)).
+  - **Upstream says a smaller region is always safe** ([`runtime_impl.h:548-554`](https://github.com/aardappel/goose/blob/v2026.3/src/runtime/runtime_impl.h#L548-L554)): the checks the compiler leaves out "assume no more than `GS_STACK_RESERVE` bytes in a stack", and the gap behind a smaller region stops growth sooner. That covers growth that reaches the gap. **It does not cover an unwritten advance larger than the gap.** A smaller region makes such an advance more likely to leave it. Shrinking regions therefore does not by itself keep the guarantee.
 - **v2026.3** (implementation choices) ([`runtime_impl.h:497`](https://github.com/aardappel/goose/blob/v2026.3/src/runtime/runtime_impl.h#L497), [`:555`](https://github.com/aardappel/goose/blob/v2026.3/src/runtime/runtime_impl.h#L555), [`:399`](https://github.com/aardappel/goose/blob/v2026.3/src/runtime/runtime_impl.h#L399)):
-  - `mmap` of 2 GiB plus the gap with `MAP_NORESERVE`, then `mprotect(PROT_NONE)` on the gap.
+  - Each region is its own `mmap` of 2 GiB plus the gap, read-write with `MAP_NORESERVE` and no address hint. Then `mprotect(PROT_NONE)` covers the gap. The kernel supplies physical pages on first touch.
   - A refused reservation is retried at half the size, down to 1 MiB.
   - A per-thread registry lets a `SIGSEGV`/`SIGBUS` handler tell an overrun from a crash and print without stdio.
-- **Revival OS:** reserve each region in virtual address space with an unmapped gap behind it, which needs the MMU (ARMv7-A short-descriptor tables), and report a data abort in a gap as an overrun. Regions can be fully backed at reservation; committing pages on fault can come later, with the frame allocator. The address-space budget is in the runtime options research.
-- **Test:** growth within a region matches an oracle. Growth past it is reported as an overrun (negative). Too many regions is refused (negative). The gap is required: with it mapped instead, the overrun test must fail.
+- **What a Revival OS runtime must do** (route A):
+  - Reserve each region with an unmapped gap behind it, using the MMU (ARMv7-A short-descriptor tables). Never map anything into a gap.
+  - Report a data abort in a gap as a data-stack overrun, naming the region, from an abort-mode stack.
+  - Refuse in `gs_rt_start` any reserve, gap or region count it cannot honour, and never hand out overlapping regions.
+  - Back regions fully at first. Commit on fault waits for the frame allocator (Phase 3c). The address-space budget is in the [runtime options](goose-runtime-options.md#the-constraint-behind-every-option).
+- **What it cannot do:** see or check an advance. Growth is inline code. The runtime is called only at startup (`gs_rt_start`, `gs_reserve_region`) and on failure. Catching an unwritten advance past the gap needs the compiler, a check or a bound, or a verified rule that programs never make one.
+- **Test:** the [next experiment](next-runtime-experiment.md) covers growth, reuse, several regions, refusals, the gap overrun, the large-advance cases and alignment. The gap must be required: with it mapped instead, the overrun test must fail.
 
 ### Strings and arrays
 
@@ -215,7 +232,7 @@ Samples use `-o` alone (they have `main`). Nothing is linked or run, except the 
 
 - **Language:** division and modulo by zero always abort. `%` is Euclidean. `INT64_MIN / -1` overflows.
 - **v2026.3:** inline checks call `gs_divfail` or `gs_divovf`. The division itself is a C operation. On ARMv7 every 64-bit division, **and every `i32` division**, is a libgcc call ([finding 3](#32-bit-findings)).
-- **Revival OS:** libgcc, already linked, and the failure path.
+- **Revival OS:** libgcc and the failure path. libgcc is on the link line, but `build-link-map` admits a libgcc member only when it is listed in `LIBGCC_APPROVED`, with its reason. The list is empty today: the first program that divides must have `__aeabi_ldivmod` and the members it pulls in approved in review.
 - **Test:** quotients and remainders match an oracle across signs. Division by zero and `INT64_MIN / -1` must fail with their messages (negative).
 
 ### Floating point and math
@@ -290,8 +307,8 @@ Samples use `-o` alone (they have `main`). Nothing is linked or run, except the 
 **What the language requires** (any Revival OS runtime must keep these):
 
 1. *N* data stacks per program instance, *N* fixed at compile time, each contiguous, never moving, with a bump top and a watermark restored at scope exit.
-2. Overrunning a data stack is a safe abort, never corruption. Generated code relies on the region and its guard, not on checks of its own.
-3. A smaller reservation is allowed; a larger single stack than reserved is not.
+2. Overrunning a data stack is a safe abort, never corruption. Generated code relies on the region and its guard, not on checks of its own. The gap catches an overrun only when the first write past the region lands in it; an unwritten advance larger than the gap breaks that ([finding 8](#32-bit-findings)).
+3. Upstream allows a smaller reservation (§10.4), but not a larger single stack than reserved. Its claim that a smaller one changes nothing the compiler relies on assumes item 2 holds, and is not verified here.
 4. Failed checks abort with a message and location. Division by zero is always checked. Overflow and range checks exist only in debug builds.
 5. Native-stack exhaustion is a safe abort.
 6. Program instances (workers) share no mutable state. Exported functions are single-threaded.
@@ -310,10 +327,10 @@ Samples use `-o` alone (they have `main`). Nothing is linked or run, except the 
 ## What Revival OS must provide first
 
 1. **Failure path:** console output of `goose runtime error: <msg> (file:line)`, then a defined halt or reset, for all twelve failure entry points, with no heap.
-2. **Data-stack regions with guard gaps**, which require an identity-mapped MMU in the fixture, plus overrun reporting from the data-abort handler.
+2. **Data-stack regions with guard gaps**, which require an identity-mapped MMU in the fixture, plus overrun reporting from the data-abort handler. The data-stack guarantee is not claimed until [finding 8](#32-bit-findings) is answered.
 3. **Native-stack guard** below the stack, reported the same way.
 4. **Output sink** behind `gs_out_bytes`, and the portable `gs_fmt_*` functions.
-5. **`libgcc`** (already linked) and `memcpy`, `memmove`, `memset`, `memcmp` (already in the fixture).
+5. **`libgcc`**, whose members are admitted one at a time through `LIBGCC_APPROVED` (none yet), and `memcpy`, `memmove`, `memset`, `memcmp` (already in the fixture).
 
 **Can wait:** threads, queues and TLS; contained workers; the OS layer except a monotonic clock; `libm`; slice pools (portable, add when used); commit-on-fault for regions; caches and performance work.
 
@@ -342,6 +359,39 @@ Samples use `-o` alone (they have `main`). Nothing is linked or run, except the 
 5. **Reservations of 4 GiB or more truncate on 32-bit.** `gs_rt_start` takes `uint64_t` sizes but stores them as `size_t` ([`runtime_impl.h:1336`](https://github.com/aardappel/goose/blob/v2026.3/src/runtime/runtime_impl.h#L1336)). The 2 GiB default fits; nothing that large is usable on a 32-bit target anyway. [#134](https://github.com/aardappel/goose/issues/134) describes an older `size_t` signature.
 6. **Float-to-integer `as` needs `libm` in release builds** (`fmod`, `trunc`), even without `import math`.
 7. **Address space:** with 3 to 26 regions per program and a 1 MiB gap each, 32-bit regions can be tens to a few hundred MiB, not 2 GiB. The budget is worked through in the runtime options research.
+8. **The pinned compiler can advance a data stack past its gap without writing.** Compiled and read, not run:
+   - `[..cap]` is an empty limited array with a run-time capacity, whose "reserved slots stay uninitialized" ([spec §4.2](https://github.com/aardappel/goose/blob/v2026.3/docs/goose_spec.md#42-construction-contexts)). The generator checks only `0 <= cap <= UINT32_MAX`, writes the 8-byte header and adds `8 + cap × element size` to `top` ([`codegen_construct.h:1184-1196`](https://github.com/aardappel/goose/blob/v2026.3/src/codegen_construct.h#L1184-L1196)).
+   - In a grow-only array of structs that each hold one, the next element's header is the **first write after the advance**, on the same stack. This probe:
+
+     ```goose
+     struct Box {
+         items: i64[..],
+     }
+     export "probe_cap5" fn probe_cap5(n: i64) -> i64 {
+         var boxes: Box[>..] = [];
+         boxes.push(Box { items: [..n] });
+         boxes.push(Box { items: [..n] });
+         return boxes.len;
+     }
+     ```
+
+     compiles ([method](#method); comments added) to:
+
+     ```c
+     *(uint32_t *)t6 = (uint32_t)t1;
+     *(uint32_t *)(t6 + 4) = 0;
+     t6 += 8 + t1 * 8;                  /* 8·n bytes skipped, unwritten */
+     boxes_g.len++;
+     uint8_t *t2 = t6;
+     int64_t t3 = n_g;
+     if (t3 < 0 || t3 > (int64_t)UINT32_MAX) gs_abort(GS_E_CAPRANGE, gs_file0, 7);
+     *(uint32_t *)t6 = (uint32_t)t3;    /* the first write after the skip */
+     ```
+
+   - GCC 15.2 for ARMv7 stores that header with `str r0, [r3, r2, lsl #3]`, at `top + ((n + 1) << 3)` computed in 32 bits. With `i64` elements the advance reaches 32 GiB, more than the address space, and the address wraps modulo 2^32. The first header pair compiles to `strd`, which also needs a word-aligned `top` ([finding 1](#32-bit-findings)).
+   - So the write can land past the gap: in the next region, in the kernel's mappings, or below the region after a wrap. No runtime code runs in between, so only what is mapped there decides whether it faults.
+   - v2026.4 compiles `[..cap]` the same way. Its new `gs_stack_overflow` check guards another construct, a zero-filled append, and compares with `GS_STACK_RESERVE`, not the gap. Its spec rewrites App. C.4, but still relies on "a final gap after each region" (read, not run).
+   - Until the [next experiment](next-runtime-experiment.md) measures it, this is an **open blocker** for claiming the data-stack guarantee on ARMv7-A, not a measured failure. No upstream issue about it was found.
 
 ## Side finding: `goose --stacks` divides by zero
 
@@ -353,4 +403,4 @@ Samples use `-o` alone (they have `main`). Nothing is linked or run, except the 
 - **Not every construct.** The probes cover one construct at a time. Interactions (for example a value of one stack built while another grows) were not measured.
 - **v2026.4 was read, not run.** The `aligned(1)` result uses a hand-written C store of the same form, not v2026.4's generated code.
 - **No performance figures.**
-- **Not the compiler's internal invariants**, for example the largest unwritten bump relative to the gap. Those are asked upstream.
+- **Not every compiler invariant.** The unwritten advance in finding 8 was found by reading the generator and its output. The generator has 58 places that advance a stack. Three are known to leave bytes unwritten; the rest were not all audited, and nothing was run. The bound upstream intends is asked in [question 1](goose-upstream-questions.md#draft-message).

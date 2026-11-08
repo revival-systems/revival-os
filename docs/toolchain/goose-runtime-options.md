@@ -1,32 +1,46 @@
 # Goose runtime options for Revival OS
 
-**Status:** research for review, 2026-11-08. It compares the three runtime routes in the [freestanding notes](goose-freestanding-notes.md#decisions-needed-before-phase-1-implementation). The recommendation below is **not a decision**; the orchestrator and the owner decide. Evidence comes from the [dependency map](goose-runtime-dependency-map.md), upstream Goose, Arm documentation and QEMU. **Nothing ran on the Samsung.**
+**Status:** research for review, 2026-11-08. It was revised the same day, after the foundation corrections were merged. It compares the three runtime routes in the [freestanding notes](goose-freestanding-notes.md#decisions-needed-before-phase-1-implementation). The recommendation below is **not a decision**; the orchestrator and the owner decide. Evidence comes from the [dependency map](goose-runtime-dependency-map.md), upstream Goose, Arm documentation and QEMU. **Nothing ran on the Samsung.**
 
 ## Recommendation (for review)
 
-1. **Take route A:** a minimal freestanding runtime layer in Revival OS behind the compiler's `gs_*` interface. It grows one group of entry points at a time, each with tests, and is re-validated at every compiler pin change.
-2. **Pursue a narrow form of C in parallel.** Ask upstream about the contract the layer must honour (the [draft questions](goose-upstream-questions.md)), not for 32-bit support.
+1. **Prefer route A, provisionally:** a minimal freestanding runtime layer in Revival OS behind the compiler's `gs_*` interface. It grows one group of entry points at a time, each with tests, and is re-validated at every compiler pin change. This is a preference, not an irreversible choice. Item 7 can change it.
+2. **Pursue a narrow form of C in parallel.** Ask upstream about the contract the layer must honour (the [draft questions](goose-upstream-questions.md)), not for 32-bit support. This matters more since [finding 8](goose-runtime-dependency-map.md#32-bit-findings): that gap can be closed only in the compiler, never in our layer alone.
 3. **Do not take route B** (porting the hosted runtime).
-4. **Decide the compiler pin before Goose code with packed data runs on ARMv7.** v2026.3's generated C makes doubleword accesses at unaligned addresses that ARMv7 faults on. Upstream fixed this in v2026.4 ([finding 1](goose-runtime-dependency-map.md#32-bit-findings)). Moving the pin is a reviewed change: the pin is shared with Revival Server, and ROADMAP's Phase 1 entry gate names v2026.3.
+4. **Decide the compiler pin before Goose code with packed data runs on ARMv7.** This is an open decision. Nothing here changes the pin, which stays v2026.3.
+   - v2026.3's generated C makes doubleword accesses at unaligned addresses that ARMv7 faults on, and upstream fixed this in v2026.4 ([finding 1](goose-runtime-dependency-map.md#32-bit-findings)).
+   - v2026.4 does not change finding 8 (read, not run).
+   - Moving the pin is a reviewed change: the pin is shared with Revival Server, and ROADMAP's Phase 1 entry gate names v2026.3.
 5. **Bring an identity-mapped MMU into the Phase 1 QEMU support layer.** Both Goose's memory model (guard gaps) and its unaligned accesses need it. Today it is planned for Phase 3b.
 6. **Record the strategic risk explicitly.** Goose's author does not support 32-bit targets ([#134](https://github.com/aardappel/goose/issues/134), [#246](https://github.com/aardappel/goose/issues/246)). Revival OS on the GT-I9195 would be an unsupported configuration that this project maintains. Whether to accept that, or to revisit the order of targets (the planned AArch64 second target fits Goose's design), is the owner's decision.
+7. **Treat finding 8 as an open blocker for the data-stack guarantee on ARMv7-A** until the [next experiment](next-runtime-experiment.md) answers it.
+   - With the pinned compiler, a program can advance a data stack past its guard gap without writing, so guard gaps alone may not give "safe abort, never corruption".
+   - If the experiment confirms it, the roadmap's Phase 1 fail criterion applies: the blocker is recorded and the phase stops for a decision, rather than for a workaround.
 
 ## The constraint behind every option
 
 Goose's memory model (spec [§1.2](https://github.com/aardappel/goose/blob/v2026.3/docs/goose_spec.md#12-memory-model), [§10.4](https://github.com/aardappel/goose/blob/v2026.3/docs/goose_spec.md#104-runtime-environment), [App. C](https://github.com/aardappel/goose/blob/v2026.3/docs/goose_spec.md#c4-guard-pages-and-commit-order)) works like this:
 
-- Each program has a compile-time number of **data stacks**. Each one is a large reservation of address space.
-- Allocation bumps a pointer with **no capacity check**.
-- An unmapped guard gap behind each region turns an overrun into a safe abort.
+- Each program has a compile-time number of **data stacks**. Each one is a region: a large reservation of address space, followed by an unmapped guard gap.
+- Allocation bumps a pointer with **no capacity check**. Scope exit sets the pointer back, so the space is reused.
+- The gap turns an overrun into a safe abort **when the first write past the region lands in the gap**, as it does for growth written front to back.
 
 Upstream sizes this for 64-bit address spaces: 2 GiB per stack by default, a 32 TiB budget. The maintainer's position is direct:
 
 - **#134 (2026-10-29):** Goose "derives a lot of its power from being able to reserve large amounts of address space, which pretty much requires a 64-bit system, and one with address space reservation functionality".
 - **#246 (2026-11-07):** "its design was made possible specifically by having all that address space in 64-bit", and 32-bit support should come only "if we can do it well".
 
-**How the GT-I9195 differs from the cases in those issues.** Those were microcontrollers without an MMU, and WebAssembly. Krait is ARMv7-A with a VMSAv7 MMU, and Revival OS owns the whole 32-bit address space. It can therefore provide what the model assumes: a reservation per stack, an unmapped gap behind it, and pages committed on fault or up front. The difference is the budget. A single data stack can never exceed its region, so a program that needs one very large buffer needs a large region.
+**What a 32-bit target changes.** Five things, kept apart (terms as in the [dependency map](goose-runtime-dependency-map.md#data-stacks)):
 
-**Address-space budget.** Regions × (reserve + gap) must fit in the virtual address space left after RAM, device registers and the kernel are mapped. On the GT-I9195 that is roughly 1 to 2 GiB if all 1.5 GB of RAM is mapped. Per-region reserve with a 1 MiB gap:
+1. **Address space.** 4 GiB in all. The kernel's own mappings come first: the RAM it maps, device registers, its image. Regions share the rest. How much RAM the kernel maps is its design choice, not a cost of the regions.
+2. **Physical RAM.** Reserving costs none. Mapped pages cost RAM: a region backed up front costs its usable size, and committing on fault costs only the pages touched, but needs the frame allocator (Phase 3c). Page tables add a 16 KiB first-level table, plus 1 KiB per MiB mapped with 4 KiB pages. 1 MiB sections need no second-level tables.
+3. **Reserved versus mapped.** The hosted runtime maps a region read-write up front and lets the kernel supply pages on first touch; only the gap is `PROT_NONE`. On Revival OS, a gap must stay unmapped, and nothing else may be mapped into it.
+4. **Region size.** Regions shrink to tens or a few hundred MiB (the table below). A single data stack can never exceed its region, so a program that needs one very large buffer needs a large region.
+5. **The gap's reach.** The gap catches growth written front to back. The pinned compiler also makes **unwritten advances** whose size the program controls, up to tens of GiB ([finding 8](goose-runtime-dependency-map.md#32-bit-findings)). On a 64-bit host the space past a gap is often free. On a 32-bit system that packs its regions, it is the next region, and the advance can even wrap the address. A 32-bit layout cannot make a gap bigger than such an advance, and the runtime never sees the advance.
+
+**How the GT-I9195 differs from the cases in those issues.** Those were microcontrollers without an MMU, and WebAssembly. Krait is ARMv7-A with a VMSAv7 MMU, and Revival OS owns the whole 32-bit address space. It can therefore provide the **mechanisms** the model uses: a reservation per stack, an unmapped gap behind it, and pages committed on fault or up front. Whether those mechanisms keep the model's **guarantee** at 32-bit sizes is not established. Shrinking regions does not by itself keep it (point 5), and the [next experiment](next-runtime-experiment.md) tests it.
+
+**Address-space budget.** Regions × (reserve + gap) must fit in the virtual address space that the kernel's own mappings leave. On the GT-I9195 that is roughly 1 to 2 GiB if the kernel maps all 1.5 GB of RAM, and more if it maps less. Per-region reserve with a 1 MiB gap:
 
 | Regions in use | Budget 1 GiB | Budget 2 GiB |
 | --- | --- | --- |
@@ -35,7 +49,7 @@ Upstream sizes this for 64-bit address spaces: 2 GiB per stack by default, a 32 
 | 100 (several programs) | 9 MiB | 19 MiB |
 | 1,024 (`GS_MAX_STACKS`) | 0 | 1 MiB |
 
-Regions built from 1 MiB sections come in whole MiB, and the default gap is exactly one unmapped section. Fully backed regions cost RAM equal to the reserve. Committing pages on fault costs only what is touched, but needs the frame allocator (Phase 3c).
+This is address space, not RAM. Regions built from 1 MiB sections come in whole MiB, and the default gap is exactly one unmapped section. The table bounds region sizes; it does not make a region safe against an advance larger than its gap.
 
 ## The three options
 
@@ -49,7 +63,13 @@ Revival OS implements the entry points the generated C calls, starting with the 
 - an output sink
 - formatting
 
-Each group arrives with tests, including failure tests. The pinned compiler is used unchanged, as ROADMAP's Phase 1 gate requires. Two existing safeguards catch interface drift: the link fails on a runtime hash mismatch, and `build-runtime-surface` checks the exact symbol set.
+Each group arrives with tests, including failure tests. The pinned compiler is used unchanged, as ROADMAP's Phase 1 gate requires. Three existing safeguards catch drift:
+
+- the link fails on a runtime hash mismatch
+- `build-runtime-surface` checks the exact symbol set
+- `build-link-map` rejects any new library dependency (the C library, or a libgcc member that is not approved) and any unresolved reference
+
+What the layer cannot do is check a data-stack advance. Growth is inline code that never calls it ([finding 8](goose-runtime-dependency-map.md#32-bit-findings)).
 
 ### B. Port the hosted runtime
 
@@ -80,13 +100,13 @@ It targets MMU-less microcontrollers and WebAssembly, and the maintainer has not
 | Criterion | A. Minimal layer | B. Port hosted runtime | C. Upstream support |
 | --- | --- | --- | --- |
 | Engineering effort | Small per step: today about 200 lines; the "provide first" list adds an MMU setup, a fault path and a region provider, a few hundred lines of C and assembly | Large: shims for 79 hosted symbols, which amounts to re-creating a POSIX subset, plus about 4,000 lines of upstream code to carry | Small for Revival OS if upstream does it; otherwise none of it exists |
-| Maintainability | Coupled to an internal, undocumented interface. v2026.4 changed 9 entry points; drift is caught at link time and by `build-runtime-surface` | Worst: every release must be merged into the ported copy (v2026.4: +1,442/−126 runtime lines) | Best: upstream maintains it |
+| Maintainability | Coupled to an internal, undocumented interface. v2026.4 changed 9 entry points; drift is caught at link time and by `build-runtime-surface` and `build-link-map` | Worst: every release must be merged into the ported copy (v2026.4: +1,442/−126 runtime lines) | Best: upstream maintains it |
 | Portability | Architecture-specific parts (regions, faults, output) are small and isolated; the same layer serves the AArch64 target later | Inherits POSIX and x86 assumptions (signals, CPUID, `pthread_getattr_np`) | Depends on upstream's design |
 | Performance | Only what is needed; no signal machinery. Fully backed regions cost RAM until commit-on-fault exists | Carries machinery the OS does not need | Unknown. The fork's per-bump software checks cost time on every growth |
-| Security and safety | Smallest trusted code; Goose's safety rules (guard gaps, failure semantics) must be re-proved by our tests. Main risk: breaking a compiler assumption that is not documented | Large surface; emulating signals and memory mapping adds failure modes | Guarantees owned upstream |
+| Security and safety | Smallest trusted code; Goose's safety rules (guard gaps, failure semantics) must be re-proved by our tests. Main risks: breaking a compiler assumption that is not documented, and an unwritten advance past a gap, which the layer cannot catch (finding 8) | Large surface; emulating signals and memory mapping adds failure modes. Finding 8 applies equally | Guarantees owned upstream, including a fix for finding 8 if upstream makes one |
 | Upstream compatibility | Compiler unchanged; runtime layer ours | Compiler unchanged; runtime a diverging copy | Full, if accepted |
 | Licensing | Our own code | Imports Apache-2.0 runtime code (licence and NOTICE kept) | None |
-| Availability | Now | Now, with large effort | Not for 32-bit, by the maintainer's stated position; unknown for a documented platform interface |
+| Availability | Now, except the data-stack guarantee on ARMv7-A, which is an open blocker (finding 8) | Now, with large effort, and the same blocker | Not for 32-bit, by the maintainer's stated position; unknown for a documented platform interface |
 
 ## ARMv7-A constraints
 
@@ -95,7 +115,7 @@ It targets MMU-less microcontrollers and WebAssembly, and the maintainer has not
 | With the MMU off, data accesses are Strongly-ordered; unaligned accesses there are architecturally unpredictable unless they fault | Arm ARM (DDI 0406); QEMU 10.2.1: alignment fault (`DFSR.FS` 1) on an unaligned `LDR` | Goose code must run with the MMU on and RAM mapped as Normal memory, or be built with `-mno-unaligned-access` |
 | `LDRD`/`STRD`, `LDM`/`STM` (and `VLDR`/`VSTR`) need word alignment whatever `SCTLR.A` says | Arm ARM alignment table; QEMU: `STRD` at an odd address faults with the MMU on | v2026.3's `*(double *)p` at packed offsets faults. Needs a compiler with `cec434a` (v2026.4) |
 | 32-bit virtual address space; VMSAv7 short-descriptor tables: 16 KiB first level of 1 MiB sections, 1 KiB second-level tables of 4 KiB pages | Arm ARM | Region sizes come from the budget above; 1 MiB sections give the 1 MiB gap directly |
-| No integer divide assumed (`-march=armv7-a`); it is optional in ARM state, reported in `ID_ISAR0` | Arm ARM; Krait reports `idiva idivt` in later kernels | Division stays in libgcc. Goose's `i32` division is 64-bit anyway (dependency map finding 3) |
+| No integer divide assumed (`-march=armv7-a`); it is optional in ARM state, reported in `ID_ISAR0` | Arm ARM; Krait reports `idiva idivt` in later kernels | Division stays in libgcc, each member approved under `build-link-map`. Goose's `i32` division is 64-bit anyway (dependency map finding 3) |
 | VFP and NEON must be enabled (`CPACR`, `FPEXC.EN`) before use; hard-float changes the ABI | Arm ARM | Keep soft-float until Phase 0 C5 confirms VFPv4 and NEON; hard-float is a separate reviewed change |
 | Thread-local storage is read from `TPIDRURO` (`c13, c0, 3`) | Measured: 4 reads in the threads sample | Threads need a TLS block per thread and `TPIDRURO` set on every switch |
 | Exclusive accesses (`LDREX`/`STREX`, `LDREXD`/`STREXD`) are specified for Normal memory | Arm ARM, synchronization primitives | Atomics, including the hosted runtime's `gs_end`, only after the MMU is on |
@@ -151,7 +171,7 @@ Studied as engineering references only. **No code, tables or comments are copied
 
 **Goose** (asked in the [draft questions](goose-upstream-questions.md)):
 
-1. The largest unwritten bump compared with the guard gap.
+1. The largest unwritten advance compared with the guard gap, and whether `[..cap]` needs a bound or a check (finding 8).
 2. Whether any elided check needs a minimum reservation.
 3. The status of the `gs_*` interface.
 4. Other 64-bit assumptions in the generated C.

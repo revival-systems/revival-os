@@ -1,6 +1,6 @@
 # Questions for Goose developers
 
-**Status: draft, not sent.** Posting it needs the owner's authorization, as do the choice of venue and the wording. Prepared 2026-11-08 from the [dependency map](goose-runtime-dependency-map.md).
+**Status: draft, not sent.** Posting it needs the owner's authorization, as do the choice of venue and the wording. Prepared 2026-11-08 from the [dependency map](goose-runtime-dependency-map.md), and revised the same day when question 1 gained a concrete case ([finding 8](goose-runtime-dependency-map.md#32-bit-findings)).
 
 The message must stand on its own: this repository is internal, so it links nothing in it.
 
@@ -27,7 +27,7 @@ The message must stand on its own: this repository is internal, so it links noth
 >
 > We understand that 32-bit is not supported, and we are not asking for it. We use the compiler unchanged (`--header`, `goose_init`) and implement the `gs_*` entry points the generated C calls in our own code. We would like to know which assumptions we must not break:
 >
-> 1. **Guard gap and unwritten bumps.** Generated code bumps a stack's `top` with no capacity check and relies on the gap (spec App. C.4). Is there an upper bound on a single bump that is not written front to back, for example a large limited-array capacity or a large fixed aggregate placed on a data stack? Must `GS_STACK_GAP` be at least that bound for an overrun to be caught?
+> 1. **Unwritten advances and the guard gap.** Generated code bumps a stack's `top` with no capacity check and relies on the gap (spec App. C.4). `[..cap]` advances `top` by `8 + cap × size` without writing, and checks `cap` only against `UINT32_MAX`. In a grow-only array of structs that each hold one, the next element's header is the first write after that advance. With a large `cap`, that write lands past `GS_STACK_GAP`, in whatever is mapped there. Is a bound or a check intended for this case, for example limiting the advance to the gap, or touching the skipped range? Do other constructs advance without writing? On 32-bit, the advance can also exceed the address space and wrap. We can share a minimal example.
 > 2. **Reservation size.** `gs_reserve_region` says a region smaller than `GS_STACK_RESERVE` is always safe. Does that hold for every check the compiler elides, and does anything depend on all regions having the same size?
 > 3. **The `gs_*` interface.** Is the set of entry points the generated C calls stable within a release? Would a short document of it, or a switch that leaves the POSIX and Win32 code out of the runtime object, be welcome, with the platform side staying ours?
 > 4. **32-bit assumptions in the generated C.** v2026.3 stored doubles through `double *` at packed offsets, which ARMv7 `STRD` faults on; cec434a fixed that. Do you know of other places that assume 8-byte pointers or a 64-bit `size_t`? If we report such issues, would fixes that cost nothing on 64-bit targets be accepted?
@@ -56,7 +56,7 @@ The message must stand on its own: this repository is internal, so it links noth
 
 | Question | Revival OS decision it informs |
 | --- | --- |
-| 1. Unwritten bumps | Whether a 1 MiB unmapped gap (one ARMv7 section) is enough, or the region provider must also bound or pre-touch large allocations |
+| 1. Unwritten advances | Whether guard gaps can make data-stack overruns safe on ARMv7-A at all (finding 8; the next experiment's criterion 7), and how large a gap must be. Our runtime cannot bound or pre-touch an advance, because nothing calls it there |
 | 2. Reservation size | Whether regions can be sized per program, and smaller than the default, without breaking elided checks |
 | 3. The `gs_*` interface | How much the freestanding layer must change at each compiler pin change |
 | 4. 32-bit assumptions | Whether the generated C can be trusted on ARMv7 beyond what the probes measured |
