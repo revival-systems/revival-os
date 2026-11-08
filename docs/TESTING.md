@@ -48,6 +48,7 @@ Emulator and device tests are separate on purpose. No device milestone is marked
 | `qemu-index-out-of-range` (negative) | QEMU exits 1 with "panic: index out of range: 7 not in [0, 4)" |
 | `qemu-hang-is-stopped` (negative) | A program that never exits is **stopped by the time limit**. This proves a hang cannot pass. |
 | `qemu-undefined-instruction` (negative) | An undefined instruction is reported by the exception vectors ("unexpected exception, vector 1") and QEMU exits 1 |
+| `qemu-alloc-bounds` | All 28 boundary cases of the stub's allocator pass on the 32-bit target, and QEMU exits 0. Requests are **refused** (NULL) when `count * size` overflows `size_t`, when rounding the size up to 8 would wrap, or when the size is larger than what is left of the 64 KiB arena. Blocks are 8-byte aligned and rounded up to 8. A zero-size request gets a block of its own. The arena fills exactly, and then refuses every request |
 
 ### `make test-repro`
 
@@ -66,6 +67,7 @@ These were run on 2026-11-08 and each exited nonzero with the message shown:
 | Situation | Result |
 | --- | --- |
 | Wrong expected checksum (`make BUILD=build/neg-expect PROBE_EXPECT=123 test-qemu`) | `FAIL qemu-checksum: QEMU exited 1, expected 0`; the console shows `probe: FAIL expected 123` |
+| The allocator before its rounding fix (`minirt.c` as of commit `26460d6`) | `FAIL qemu-alloc-bounds: QEMU exited 1, expected 0`; the console shows `calloc(1, 4294967289) = 0x40000b78, expected NULL` and `alloc: FAIL (15 of 28 cases)` |
 | QEMU missing (`make QEMU=qemu-system-arm-missing test-qemu`) | `missing qemu-system-arm-missing: sudo apt install qemu-system-arm` |
 | Goose compiler missing (`make GOOSE=/nonexistent/goose build`) | `missing Goose compiler at /nonexistent/goose: run make install-toolchain` |
 | Any required tool missing (`tools/doctor.sh`) | `MISSING <tool> fix: …`, then exit 1 |

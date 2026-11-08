@@ -56,6 +56,9 @@ PROBE_ELFS     := $(foreach c,$(PROBE_CASES),$(QEMU_OUT)/probe-$(c).elf)
 PROBE_BINS     := $(PROBE_ELFS:.elf=.bin)
 # The runtime entry points the probe's Goose-generated C may depend on.
 PROBE_SURFACE  := calloc gs_idxfail gs_panic gs_rt_start_$(GOOSE_RUNTIME)
+# Boundary tests of the stub's allocator, in an image of their own.
+ALLOC_ELF      := $(QEMU_OUT)/alloc.elf
+ALLOC_CASES    := 28
 
 SHELL_SCRIPTS := $(wildcard tools/*.sh tests/*.sh tests/*/*.sh)
 PY_FILES      := $(wildcard tests/*.py tests/*/*.py)
@@ -131,8 +134,15 @@ $(QEMU_OUT)/probe-%.elf: $(QEMU_OUT)/start.o $(QEMU_OUT)/main-%.o $(QEMU_OUT)/pr
 $(QEMU_OUT)/probe-%.bin: $(QEMU_OUT)/probe-%.elf
 	$(ARM_OBJCOPY) -O binary $< $@
 
-build: $(PROBE_ELFS) $(PROBE_BINS) ## Build every artifact that exists today (the ARMv7-A toolchain probe images)
-	@cd $(QEMU_OUT) && sha256sum probe-*.elf probe-*.bin
+$(QEMU_OUT)/alloc_main.o: $(FIXTURE)/alloc_main.c $(FIXTURE)/minirt.h | need-arm
+	@mkdir -p $(@D)
+	$(ARM_CC) $(OWN_CFLAGS) -I$(FIXTURE) -c $< -o $@
+
+$(ALLOC_ELF): $(QEMU_OUT)/start.o $(QEMU_OUT)/alloc_main.o $(QEMU_OUT)/minirt.o $(FIXTURE)/link.ld
+	$(ARM_CC) $(ARM_LDFLAGS) -o $@ $(QEMU_OUT)/start.o $(QEMU_OUT)/alloc_main.o $(QEMU_OUT)/minirt.o -lgcc
+
+build: $(PROBE_ELFS) $(PROBE_BINS) $(ALLOC_ELF) ## Build every artifact that exists today (the ARMv7-A probe and allocator test images)
+	@cd $(QEMU_OUT) && sha256sum probe-*.elf probe-*.bin alloc.elf
 
 # ---- host build of the probe (hosted Goose runtime) ------------------------
 
@@ -194,7 +204,7 @@ test-unit: $(HOST_OUT)/probe_host $(HOST_OUT)/probe_host_asan ## Run host unit t
 	    $(HOST_OUT)/probe_host_asan checksum $(PROBE_N)
 	@$(EXPECT) unit-sanitized-index 0 "30" $(LOGS)/unit-asan-index.log -- $(HOST_OUT)/probe_host_asan index 2
 
-test-qemu: build | need-qemu ## Boot the probe images in QEMU (ARMv7-A virt): results and failure paths
+test-qemu: build | need-qemu ## Boot the probe and allocator test images in QEMU (ARMv7-A virt): results and failure paths
 	@mkdir -p $(LOGS)
 	@tests/qemu/run.sh qemu-checksum $(QEMU_OUT)/probe-0.elf $(LOGS)/qemu-0.log 0 \
 	    "probe: probe_checksum($(PROBE_N)) = $(PROBE_EXPECT)"
@@ -204,6 +214,8 @@ test-qemu: build | need-qemu ## Boot the probe images in QEMU (ARMv7-A virt): re
 	    timeout "probe: hanging on purpose"
 	@tests/qemu/run.sh qemu-undefined-instruction $(QEMU_OUT)/probe-3.elf $(LOGS)/qemu-3.log 1 \
 	    "probe: unexpected exception, vector 1"
+	@tests/qemu/run.sh qemu-alloc-bounds $(ALLOC_ELF) $(LOGS)/qemu-alloc.log 0 \
+	    "alloc: PASS ($(ALLOC_CASES) of $(ALLOC_CASES) cases)"
 
 test-repro: ## Build twice from scratch in separate directories and require identical outputs
 	@rm -rf $(OUT)/repro-a $(OUT)/repro-b

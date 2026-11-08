@@ -58,10 +58,10 @@ Goose and the Arm toolchain are pinned by version and SHA-256. Ubuntu packages f
 | Command | What it does |
 | --- | --- |
 | `make doctor` | Checks every tool and both pins |
-| `make build` | Builds every artifact that exists today: the ARMv7-A toolchain probe images, with their SHA-256 |
+| `make build` | Builds every artifact that exists today: the ARMv7-A toolchain probe images and the allocator test image, with their SHA-256 |
 | `make test-build` | Validates the freestanding build (symbols, ELF attributes, no system calls, hosted code rejected) |
 | `make test-unit` | Host unit tests, including sanitizer runs |
-| `make test-qemu` | Runs the probe images in QEMU, including the failure cases |
+| `make test-qemu` | Runs the probe and allocator test images in QEMU, including the failure cases |
 | `make test-repro` | Two clean builds must be byte-identical |
 | `make test` | All four test targets above |
 | `make lint` | shellcheck, cppcheck, Python syntax |

@@ -146,21 +146,30 @@ int memcmp(const void *a, const void *b, size_t n)
     return 0;
 }
 
-/* ---- Bounded allocator: a fixed arena, never freed --------------------- */
+/* ---- Bounded allocator: a fixed arena, never freed (contract: minirt.h) - */
 
-#define ARENA_BYTES 65536u
-static unsigned char arena[ARENA_BYTES] __attribute__((aligned(8)));
+/* Blocks are whole multiples of 8 bytes, so the free space,
+ * MINIRT_ARENA_BYTES - arena_used, is always a multiple of 8 too. */
+_Static_assert(MINIRT_ARENA_BYTES % 8u == 0u, "the arena must hold whole 8-byte blocks");
+static unsigned char arena[MINIRT_ARENA_BYTES] __attribute__((aligned(8)));
 static size_t arena_used;
 
 void *calloc(size_t count, size_t size)
 {
     if (size != 0 && count > SIZE_MAX / size) {
-        return NULL;
+        return NULL; /* count * size does not fit in size_t */
     }
-    size_t bytes = (count * size + 7u) & ~(size_t)7u;
-    if (bytes > ARENA_BYTES - arena_used) {
+    size_t bytes = count * size;
+    if (bytes == 0) {
+        bytes = 1; /* a zero-size request takes a block of its own */
+    }
+    /* Compared before rounding up, so the rounding cannot wrap: bytes is now
+     * at most MINIRT_ARENA_BYTES. The rounded size still fits, because the
+     * free space is a multiple of 8. */
+    if (bytes > MINIRT_ARENA_BYTES - arena_used) {
         return NULL; /* the generated C reports this through gs_panic */
     }
+    bytes = (bytes + 7u) & ~(size_t)7u;
     void *p = &arena[arena_used];
     arena_used += bytes;
     return p; /* .bss is zeroed by start.S, and nothing is ever freed */
