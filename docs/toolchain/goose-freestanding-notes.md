@@ -1,6 +1,6 @@
 # Goose on bare-metal ARMv7-A: feasibility findings
 
-**Status:** experiment results from 2026-11-08. This is **pre-Phase-1 feasibility work**, not a Phase 1 pass: Phase 1's entry gate and criteria are in [ROADMAP.md](../../ROADMAP.md#phase-1--freestanding-goose-toolchain). Everything here ran on the development machine and in QEMU. **Nothing ran on the Samsung.**
+**Status:** experiment results from 2026-11-08. This is **pre-Phase-1 feasibility work**, not a Phase 1 pass: Phase 1's entry gate and criteria are in [ROADMAP.md](../../ROADMAP.md#phase-1--rust--arm-assembly-freestanding-foundation). Everything here ran on the development machine and in QEMU. **Nothing ran on the Samsung.**
 
 Every result below can be reproduced with `make build test-build test-unit test-qemu test-repro` ([TESTING.md](../TESTING.md)).
 

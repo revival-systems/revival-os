@@ -299,7 +299,7 @@ Samples use `-o` alone (they have `main`). Nothing is linked or run, except the 
 
 - **Language:** Goose has no raw pointers, no `volatile` and no device-register type. C is reached through `extern fn` ([spec §7.10](https://github.com/aardappel/goose/blob/v2026.3/docs/goose_spec.md#710-extern-fn)).
 - **v2026.3:** an `extern fn` emits its own prototype and includes no header. It therefore cannot bind a `static inline` function or a macro ([#235](https://github.com/aardappel/goose/issues/235), [#223](https://github.com/aardappel/goose/issues/223)).
-- **Revival OS:** device registers, CP15 and barriers are reached through small C or assembly functions, each one an out-of-line call (link-time optimization may inline them). [ARCHITECTURE.md](../../ARCHITECTURE.md#goose-and-low-level-code) already limits assembly to what Goose cannot express.
+- **Revival OS:** device registers, CP15 and barriers are reached through small C or assembly functions, each one an out-of-line call (link-time optimization may inline them). [ARCHITECTURE.md](../../ARCHITECTURE.md#implementation-languages-and-memory) already limits assembly to what the implementation language cannot express.
 - **Test:** an `extern fn` accessor reads a QEMU device register (the PL011 flag register) and returns its documented reset value.
 
 ## Language requirements and implementation choices

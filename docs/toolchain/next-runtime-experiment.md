@@ -72,7 +72,7 @@ Each QEMU test passes 20 of 20 runs.
 The result would mean that, with the pinned compiler, guard gaps cannot provide Goose's "safe abort, never corruption" on ARMv7-A. That holds for any program that makes an unwritten advance larger than the gap, such as a run-time `[..cap]` inside a value that later writes follow on the same stack.
 
 - **Our runtime cannot fix it.** The advance is inline code, and nothing calls the runtime between the advance and the next write.
-- **It is recorded and stops Phase 1 for a decision**, as the roadmap requires. Phase 1 needs "a stack-limit overrun is caught, not silently corrupting memory", and fails if success "would require changing the pinned compiler" ([ROADMAP Phase 1](../../ROADMAP.md#phase-1--freestanding-goose-toolchain), [rule 6](../../ROADMAP.md#rules-for-every-phase)).
+- **It is recorded and stops Phase 1 for a decision**, as the roadmap requires. Phase 1 needs "a stack-limit overrun is caught, not silently corrupting memory", and fails if success "would require changing the pinned compiler" ([ROADMAP Phase 1](../../ROADMAP.md#phase-1--rust--arm-assembly-freestanding-foundation), [rule 6](../../ROADMAP.md#rules-for-every-phase)).
 - **None of these options is verified or proposed for implementation here.** They are for the owner and the orchestrator:
   - ask upstream for a bound or check on unwritten advances (route C; [question 1](goose-upstream-questions.md#draft-message))
   - a rule that Revival OS code never uses a run-time `[..cap]`, which needs an enforcement mechanism that does not exist today
