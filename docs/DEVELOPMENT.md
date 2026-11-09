@@ -2,6 +2,30 @@
 
 Development, builds and tests happen on the local Ubuntu machine. GitHub holds the code and the pull-request reviews. GitHub-hosted CI is started by hand at phase milestones only ([CI-STRATEGY.md](CI-STRATEGY.md)).
 
+The kernel is written in **Rust (`#![no_std]`) and ARM Assembly** ([ADR 0001](decisions/0001-rust-and-arm-assembly.md)). The earlier Goose work is kept as a studied reference ([preservation plan](goose-reference-preservation-plan.md)); its toolchain and probe are not the active build.
+
+## Development cycle
+
+Revival OS is built by observing it run, not by writing design documents ahead of code. Every increment is the smallest capability that can be seen and tested, and it goes through this cycle:
+
+**Build → Boot → Observe → Test → Reboot → Recover → Measure → Document.**
+
+1. **Build** a runnable image for the increment (host/QEMU first).
+2. **Boot** it — in QEMU now; on the Samsung only under an approved write plan ([AGENTS.md](../AGENTS.md#hardware-safety-contract)).
+3. **Observe** the actual output (serial line, screen, log), not what it "should" do.
+4. **Test** a positive case and at least one negative/failure case.
+5. **Reboot** / reset repeatedly to show the result is deterministic.
+6. **Recover**: confirm the controlled QEMU reset/halt path; on hardware, the approved recovery procedure and a safe return.
+7. **Measure** when meaningful (boot time, latency, memory, allocation bounds), with units and repeats.
+8. **Document** the exact commands, versions, image hash, output and pass/fail as the increment's evidence.
+
+Rules that do not bend:
+
+- **One increment at a time.** No building future phases ahead of the one in hand.
+- **QEMU evidence is not hardware evidence.** A QEMU pass never counts as a Samsung boot ([TESTING.md](TESTING.md)).
+- **A phase closes only on its required evidence** ([ROADMAP.md](../ROADMAP.md)), never because code compiles or a document exists.
+- **A failure is a result**: record it with its evidence and re-plan; never work around it silently.
+
 ## Workspace
 
 ```text
@@ -51,6 +75,8 @@ The reference machine is Ubuntu 26.04 LTS on x86-64. Other Ubuntu releases are e
 
 Goose and the Arm toolchain are pinned by version and SHA-256. Ubuntu packages follow the Ubuntu release, and `make doctor` records their versions. Changing a pin is a reviewed pull request. The Goose pin must stay equal to Revival Server's unless both are changed deliberately.
 
+Since [ADR 0001](decisions/0001-rust-and-arm-assembly.md), the Goose compiler is a **reference** toolchain, not the active one; it is kept and its pin is unchanged. The Arm GNU Toolchain stays (the Rust bare-metal build reuses its linker and utilities). A Rust bare-metal target and any Rust toolchain pin are added in a **later** reviewed pull request, not here.
+
 ## Commands
 
 `make help` lists them all.
@@ -78,7 +104,7 @@ What each test checks, and what is not tested yet, is in [TESTING.md](TESTING.md
 ## Workflow
 
 ```text
-write Goose (and minimal C/assembly)  →  make build  →  make test  →  fix
+write Rust (and minimal ARM assembly)  →  make build  →  make test  →  fix
         →  make check  →  review the diff  →  commit  →  push  →  pull request
         →  orchestrator review  →  (at phase milestones) manual CI run  →  merge by the orchestrator
 ```

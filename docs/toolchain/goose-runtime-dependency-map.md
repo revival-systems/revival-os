@@ -128,7 +128,7 @@ Samples use `-o` alone (they have `main`). Nothing is linked or run, except the 
 | [Integer overflow](#integer-overflow) | compiler; `--debug` calls `gs_ovf`, `gs_asfail_*` | Yes | The failure path | Now |
 | [Division](#division) | compiler checks; libgcc 64-bit helpers | Yes, once the libgcc members are approved (`build-link-map`) | The failure path | Now |
 | [Floating point and math](#floating-point-and-math) | soft-float in libgcc; `libm` behind `math` and float-to-int `as` | Arithmetic yes; `libm` no | A licence-reviewed `libm` subset, or the functions in Goose | When a service needs them |
-| [Native call stack](#native-call-stack) | nothing in generated code; the hosted runtime uses signals | No detection | A guard page below each native stack and a fault path | With the MMU (a Phase 1 negative test) |
+| [Native call stack](#native-call-stack) | nothing in generated code; the hosted runtime uses signals | No detection | A guard page below each native stack and a fault path | With the MMU (a Phase 3 requirement) |
 | [Threads, queues, TLS, atomics](#threads-queues-tls-and-atomics) | runtime object (pthreads); `__thread` | No | TLS blocks and `TPIDRURO` per thread, a scheduler, locks, atomics on Normal memory | Later (after Phase 3 scheduling) |
 | [Contained workers](#contained-workers) | `setjmp`/`longjmp` and `malloc` | No | Non-local exit; only with threads | Later |
 | [Text forms and output](#text-forms-and-output) | runtime object (digit loops, not `printf`) | The formatting is portable C; the sink is not | A byte sink (UART or framebuffer) behind `gs_out_bytes` | With data stacks (printing uses one) |
@@ -252,7 +252,7 @@ Samples use `-o` alone (they have `main`). Nothing is linked or run, except the 
 - **Language:** recursion uses only the native stack and must be declared `recursive`. Running out is a safe abort ([spec §7.8](https://github.com/aardappel/goose/blob/v2026.3/docs/goose_spec.md#78-recursion), §9.3).
 - **v2026.3:** generated code contains **no** native-stack check (measured). The hosted runtime catches overflow by address: a fault within 64 KiB below the thread's stack, found by a signal handler running on an alternate stack ([`runtime_impl.h:399-480`](https://github.com/aardappel/goose/blob/v2026.3/src/runtime/runtime_impl.h#L399-L480)).
 - **Revival OS:** an unmapped guard page below every native stack, and a data-abort path that reports the overflow from a separate abort-mode stack. Without the MMU, a deep recursion silently overwrites `.bss`, as in today's fixture.
-- **Test:** unbounded recursion must be reported as a native stack overflow (negative). This is also a Phase 1 negative test.
+- **Test:** unbounded recursion must be reported as a native stack overflow (negative). This is a Phase 3 requirement, once the MMU is enabled; it is not part of the Rust Phase 1.
 
 ### Threads, queues, TLS and atomics
 
@@ -299,7 +299,7 @@ Samples use `-o` alone (they have `main`). Nothing is linked or run, except the 
 
 - **Language:** Goose has no raw pointers, no `volatile` and no device-register type. C is reached through `extern fn` ([spec §7.10](https://github.com/aardappel/goose/blob/v2026.3/docs/goose_spec.md#710-extern-fn)).
 - **v2026.3:** an `extern fn` emits its own prototype and includes no header. It therefore cannot bind a `static inline` function or a macro ([#235](https://github.com/aardappel/goose/issues/235), [#223](https://github.com/aardappel/goose/issues/223)).
-- **Revival OS:** device registers, CP15 and barriers are reached through small C or assembly functions, each one an out-of-line call (link-time optimization may inline them). [ARCHITECTURE.md](../../ARCHITECTURE.md#goose-and-low-level-code) already limits assembly to what Goose cannot express.
+- **Revival OS:** device registers, CP15 and barriers are reached through small C or assembly functions, each one an out-of-line call (link-time optimization may inline them). [ARCHITECTURE.md](../../ARCHITECTURE.md#implementation-languages-and-memory) already limits assembly to what the implementation language cannot express.
 - **Test:** an `extern fn` accessor reads a QEMU device register (the PL011 flag register) and returns its documented reset value.
 
 ## Language requirements and implementation choices

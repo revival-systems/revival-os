@@ -2,6 +2,8 @@
 
 Each phase adds the smallest capability that can be observed and tested, on the real Samsung where hardware is involved. A phase is complete only when its pass criteria are met **and** recorded as evidence ([docs/TESTING.md](docs/TESTING.md#recording-evidence)), and the orchestrator has reviewed that evidence.
 
+The kernel is written in Rust and ARM Assembly ([ADR 0001](docs/decisions/0001-rust-and-arm-assembly.md)); the earlier Goose work is kept as a studied reference. Every increment follows the development cycle — **Build → Boot → Observe → Test → Reboot → Recover → Measure → Document** ([docs/DEVELOPMENT.md](docs/DEVELOPMENT.md#development-cycle)).
+
 Sources: Revival Server issues [#120](https://github.com/revival-systems/revival-server/issues/120) (phone-first decision and test strategy) and [#121](https://github.com/revival-systems/revival-server/issues/121) (milestone ladder and engineering requirements).
 
 ## Rules for every phase
@@ -18,7 +20,7 @@ Sources: Revival Server issues [#120](https://github.com/revival-systems/revival
 | Phase | Capability | Runs on | State |
 | --- | --- | --- | --- |
 | 0 | Hardware identity, stock boot/reboot, recovery paths | Device (read-only) | Research done; physical checks not started |
-| 1 | Freestanding Goose → ARMv7-A toolchain | Host + emulator | Feasibility experiment passes in QEMU; phase not passed |
+| 1 | Rust + ARM Assembly freestanding foundation (ARMv7-A) | Host + emulator | Not started; Goose feasibility kept as reference |
 | 2 | First bare-metal boot with observable output | Device (first write) | Not started |
 | 3 | Exceptions, MMU, memory, interrupts, timer, watchdog | Device + emulator | Not started |
 | 4 | Buttons, display console, storage reads | Device | Not started |
@@ -69,37 +71,36 @@ Sources: Revival Server issues [#120](https://github.com/revival-systems/revival
 
 ---
 
-### Phase 1 — Freestanding Goose toolchain
+### Phase 1 — Rust + ARM Assembly freestanding foundation
 
-**Entry gate:** Phase 0 has confirmed the instruction set (ARMv7-A, VFP/NEON) and the runtime route has been decided in review ([findings](docs/toolchain/goose-freestanding-notes.md#decisions-needed-before-phase-1-implementation)). The pinned Goose compiler (v2026.3) is used unchanged.
+**Entry gate:** Phase 1 is host and emulator only, so Rust implementation and QEMU testing may begin before the physical Phase 0 checks are complete. The target instruction set (ARMv7-A, VFP/NEON) is taken from the Phase 0 hardware research ([gt-i9195.md](docs/hardware/gt-i9195.md)) and is confirmed on the device before Phase 2, not before Phase 1. The Rust bare-metal target and any toolchain pin have been chosen in review ([ADR 0001](docs/decisions/0001-rust-and-arm-assembly.md)); adding the Rust target is a separate reviewed pull request, and the Goose and Arm GNU Toolchain pins are unchanged.
 
-**Already done (2026-11-08, feasibility only):** the pinned Arm GNU Toolchain 15.2.Rel1 and QEMU are installed, and `make test-qemu` runs a Goose-generated function on emulated ARMv7-A with no C library. Feasibility experiments may run before Phase 0 completes, because they touch no device. The phase is passed only when the gate and the criteria below are met.
+**Supersedes:** Phase 1 was formerly "freestanding Goose toolchain." The implementation language is now Rust and ARM Assembly ([ADR 0001](docs/decisions/0001-rust-and-arm-assembly.md)). The Goose freestanding feasibility result (2026-11-08, QEMU only: `make test-qemu` ran a Goose-generated function on emulated ARMv7-A with no C library) is **kept as reference**, not as a passed phase ([findings](docs/toolchain/goose-freestanding-notes.md), [preservation plan](docs/goose-reference-preservation-plan.md)).
 
-**Capability:** A reproducible build that turns a tiny Goose program into an ARMv7-A binary with no hosted C library and no operating-system calls. It includes a minimal entry stub, a linker script, and a panic path, plus a written list of the Goose runtime features this build supports and does not support.
+**Capability:** A reproducible build that turns a tiny `#![no_std]` Rust program, linked with a minimal ARM Assembly entry stub, into an ARMv7-A binary with no hosted C library and no operating-system calls. It includes the entry stub, a linker script, initial stack and static-memory setup, and a panic path, plus a written list of what the freestanding build supports and does not.
 
-**Observable test:** Under `qemu-system-arm` (an ARMv7-A machine such as `virt` with `-cpu cortex-a15`), the program prints a fixed heartbeat line and a value computed in Goose (for example a checksum of a table), then halts or exits through a defined path.
+**Observable test:** Under `qemu-system-arm` (an ARMv7-A machine such as `virt` with `-cpu cortex-a15`), the image boots through the Assembly entry into Rust, prints a fixed heartbeat line, prints a value computed in Rust (for example a checksum of a static table), then halts or exits through a defined path.
 
 **Pass criteria:**
 
 - Two clean builds of the same commit produce byte-identical binaries, and the SHA-256 is recorded.
-- Undefined symbols (`arm-none-eabi-nm -u`) are only those of the documented support layer, and none is a C-library symbol.
+- Undefined symbols (`arm-none-eabi-nm -u`) are only those of the documented support layer, and none is a C-library or `std` symbol.
 - No supervisor call (`svc`) appears in the disassembly unless documented.
 - The ELF attributes (`readelf -A`) report ARMv7-A.
-- The emulator prints the expected output in 20 of 20 runs.
-- The starting observations in [docs/toolchain/goose-freestanding-notes.md](docs/toolchain/goose-freestanding-notes.md) are each resolved or recorded as a blocker.
+- The heartbeat line comes from Rust, after Assembly has established the stack, and appears in 20 of 20 runs.
 
-**Fail criteria:** The generated C needs hosted facilities (threads, `mmap`, signals, stdio) that a small documented support layer cannot replace, or success would require changing the pinned compiler. The blocker is recorded and the phase stops for a decision. The pin is not changed without approval.
+**Fail criteria:** The freestanding Rust build needs hosted facilities (threads, `mmap`, signals, stdio) that a small documented support layer cannot replace, or success would require changing a pinned toolchain without approval. The blocker is recorded and the phase stops for a decision.
 
 **Negative and failure tests:**
 
-- A test program that calls a C-library function fails the build check that detects it.
-- A Goose bounds-check failure reaches the panic handler, which reports its location.
+- A test program that pulls in a C-library or `std` symbol fails the link/symbol check that detects it.
+- A Rust panic reaches the panic handler, which reports its location, rather than continuing into undefined behaviour.
 - A corrupted binary is rejected by hash comparison.
-- A stack-limit overrun is caught, not silently corrupting memory.
+- An out-of-bounds array or slice index triggers Rust's bounds-check panic and reaches the panic handler, rather than reading or writing out of bounds. (MMU-based native stack-overflow detection is not implemented in this phase; it is a Phase 3 requirement, once the MMU is enabled.)
 
 **Physical verification:** None. This phase is host and emulator only, and its results are **not** hardware results.
 
-**Boot, reboot and recovery evidence:** Not applicable to the device. Emulator start, halt and reset behaviour is recorded.
+**Boot, reboot and recovery evidence:** Not applicable to the device. Emulator start, halt and reset behaviour is recorded across repeated runs.
 
 **Next safe milestone:** Phase 2, only after Phase 0 has passed without a recovery blocker and a write plan has been approved.
 
@@ -115,7 +116,7 @@ Sources: Revival Server issues [#120](https://github.com/revival-systems/revival
 - The owner has explicitly accepted that flashing a non-Samsung image is reported to trip the irreversible Knox warranty bit ([gt-i9195.md](docs/hardware/gt-i9195.md#bootloader-lock-and-knox)).
 - The orchestrator has approved the plan.
 
-**Capability:** The smallest boot image the stock bootloader accepts, whose payload (entry stub plus Goose-originated code) produces one observable effect and then halts or resets deterministically.
+**Capability:** The smallest boot image the stock bootloader accepts, whose payload (entry stub plus Rust-originated code) produces one observable effect and then halts or resets deterministically.
 
 **Method options (chosen in the write-plan review, not here):**
 
@@ -156,7 +157,7 @@ Sources: Revival Server issues [#120](https://github.com/revival-systems/revival
 **Capability:** One sub-milestone at a time, each tested on the device:
 
 - **3a.** Exception vectors: a deliberate undefined instruction and a data abort are reported, then the device resets.
-- **3b.** MMU with an identity map, then caches enabled.
+- **3b.** MMU with an identity map, then caches enabled, including an unmapped guard region below each native stack so that a stack overflow faults instead of silently corrupting memory.
 - **3c.** A physical-frame allocator built from the memory map that the bootloader passes, which honours reserved regions (shared memory at `0x80000000`, the WCNSS region at `0x8f000000`, the framebuffer).
 - **3d.** A periodic timer interrupt through the QGIC2 interrupt controller.
 - **3e.** Watchdog petting, plus a crash record that survives a watchdog reset.
