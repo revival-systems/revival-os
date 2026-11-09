@@ -73,7 +73,7 @@ Sources: Revival Server issues [#120](https://github.com/revival-systems/revival
 
 ### Phase 1 — Rust + ARM Assembly freestanding foundation
 
-**Entry gate:** Phase 0 has confirmed the instruction set (ARMv7-A, VFP/NEON), and the Rust bare-metal target and any toolchain pin have been chosen in review ([ADR 0001](docs/decisions/0001-rust-and-arm-assembly.md)). Adding the Rust target is a separate reviewed pull request; the Goose and Arm GNU Toolchain pins are unchanged.
+**Entry gate:** Phase 1 is host and emulator only, so Rust implementation and QEMU testing may begin before the physical Phase 0 checks are complete. The target instruction set (ARMv7-A, VFP/NEON) is taken from the Phase 0 hardware research ([gt-i9195.md](docs/hardware/gt-i9195.md)) and is confirmed on the device before Phase 2, not before Phase 1. The Rust bare-metal target and any toolchain pin have been chosen in review ([ADR 0001](docs/decisions/0001-rust-and-arm-assembly.md)); adding the Rust target is a separate reviewed pull request, and the Goose and Arm GNU Toolchain pins are unchanged.
 
 **Supersedes:** Phase 1 was formerly "freestanding Goose toolchain." The implementation language is now Rust and ARM Assembly ([ADR 0001](docs/decisions/0001-rust-and-arm-assembly.md)). The Goose freestanding feasibility result (2026-11-08, QEMU only: `make test-qemu` ran a Goose-generated function on emulated ARMv7-A with no C library) is **kept as reference**, not as a passed phase ([findings](docs/toolchain/goose-freestanding-notes.md), [preservation plan](docs/goose-reference-preservation-plan.md)).
 
@@ -96,7 +96,7 @@ Sources: Revival Server issues [#120](https://github.com/revival-systems/revival
 - A test program that pulls in a C-library or `std` symbol fails the link/symbol check that detects it.
 - A Rust panic reaches the panic handler, which reports its location, rather than continuing into undefined behaviour.
 - A corrupted binary is rejected by hash comparison.
-- A deliberate stack-limit overrun faults observably, not silently corrupting memory.
+- An out-of-bounds array or slice index triggers Rust's bounds-check panic and reaches the panic handler, rather than reading or writing out of bounds. (MMU-based native stack-overflow detection is not implemented in this phase; it is a Phase 3 requirement, once the MMU is enabled.)
 
 **Physical verification:** None. This phase is host and emulator only, and its results are **not** hardware results.
 
@@ -157,7 +157,7 @@ Sources: Revival Server issues [#120](https://github.com/revival-systems/revival
 **Capability:** One sub-milestone at a time, each tested on the device:
 
 - **3a.** Exception vectors: a deliberate undefined instruction and a data abort are reported, then the device resets.
-- **3b.** MMU with an identity map, then caches enabled.
+- **3b.** MMU with an identity map, then caches enabled, including an unmapped guard region below each native stack so that a stack overflow faults instead of silently corrupting memory.
 - **3c.** A physical-frame allocator built from the memory map that the bootloader passes, which honours reserved regions (shared memory at `0x80000000`, the WCNSS region at `0x8f000000`, the framebuffer).
 - **3d.** A periodic timer interrupt through the QGIC2 interrupt controller.
 - **3e.** Watchdog petting, plus a crash record that survives a watchdog reset.

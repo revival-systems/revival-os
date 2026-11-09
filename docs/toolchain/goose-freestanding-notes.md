@@ -1,6 +1,6 @@
 # Goose on bare-metal ARMv7-A: feasibility findings
 
-**Status:** experiment results from 2026-11-08. This is **pre-Phase-1 feasibility work**, not a Phase 1 pass: Phase 1's entry gate and criteria are in [ROADMAP.md](../../ROADMAP.md#phase-1--rust--arm-assembly-freestanding-foundation). Everything here ran on the development machine and in QEMU. **Nothing ran on the Samsung.**
+**Status:** Goose feasibility results from 2026-11-08, **kept as reference**. This is feasibility work for the former Goose-based approach; it is **not** a Phase 1 pass and does not gate Phase 1. The current Phase 1 is implemented in Rust and ARM Assembly ([ADR 0001](../decisions/0001-rust-and-arm-assembly.md)), whose entry gate and criteria are in [ROADMAP.md](../../ROADMAP.md#phase-1--rust--arm-assembly-freestanding-foundation). Everything here ran on the development machine and in QEMU. **Nothing ran on the Samsung.**
 
 Every result below can be reproduced with `make build test-build test-unit test-qemu test-repro` ([TESTING.md](../TESTING.md)).
 
@@ -47,7 +47,7 @@ The probe ([tests/goose/probe.goose](../../tests/goose/probe.goose)) uses that l
 
 ## Decisions needed before Phase 1 implementation
 
-These are for review, not decided here:
+These were the open questions for the former Goose-based approach, kept as reference. They are superseded by [ADR 0001](../decisions/0001-rust-and-arm-assembly.md) and do not gate the Rust Phase 1:
 
 1. **Runtime route.**
    - **A.** A freestanding runtime layer in Revival OS that implements the internal `gs_*` interface for the subset the OS uses. Small and fast to reach, but coupled to compiler internals.
@@ -57,4 +57,4 @@ These are for review, not decided here:
 3. **Floating point:** keep the soft-float ABI, or move to hard-float after Phase 0 confirms the VFP features on the device.
 4. **Overflow policy:** `--debug` builds for kernel code, explicit checks, or both.
 
-Research for these decisions (2026-11-08): the [runtime dependency map](goose-runtime-dependency-map.md), the [comparison of routes A, B and C](goose-runtime-options.md), the [draft questions for Goose developers](goose-upstream-questions.md) and the [proposed next experiment](next-runtime-experiment.md). The research records an open blocker for decision 2. The pinned compiler can advance a data stack past its guard gap without writing ([finding 8](goose-runtime-dependency-map.md#32-bit-findings)). The next experiment must settle this before the data-stack guarantee is claimed on ARMv7-A.
+Research for these decisions (2026-11-08): the [runtime dependency map](goose-runtime-dependency-map.md), the [comparison of routes A, B and C](goose-runtime-options.md), the [draft questions for Goose developers](goose-upstream-questions.md) and the [proposed next experiment](next-runtime-experiment.md). The research records an open blocker for decision 2. The pinned compiler can advance a data stack past its guard gap without writing ([finding 8](goose-runtime-dependency-map.md#32-bit-findings)). The next experiment must settle this before the Goose data-stack guarantee is claimed on ARMv7-A.
