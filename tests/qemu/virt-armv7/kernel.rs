@@ -9,22 +9,22 @@
 //! Memory (ADR 0001): native Rust call stack + statically reserved data only.
 //! No general-purpose heap and no dynamic allocation.
 //!
-//! BUILD NOTES - this file is written for review and is **not yet compiled**:
-//! the Rust bare-metal toolchain is an approval-gated, separately reviewed
-//! addition (ADR 0001; ROADMAP Phase 1 entry gate). Intended build, once the
-//! pinned toolchain is installed:
+//! BUILD: `make build` and `make test-rust` compile this file and boot it in
+//! QEMU; docs/phase-1/rust-foundation.md records the exact commands, the
+//! observed serial output, the binary sizes and their SHA-256. rustc drives
+//! the link with its own `core` and `compiler_builtins`, which also supply
+//! `mem*` and the ARM EABI helpers, so the Arm GNU `bfd` linker is only the
+//! backend and no C library and no `-lgcc` are added. The build, per image:
 //!
-//!   rustc --target armv7a-none-eabi --edition 2021 \
-//!         --crate-type staticlib -C panic=abort -C opt-level=2 \
-//!         --emit obj -o kernel.o kernel.rs
-//!   # heartbeat (default), or add --cfg kmode_panic / --cfg kmode_oob
-//!   arm-none-eabi-gcc -nostdlib -T link.ld -Wl,--gc-sections \
-//!         -o kernel.elf kstart.o kernel.o -lgcc
-//!
-//! Open items to settle at first compile (cannot be verified without rustc):
-//!   - whether the installed `compiler_builtins` already exports mem* (if so,
-//!     drop the `mem` module below to avoid a duplicate-symbol link error);
-//!   - the exact flags that make two clean builds byte-identical.
+//!   rustc --target armv7a-none-eabi --edition 2021 --crate-type bin \
+//!         -C panic=abort -C opt-level=2 -C relocation-model=static \
+//!         -C linker=arm-none-eabi-gcc -C linker-flavor=gcc \
+//!         -C link-arg=-fuse-ld=bfd -C link-arg=-nostartfiles \
+//!         -C link-arg=-nostdlib -C link-arg=-Wl,-T,link.ld \
+//!         -C link-arg=kstart.o --emit link -o kernel.elf kernel.rs
+//!   # heartbeat is the default; add --cfg kmode_panic or --cfg kmode_oob
+//!   # for the two negative-test images. The mem module below stays off
+//!   # (compiler_builtins already supplies mem*); see its note.
 
 #![no_std]
 #![no_main]
@@ -161,11 +161,11 @@ fn panic(info: &PanicInfo) -> ! {
 }
 
 /// Freestanding `mem*` the compiler may emit (for example via the bounds-check
-/// panic's formatting path). Provided here as the documented support layer,
-/// exactly as the probe fixture provides them in C. Unused copies are dropped
-/// by `--gc-sections`. BUILD NOTE: if the installed `compiler_builtins` already
-/// exports these. Built only under `--cfg kprovide_mem`; by default the target's
-/// own `compiler_builtins` supplies them (confirmed at build time).
+/// panic's formatting path). The pinned target's own `compiler_builtins`
+/// already supplies `memcpy`/`memmove`/`memset`/`memcmp` - the images link with
+/// zero undefined symbols without this module - so it is built only under
+/// `--cfg kprovide_mem` and is off by default. Kept as a documented fallback,
+/// like the probe fixture's C versions; unused copies drop out at `--gc-sections`.
 #[cfg(kprovide_mem)]
 mod mem {
     use core::ptr;

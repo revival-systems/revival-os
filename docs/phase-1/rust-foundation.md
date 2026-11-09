@@ -73,8 +73,8 @@ qemu-system-arm -M virt -cpu cortex-a15 -m 64M -nographic -monitor none \
 | Image | Serial console | QEMU exit |
 | --- | --- | --- |
 | heartbeat | `revival-os: phase 1 rust heartbeat` then `revival-os: checksum=0x22becba4` | 0 |
-| panic | heartbeat lines, then `panic: tests/qemu/virt-armv7/kernel.rs:121` | 1 |
-| bounds (oob) | heartbeat lines, then `panic: tests/qemu/virt-armv7/kernel.rs:129` | 1 |
+| panic | heartbeat lines, then `panic: tests/qemu/virt-armv7/kernel.rs:120` | 1 |
+| bounds (oob) | heartbeat lines, then `panic: tests/qemu/virt-armv7/kernel.rs:128` | 1 |
 
 The checksum `0x22becba4` is computed in Rust over a fixed static table and is
 deterministic across runs. The panic and bounds images reach the Rust
@@ -155,10 +155,13 @@ tests/build/check_image_integrity.sh \
 
 Observed: the std build stops with `E0463` and the standard-library note; the
 libc link stops with a single `undefined reference to puts` in `kmain`; the
-corrupted copy is rejected and `kernel-heartbeat.elf` is unchanged. Together
-with the panic and bounds-check tests above, all four of the
+corrupted copy is rejected and `kernel-heartbeat.elf` is unchanged. Both of
+these tests run on the host build machine, not in QEMU: Test A is a
+compile-and-link check and Test B is a SHA-256 check. The panic and bounds-check
+tests above are the two that execute in QEMU. With all four in place, the
 [ROADMAP Phase 1](../../ROADMAP.md#phase-1--rust--arm-assembly-freestanding-foundation)
-negative-and-failure tests now run in QEMU.
+negative-and-failure tests now pass - two in QEMU (panic, bounds) and two on the
+host (hosted-dependency rejection, corrupted-image detection).
 
 ## Binary sizes and SHA-256
 
@@ -198,8 +201,9 @@ Per [docs/DEVELOPMENT.md](../DEVELOPMENT.md#development-cycle):
 
 ## Next smallest milestone
 
-With Phase 1's negative-and-failure tests now complete in QEMU, and still within
-host/emulator scope, the next small increment is a statically
+With Phase 1's negative-and-failure tests now complete - panic and bounds-check
+in QEMU, hosted-dependency rejection and corrupted-image detection on the host -
+and still within host/emulator scope, the next small increment is a statically
 reserved, fixed-capacity structure exercised and checksummed from Rust (for
 example a bounded ring buffer in a `static`), to establish the static-memory
 pattern with a negative test, before any arena is considered. Device work
