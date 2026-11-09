@@ -19,6 +19,10 @@ here=$(cd "$(dirname "$0")" && pwd)
 goose=${GOOSE:-$HOME/.local/share/goose/$GOOSE_VERSION/goose}
 arm_bin=${ARM_BIN:-$HOME/.local/share/revival-os/toolchains/$ARM_TOOLCHAIN_NAME/bin}
 qemu=${QEMU:-qemu-system-arm}
+rust_prefix=${REVIVAL_RUST_PREFIX:-$HOME/.local/share/revival-os}
+export RUSTUP_HOME=${RUSTUP_HOME:-$rust_prefix/rustup}
+export CARGO_HOME=${CARGO_HOME:-$rust_prefix/cargo}
+rustc_bin=${RUSTC:-$CARGO_HOME/bin/rustc}
 apt_line="sudo apt install qemu-system-arm gdb-multiarch shellcheck cppcheck"
 failed=0
 
@@ -81,6 +85,29 @@ if [ -x "$arm_bin/arm-none-eabi-gcc" ]; then
     fi
 else
     row MISSING arm-none-eabi "fix: tools/install-arm-toolchain.sh (pinned $ARM_TOOLCHAIN_VERSION)"
+    failed=1
+fi
+
+# The pinned Rust toolchain and its bare-metal target (Phase 1+).
+if [ -x "$rustc_bin" ]; then
+    rust_line=$("$rustc_bin" --version 2>/dev/null || true)
+    sysroot=$("$rustc_bin" --print sysroot 2>/dev/null || true)
+    case "$rust_line" in
+        "rustc $RUST_VERSION "*)
+            if [ -n "$sysroot" ] && [ -d "$sysroot/lib/rustlib/$RUST_TARGET/lib" ]; then
+                row ok rust "$rust_line (+ target $RUST_TARGET)"
+            else
+                row WRONG rust "rustc ok but target $RUST_TARGET is missing; fix: tools/install-rust.sh"
+                failed=1
+            fi
+            ;;
+        *)
+            row WRONG rust "${rust_line:-not runnable} is not the pinned $RUST_VERSION; fix: tools/install-rust.sh"
+            failed=1
+            ;;
+    esac
+else
+    row MISSING rust "fix: tools/install-rust.sh (pinned $RUST_VERSION, target $RUST_TARGET)"
     failed=1
 fi
 

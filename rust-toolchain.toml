@@ -1,0 +1,8 @@
+# Pins the Rust toolchain for Revival OS (ADR 0001, Phase 1). Kept in step with
+# RUST_VERSION / RUST_TARGET in tools/pins.env. rustup reads this file when a
+# pinned rustc/cargo runs in this repository. Changing a pin is a reviewed
+# change that records why; it does not touch the Goose or Arm GNU pins.
+[toolchain]
+channel = "1.99.1"
+targets = ["armv7a-none-eabi"]
+profile = "minimal"
