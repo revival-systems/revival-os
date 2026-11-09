@@ -3,7 +3,9 @@
 **Status: working in QEMU.** The smallest freestanding Rust + ARM Assembly
 kernel boots on the QEMU `virt` board (ARMv7-A), prints a deterministic
 heartbeat and checksum from Rust, and exits through the documented semihosting
-path. It is integrated into `make check`. **Nothing has run on the Samsung**, and
+path. It is integrated into `make check` (36 PASS, 0 FAIL), with Phase 1 negative
+tests for hosted-dependency rejection and corrupted-image detection.
+**Nothing has run on the Samsung**, and
 this is a QEMU result, not a hardware result: Phase 1's pass criteria are in
 [ROADMAP Phase 1](../../ROADMAP.md#phase-1--rust--arm-assembly-freestanding-foundation).
 
@@ -80,7 +82,7 @@ deterministic across runs. The panic and bounds images reach the Rust
 
 ## Test results
 
-`make check`: **31 PASS, 0 FAIL** (was 25; the six new checks are below). It runs
+`make check`: **36 PASS, 0 FAIL** (was 31; the five new negative-test checks are below). It runs
 `doctor` (now including `rust rustc 1.99.1 (+ target armv7a-none-eabi)`), `lint`,
 `check-docs`, and the full test suite.
 
@@ -92,10 +94,71 @@ deterministic across runs. The panic and bounds images reach the Rust
 | `build-rust-symbols` | no undefined symbols; Rust links its own `core` |
 | `build-rust-one-svc` | exactly one `svc` (the documented semihosting exit); none in the Rust code |
 | `build-rust-elf-attributes` | ARMv7-A, Application profile, soft-float EABI |
+| `build-rust-rejects-std` | a kernel that pulls in `std` is rejected at build time (Test A) |
+| `build-rust-hosted-libc-compiles` | the libc negative fixture is valid `no_std` Rust, so the next check's failure is the libc symbol and not a compile error |
+| `build-rust-rejects-libc` | a kernel that calls libc `puts` fails the link on that symbol (Test A) |
+| `build-rust-corrupt-image-rejected` | a one-byte change to the image is rejected by SHA-256 (Test B) |
+| `build-rust-image-unchanged` | the original image is byte-for-byte unchanged after the check (Test B) |
 | `repro-identical` | 14 files byte-identical across two clean builds (includes the 3 kernel images) |
 
 Separately, the heartbeat image was booted **20 times**: **20 of 20** succeeded
 (exit 0 and the heartbeat and checksum present each time).
+
+## Negative tests (hosted dependency and corrupted image)
+
+Two Phase 1 negative tests prove the build rejects what it must. Both run inside
+`test-rust` under `make check`, and neither is part of `make build`.
+
+**Test A - hosted dependency rejection.** An unapproved hosted dependency must
+fail, and be *detected* as the cause - it must not pass because the fixture
+broke for an unrelated reason:
+
+- `build-rust-rejects-std` builds
+  [hosted_std.rs](../../tests/qemu/virt-armv7/hosted_std.rs), a kernel that omits
+  `#![no_std]` and so pulls in `std`. The target has no `std`, so the build is
+  rejected; the check requires the message "the armv7a-none-eabi target may not
+  support the standard library" (rustc `E0463`).
+- `build-rust-rejects-libc` links
+  [hosted_libc.rs](../../tests/qemu/virt-armv7/hosted_libc.rs), a complete
+  `no_std` kernel that also calls the libc function `puts`. It compiles cleanly -
+  the separate `build-rust-hosted-libc-compiles` check proves that first - then
+  fails the `-nostdlib` link with `puts` as the sole undefined reference (in
+  `kmain`), so the failure is provably the libc dependency and nothing else.
+
+The positive control is the real `kernel.rs`: it is `#![no_std]` and links clean
+(`build-rust-symbols` reports zero undefined symbols).
+
+**Test B - corrupted image detection.**
+[check_image_integrity.sh](../../tests/build/check_image_integrity.sh) records
+the SHA-256 of `kernel-heartbeat.elf`, writes a separate copy with one byte
+flipped, and confirms `sha256sum -c` rejects the corrupted copy
+(`build-rust-corrupt-image-rejected`) while the original image stays
+byte-for-byte unchanged (`build-rust-image-unchanged`).
+
+Exact commands, as `test-rust` runs them (`RUST_FLAGS` and `RUST_LINK` are the
+same variables used for the heartbeat build above):
+
+```sh
+# Test A: a std-pulling kernel must FAIL to build.
+rustc $RUST_FLAGS $RUST_LINK -C link-arg=kstart.o \
+      --emit link -o kernel-hosted-std.elf hosted_std.rs    # error E0463: no std
+
+# Test A: a libc-calling kernel compiles, then FAILS the link on puts.
+rustc $RUST_FLAGS --emit obj -o hosted_libc.o hosted_libc.rs           # ok
+rustc $RUST_FLAGS $RUST_LINK -C link-arg=kstart.o \
+      --emit link -o kernel-hosted-libc.elf hosted_libc.rs  # undefined reference: puts
+
+# Test B: corrupted-image detection against the built heartbeat image.
+tests/build/check_image_integrity.sh \
+      build/qemu-virt-armv7/kernel-heartbeat.elf build/rust-negative
+```
+
+Observed: the std build stops with `E0463` and the standard-library note; the
+libc link stops with a single `undefined reference to puts` in `kmain`; the
+corrupted copy is rejected and `kernel-heartbeat.elf` is unchanged. Together
+with the panic and bounds-check tests above, all four of the
+[ROADMAP Phase 1](../../ROADMAP.md#phase-1--rust--arm-assembly-freestanding-foundation)
+negative-and-failure tests now run in QEMU.
 
 ## Binary sizes and SHA-256
 
@@ -115,7 +178,7 @@ Per [docs/DEVELOPMENT.md](../DEVELOPMENT.md#development-cycle):
 | Build | Done. Reproducible; three images build warning-free (`-D warnings`) |
 | Boot | Done. All three boot on QEMU `virt` / `cortex-a15` |
 | Observe | Done. Heartbeat, checksum and panic location observed on the serial console |
-| Test | Done. Integrated into `make check`; negative paths (panic, bounds) verified |
+| Test | Done. Integrated into `make check`; negative paths (panic, bounds, hosted-dependency rejection, corrupted-image detection) verified |
 | Reboot / Recover | Host and emulator only: 20/20 clean QEMU starts and exits; no device involved |
 | Measure | Done. Sizes and SHA-256 recorded above |
 | Document | This file |
@@ -135,7 +198,8 @@ Per [docs/DEVELOPMENT.md](../DEVELOPMENT.md#development-cycle):
 
 ## Next smallest milestone
 
-Still within host/emulator scope, the next small increment is a statically
+With Phase 1's negative-and-failure tests now complete in QEMU, and still within
+host/emulator scope, the next small increment is a statically
 reserved, fixed-capacity structure exercised and checksummed from Rust (for
 example a bounded ring buffer in a `static`), to establish the static-memory
 pattern with a negative test, before any arena is considered. Device work

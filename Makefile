@@ -80,6 +80,10 @@ ALLOC_CASES    := 28
 # builds selected by a cfg, mirroring the probe's PROBE_CASE.
 KERNEL_MODES   := heartbeat panic oob
 KERNEL_ELFS    := $(foreach m,$(KERNEL_MODES),$(QEMU_OUT)/kernel-$(m).elf)
+# Phase 1 Rust negative-test artifacts (hosted-dependency rejection and
+# corrupted-image detection). Built only by test-rust, never by `build`, and
+# kept out of the reproducibility set.
+RUSTNEG        := $(OUT)/rust-negative
 
 SHELL_SCRIPTS := $(wildcard tools/*.sh tests/*.sh tests/*/*.sh)
 PY_FILES      := $(wildcard tests/*.py tests/*/*.py)
@@ -309,7 +313,7 @@ test-qemu: build | need-qemu ## Boot the probe and allocator test images in QEMU
 	@tests/qemu/run.sh qemu-alloc-bounds $(ALLOC_ELF) $(LOGS)/qemu-alloc.log 0 \
 	    "alloc: PASS ($(ALLOC_CASES) of $(ALLOC_CASES) cases)"
 
-test-rust: $(KERNEL_ELFS) | need-qemu need-arm ## Boot the Phase 1 Rust kernel images and check their build attributes
+test-rust: $(KERNEL_ELFS) $(FIXTURE)/hosted_std.rs $(FIXTURE)/hosted_libc.rs tests/build/check_image_integrity.sh | need-qemu need-arm need-rust ## Boot the Phase 1 Rust kernel images, check build attributes, and reject hosted deps and corrupted images
 	@mkdir -p $(LOGS)
 	@tests/qemu/run.sh qemu-rust-heartbeat $(QEMU_OUT)/kernel-heartbeat.elf $(LOGS)/krt-heartbeat.log 0 \
 	    "revival-os: phase 1 rust heartbeat"
@@ -326,6 +330,19 @@ test-rust: $(KERNEL_ELFS) | need-qemu need-arm ## Boot the Phase 1 Rust kernel i
 	  && $(ARM_READELF) -h $(QEMU_OUT)/kernel-heartbeat.elf | grep -q 'soft-float ABI' \
 	  && echo "PASS build-rust-elf-attributes (ARMv7-A, Application, soft-float EABI)" \
 	  || { echo "FAIL build-rust-elf-attributes"; exit 1; }
+	@mkdir -p $(RUSTNEG)
+	@$(EXPECT) build-rust-rejects-std nonzero "may not support the standard library" \
+	    $(LOGS)/krt-neg-std.log -- \
+	    $(RUSTC) $(RUST_FLAGS) $(RUST_LINK) -C link-arg=$(QEMU_OUT)/kstart.o \
+	    --emit link -o $(RUSTNEG)/kernel-hosted-std.elf $(FIXTURE)/hosted_std.rs
+	@$(RUSTC) $(RUST_FLAGS) --emit obj -o $(RUSTNEG)/hosted_libc.o $(FIXTURE)/hosted_libc.rs 2>$(LOGS)/krt-neg-libc-obj.log \
+	  && echo "PASS build-rust-hosted-libc-compiles (valid no_std fixture; the link failure below is the libc symbol, not a compile error)" \
+	  || { echo "FAIL build-rust-hosted-libc-compiles (see $(LOGS)/krt-neg-libc-obj.log)"; exit 1; }
+	@$(EXPECT) build-rust-rejects-libc nonzero "undefined reference to \`puts'" \
+	    $(LOGS)/krt-neg-libc.log -- \
+	    $(RUSTC) $(RUST_FLAGS) $(RUST_LINK) -C link-arg=$(QEMU_OUT)/kstart.o \
+	    --emit link -o $(RUSTNEG)/kernel-hosted-libc.elf $(FIXTURE)/hosted_libc.rs
+	@tests/build/check_image_integrity.sh $(QEMU_OUT)/kernel-heartbeat.elf $(RUSTNEG)
 
 test-repro: ## Build twice from scratch in separate directories and require identical outputs
 	@rm -rf $(OUT)/repro-a $(OUT)/repro-b
