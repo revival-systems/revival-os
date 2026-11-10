@@ -55,10 +55,14 @@ RUSTC       ?= $(CARGO_HOME)/bin/rustc
 RUST_FLAGS  := --target $(RUST_TARGET) --edition 2021 --crate-type bin \
                -C panic=abort -C opt-level=2 -C relocation-model=static \
                -D warnings --remap-path-prefix $(CURDIR)=.
-RUST_LINK   := -C linker=$(ARM_CC) -C linker-flavor=gcc -C link-arg=-fuse-ld=bfd \
+# Common link flags; each image appends its own linker script (-T). Phase 1
+# uses the QEMU fixture's link.ld (RAM 0x40000000); the Phase 2 payload uses
+# the device link.ld (load 0x80208000). Splitting the script out does not
+# change the Phase 1 expansion of RUST_LINK.
+RUST_LINK_BASE := -C linker=$(ARM_CC) -C linker-flavor=gcc -C link-arg=-fuse-ld=bfd \
                -C link-arg=-nostartfiles -C link-arg=-nostdlib \
-               -C link-arg=-Wl,--gc-sections -C link-arg=-Wl,--build-id=none \
-               -C link-arg=-Wl,-T,$(FIXTURE)/link.ld
+               -C link-arg=-Wl,--gc-sections -C link-arg=-Wl,--build-id=none
+RUST_LINK   := $(RUST_LINK_BASE) -C link-arg=-Wl,-T,$(FIXTURE)/link.ld
 
 GEN      := $(OUT)/gen
 QEMU_OUT := $(OUT)/qemu-virt-armv7
@@ -85,12 +89,21 @@ KERNEL_ELFS    := $(foreach m,$(KERNEL_MODES),$(QEMU_OUT)/kernel-$(m).elf)
 # kept out of the reproducibility set.
 RUSTNEG        := $(OUT)/rust-negative
 
+# Phase 2 GT-I9195 proof-of-execution payload (the device image, boot/ layer per
+# ARCHITECTURE.md). Built here and tested only in QEMU; never flashed.
+PAYLOAD_DIR  := boot/samsung-serranolte
+PAYLOAD_OUT  := $(OUT)/boot-serrano
+PAYLOAD_ELF  := $(PAYLOAD_OUT)/payload.elf
+PAYLOAD_BIN  := $(PAYLOAD_OUT)/payload.bin
+PAYLOAD_IMG  := $(PAYLOAD_OUT)/payload.img
+RUST_PAYLOAD_LINK := $(RUST_LINK_BASE) -C link-arg=-Wl,-T,$(PAYLOAD_DIR)/link.ld
+
 SHELL_SCRIPTS := $(wildcard tools/*.sh tests/*.sh tests/*/*.sh)
-PY_FILES      := $(wildcard tests/*.py tests/*/*.py)
+PY_FILES      := $(wildcard tests/*.py tests/*/*.py tools/*.py)
 OWN_C         := $(wildcard $(FIXTURE)/*.c tests/host/*.c tests/build/link-negative/*.c)
 
-.PHONY: help doctor install-toolchain build test test-build test-unit test-qemu \
-        test-rust test-repro lint check-docs check clean qemu-run qemu-debug \
+.PHONY: help doctor install-toolchain build payload test test-build test-unit test-qemu \
+        test-rust test-payload test-repro lint check-docs check clean qemu-run qemu-debug \
         need-goose need-arm need-qemu need-rust
 
 help: ## List the targets
@@ -188,8 +201,34 @@ $(QEMU_OUT)/kernel-%.elf: $(FIXTURE)/kernel.rs $(QEMU_OUT)/kstart.o $(FIXTURE)/l
 	$(RUSTC) $(RUST_FLAGS) $(RUST_LINK) -C link-arg=$(QEMU_OUT)/kstart.o $$cfg \
 	    --emit link -o $@ $(FIXTURE)/kernel.rs
 
-build: $(PROBE_ELFS) $(PROBE_BINS) $(ALLOC_ELF) $(KERNEL_ELFS) ## Build every artifact that exists today (the ARMv7-A probe, allocator and Rust kernel images)
+# ---- Phase 2 GT-I9195 proof-of-execution payload (device image) -----------
+
+# The device entry stub (ARM asm): zImage header, handoff capture, mask IRQ/FIQ,
+# stack, zero .bss, call Rust, then a masked wfi halt. NO svc in the image.
+$(PAYLOAD_OUT)/kstart.o: $(PAYLOAD_DIR)/kstart.S | need-arm
+	@mkdir -p $(@D)
+	$(ARM_CC) $(ARM_ARCH) -g $(REPRO) -c $< -o $@
+
+# rustc drives the link (its own core + compiler_builtins), bfd backend, device
+# link.ld (load 0x80208000); kstart.o supplies _start. No C library, no -lgcc.
+$(PAYLOAD_ELF): $(PAYLOAD_DIR)/payload.rs $(PAYLOAD_OUT)/kstart.o $(PAYLOAD_DIR)/link.ld | need-rust need-arm
+	@mkdir -p $(@D)
+	$(RUSTC) $(RUST_FLAGS) $(RUST_PAYLOAD_LINK) -C link-arg=$(PAYLOAD_OUT)/kstart.o \
+	    --emit link -o $@ $(PAYLOAD_DIR)/payload.rs
+
+# The exact kernel-slot bytes the stock bootloader would run (flat binary).
+$(PAYLOAD_BIN): $(PAYLOAD_ELF)
+	$(ARM_OBJCOPY) -O binary $< $@
+
+# The shippable Android boot image v0 (not flashed by any target).
+$(PAYLOAD_IMG): $(PAYLOAD_BIN) tools/pack_bootimg.py
+	$(PYTHON) -I tools/pack_bootimg.py --kernel $< --output $@
+
+payload: $(PAYLOAD_BIN) $(PAYLOAD_IMG) ## Build the Phase 2 payload (.bin kernel slot + .img boot image)
+
+build: $(PROBE_ELFS) $(PROBE_BINS) $(ALLOC_ELF) $(KERNEL_ELFS) $(PAYLOAD_BIN) $(PAYLOAD_IMG) ## Build every artifact that exists today (the ARMv7-A probe, allocator, Rust kernel and Phase 2 payload images)
 	@cd $(QEMU_OUT) && sha256sum probe-*.elf probe-*.bin alloc.elf kernel-*.elf
+	@cd $(PAYLOAD_OUT) && sha256sum payload.elf payload.bin payload.img
 
 # ---- link check (build-link-map) -------------------------------------------
 
@@ -241,7 +280,7 @@ $(HOST_OUT)/probe_host_asan: $(HOST_OUT)/probe_gen_asan.o $(HOST_OUT)/probe_main
 
 # ---- tests -----------------------------------------------------------------
 
-test: test-build test-unit test-qemu test-rust test-repro ## Run every automated test (build, unit, QEMU, Rust kernel, reproducibility)
+test: test-build test-unit test-qemu test-rust test-payload test-repro ## Run every automated test (build, unit, QEMU, Rust kernel, Phase 2 payload, reproducibility)
 
 test-build: build $(QEMU_OUT)/hosted_probe.o $(LINK_CHECKED) ## Check the freestanding build: link inputs, symbols, ELF attributes, no system calls
 	@mkdir -p $(LOGS)
@@ -343,6 +382,43 @@ test-rust: $(KERNEL_ELFS) $(FIXTURE)/hosted_std.rs $(FIXTURE)/hosted_libc.rs tes
 	    $(RUSTC) $(RUST_FLAGS) $(RUST_LINK) -C link-arg=$(QEMU_OUT)/kstart.o \
 	    --emit link -o $(RUSTNEG)/kernel-hosted-libc.elf $(FIXTURE)/hosted_libc.rs
 	@tests/build/check_image_integrity.sh $(QEMU_OUT)/kernel-heartbeat.elf $(RUSTNEG)
+
+test-payload: $(PAYLOAD_BIN) $(PAYLOAD_IMG) $(PAYLOAD_OUT)/kstart.o tests/boot/run_payload.py tests/boot/read_bootimg.py tests/boot/serrano_v1.py tests/boot/payload_hosted_libc.rs $(FIXTURE)/hosted_std.rs tests/build/check_image_integrity.sh | need-qemu need-arm need-rust ## Boot the Phase 2 payload in QEMU (paint both framebuffers), and check the handoff, the packer and reproducibility
+	@mkdir -p $(LOGS) $(PAYLOAD_OUT)/neg
+	@echo "# (a) run the exact kernel-slot bytes; both framebuffers must match the host oracle"
+	@$(PYTHON) -m tests.boot.run_payload --payload $(PAYLOAD_BIN) --workdir $(PAYLOAD_OUT)/qemu
+	@echo "# (b) build/negative checks on the payload image"
+	@n=$$($(ARM_OBJDUMP) -d $(PAYLOAD_ELF) | grep -cE '\s(svc|swi|smc|hvc)\s' || true); \
+	  if [ "$$n" = 0 ]; then echo "PASS payload-no-system-calls (zero svc/swi/smc/hvc)"; \
+	  else echo "FAIL payload-no-system-calls: found $$n"; exit 1; fi
+	@u=$$($(ARM_NM) -u $(PAYLOAD_ELF) | wc -l | tr -d ' '); \
+	  if [ "$$u" = 0 ]; then echo "PASS payload-symbols (no undefined symbols; Rust links its own core)"; \
+	  else echo "FAIL payload-symbols: $$u undefined"; $(ARM_NM) -u $(PAYLOAD_ELF); exit 1; fi
+	@a=$$($(ARM_READELF) -A $(PAYLOAD_ELF)); \
+	  grep -q 'Tag_CPU_arch: v7$$' <<<"$$a" && grep -q 'Tag_CPU_arch_profile: Application' <<<"$$a" \
+	  && $(ARM_READELF) -h $(PAYLOAD_ELF) | grep -q 'soft-float ABI' \
+	  && echo "PASS payload-elf-attributes (ARMv7-A, Application, soft-float EABI)" \
+	  || { echo "FAIL payload-elf-attributes"; exit 1; }
+	@$(EXPECT) payload-rejects-std nonzero "may not support the standard library" \
+	    $(LOGS)/payload-neg-std.log -- \
+	    $(RUSTC) $(RUST_FLAGS) $(RUST_PAYLOAD_LINK) -C link-arg=$(PAYLOAD_OUT)/kstart.o \
+	    --emit link -o $(PAYLOAD_OUT)/neg/payload-std.elf $(FIXTURE)/hosted_std.rs
+	@$(EXPECT) payload-rejects-libc nonzero "undefined reference to \`puts'" \
+	    $(LOGS)/payload-neg-libc.log -- \
+	    $(RUSTC) $(RUST_FLAGS) $(RUST_PAYLOAD_LINK) -C link-arg=$(PAYLOAD_OUT)/kstart.o \
+	    --emit link -o $(PAYLOAD_OUT)/neg/payload-libc.elf tests/boot/payload_hosted_libc.rs
+	@tests/build/check_image_integrity.sh $(PAYLOAD_BIN) $(PAYLOAD_OUT)/neg
+	@echo "# (c) packer: an independent reader validates every boot-image field"
+	@$(EXPECT) payload-bootimg-valid 0 "OK" $(LOGS)/payload-read.log -- \
+	    $(PYTHON) -m tests.boot.read_bootimg $(PAYLOAD_IMG)
+	@echo "# (d) reproducibility: two clean builds give byte-identical .bin and .img"
+	@rm -rf $(OUT)/payload-repro-a $(OUT)/payload-repro-b
+	@$(MAKE) --no-print-directory -s BUILD=$(OUT)/payload-repro-a payload >/dev/null
+	@$(MAKE) --no-print-directory -s BUILD=$(OUT)/payload-repro-b payload >/dev/null
+	@if cmp -s $(OUT)/payload-repro-a/boot-serrano/payload.bin $(OUT)/payload-repro-b/boot-serrano/payload.bin \
+	    && cmp -s $(OUT)/payload-repro-a/boot-serrano/payload.img $(OUT)/payload-repro-b/boot-serrano/payload.img; then \
+	  echo "PASS payload-repro-identical (payload.bin and payload.img byte-identical across two clean builds)"; \
+	else echo "FAIL payload-repro-identical"; exit 1; fi
 
 test-repro: ## Build twice from scratch in separate directories and require identical outputs
 	@rm -rf $(OUT)/repro-a $(OUT)/repro-b

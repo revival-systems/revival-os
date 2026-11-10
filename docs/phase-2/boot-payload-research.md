@@ -199,6 +199,31 @@ Research cannot close these. They are not guessed here.
 
 Items 1–6 are the same gates Phase 0 and the ROADMAP already set. Items 7–12 are new from this research.
 
+## v1 payload decision
+
+The first payload (built and tested in QEMU in step 1, not flashed) deliberately **lightens** the candidate specification above. It is implemented in [boot/samsung-serranolte/](../../boot/samsung-serranolte/) (`kstart.S`, `payload.rs`, `link.ld`), packed by [tools/pack_bootimg.py](../../tools/pack_bootimg.py), and tested by [tests/boot/](../../tests/boot/) under `make check` (target `test-payload`).
+
+What v1 keeps: the entry capture (`r0`–`r3`, CPSR, SCTLR, run-time entry address), IRQ+FIQ masking, stack in the image's own static region, `.bss` zeroing, both candidate framebuffers painted (`0x88100000` bytes `FF 00 00`; `0x88300000` bytes `00 FF 00`) with the eight recorded words drawn as block rows, a masked `wfi` halt, and the packaging (Android boot image v0, page 2048, kernel at `0x80208000`, zImage words, 1-byte zero ramdisk, `SEANDROIDENFORCE` trailer). The image contains **no `svc`** and links with zero undefined symbols.
+
+What v1 drops from the candidate spec, and why:
+
+- **No MMIO register reads.** The spec would read the display controller to find the framebuffer, and read the watchdog and timer. v1 reads **only CPU registers** (plus one guarded word at `r2`). A read from a display/timer/watchdog block whose clock or power domain the bootloader left off can hang the device with no output ([lk2nd guards its own MDP reads for exactly this](../../boot/samsung-serranolte/payload.rs)), and the framebuffer address itself is unconfirmed (section 3). So v1 writes both candidate addresses blind and lets the photograph say which is live and in what byte order, before any code depends on reading that hardware. This is blocker #9 above, kept open.
+- **No timer.** With no timer read, v1 cannot hold the signal for a measured interval; it simply paints and halts, and the display (a continuously-refreshed video-mode panel, section 3) keeps showing the last frame until the battery is pulled. A measured hold waits for the timer path to be confirmed.
+- **No reset and no watchdog interaction.** v1 neither pets nor disables the watchdog and never triggers a reset (every reset route has an unknown outcome, section 5). If the watchdog is running, the device resets itself and that interval is itself the measurement.
+
+v1 adds one small behaviour not in the spec: a **completion-marker word** (`0xD09ED09E` at `0x88290000`, in the unreserved gap between the two framebuffers) written last, so an external observer can tell painting finished before reading the framebuffers instead of racing a fixed delay. It is a single word to otherwise-unused RAM and is harmless on the device.
+
+**Write-region safety (step 3 check).** All addresses the payload touches are in RAM and clear of the image, its stack, ATAGS and the documented reserved regions:
+
+| Region | Range | Clear of |
+| --- | --- | --- |
+| Image + 64 KiB stack | `0x80208000` .. < `0x81208000` (16 MiB reserved, used < 1 MiB) | above ATAGS `0x80200100` and SMEM `0x80000000`+2 MiB (ends `0x80200000`); far below `0x88100000` |
+| FB_RED fill | `0x88100000` .. `0x8827BB00` (1,555,200 B) | below FB_GREEN; above SMEM; not a documented reserved region (the contested LKML address, in the free `0x88000000`–`0x88300000` gap) |
+| Completion marker | `0x88290000` (4 B) | between FB_RED end and FB_GREEN start |
+| FB_GREEN fill | `0x88300000` .. `0x8847BB00` (1,555,200 B) | within the documented 3 MiB framebuffer reservation `0x88300000`+3 MiB (ends `0x88600000`); below WCNSS `0x8F000000` |
+
+The two framebuffers do not overlap each other (`0x8827BB00` < `0x88300000`). None of these ranges is a bootloader-chain, `efs`, `persist` or `modem` partition; they are DRAM only. QEMU `-m 2048` (RAM `0x40000000`–`0xC0000000`) spans all of them, which is why the emulator test exercises the real addresses.
+
 ## Sources
 
 Checked 2026-11-10. Line numbers refer to the pinned commits in the table at the top.
