@@ -77,7 +77,7 @@ The reference machine is Ubuntu 26.04 LTS on x86-64. Other Ubuntu releases are e
 
 Goose and the Arm toolchain are pinned by version and SHA-256. Ubuntu packages follow the Ubuntu release, and `make doctor` records their versions. Changing a pin is a reviewed pull request. The Goose pin must stay equal to Revival Server's unless both are changed deliberately.
 
-Since [ADR 0001](decisions/0001-rust-and-arm-assembly.md), the Goose compiler is a **reference** toolchain, not the active one; it is kept and its pin is unchanged. The Arm GNU Toolchain stays (the Rust bare-metal build reuses its linker and utilities). A Rust bare-metal target and any Rust toolchain pin are added in a **later** reviewed pull request, not here.
+Since [ADR 0001](decisions/0001-rust-and-arm-assembly.md), the Goose compiler is a **reference** toolchain, not the active one; it is kept and its pin is unchanged. The Arm GNU Toolchain stays (the Rust bare-metal build reuses its linker and utilities). The Rust bare-metal target (`armv7a-none-eabi`) and the Rust toolchain pin were added with the Phase 1 QEMU foundation ([working notes](phase-1/rust-foundation.md)).
 
 ## Commands
 

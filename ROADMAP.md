@@ -22,7 +22,7 @@ Sources: Revival Server issues [#120](https://github.com/revival-systems/revival
 | Phase | Capability | Runs on | State |
 | --- | --- | --- | --- |
 | 0 | One-time hardware identity and stock rescue baseline | Device (read-only) | Physical tests partly reported; evidence review and remaining checks pending |
-| 1 | Rust + ARM Assembly freestanding foundation (ARMv7-A) | Host + emulator | Not started; Goose feasibility kept as reference |
+| 1 | Rust + ARM Assembly freestanding foundation (ARMv7-A) | Host + emulator | QEMU foundation implemented ([PR #5](https://github.com/revival-systems/revival-os/pull/5) merged); formal gate review pending; not yet run on the Samsung. Goose feasibility kept as reference |
 | 2 | First bare-metal boot with observable output | Device (first write) | Not started |
 | 3 | Exceptions, MMU, memory, interrupts, timer, watchdog | Device + emulator | Not started |
 | 4 | Buttons, display console, storage reads | Device | Not started |

@@ -2,7 +2,7 @@
 
 A lightweight, independent operating system written in **Rust and ARM Assembly** (`#![no_std]`, ARMv7-A), intended to run directly on repurposed phone hardware and, later, on cameras, robots and other embedded devices. It began as a [Goose](https://github.com/aardappel/goose)-based prototype; that work is kept as a studied reference ([ADR 0001](docs/decisions/0001-rust-and-arm-assembly.md)).
 
-**Status: Phase 0 — research and hardware verification. No operating-system code exists yet.** Nothing in this repository boots, and no hardware milestone has been passed. This repository currently holds the architecture, the milestone plan and the first target's research and test procedure.
+**Status: Phase 0 — research and hardware verification. A QEMU-only Rust + ARM Assembly kernel exists (the Phase 1 foundation); no Revival OS code has run on the phone yet.** That kernel boots only in the QEMU emulator ([working notes](docs/phase-1/rust-foundation.md)), which is not a hardware result, and no hardware milestone has been passed. This repository also holds the architecture, the milestone plan and the first target's research and test procedure.
 
 ## First target
 
@@ -23,7 +23,7 @@ Every milestone adds the smallest capability that can be observed and tested on 
 | Phase | Capability | State |
 | --- | --- | --- |
 | 0 | One-time stock hardware baseline; identify the boot chain and emergency rescue path | Research documented; physical verification evidence pending review |
-| 1 | Freestanding Rust + ARM Assembly foundation for ARMv7-A | Not started; Goose feasibility kept as reference ([findings](docs/toolchain/goose-freestanding-notes.md)) |
+| 1 | Freestanding Rust + ARM Assembly foundation for ARMv7-A | QEMU foundation implemented ([PR #5](https://github.com/revival-systems/revival-os/pull/5) merged; [working notes](docs/phase-1/rust-foundation.md)); formal gate review pending; not yet run on the Samsung. Goose feasibility kept as reference ([findings](docs/toolchain/goose-freestanding-notes.md)) |
 | 2 | First bare-metal boot with observable output | Not started |
 | 3–9 | Kernel foundations → hardware → networking → camera → standalone camera → internet → hardening | Not started |
 
@@ -38,7 +38,7 @@ make doctor              # every required tool must be "ok"
 make check               # lint, docs and every test; run before each push
 ```
 
-The only buildable artifact today is the **Goose toolchain probe**, now a reference artifact: a tiny Goose program cross-compiled for ARMv7-A and run in QEMU with no Linux and no C library. It tests the toolchain and is not part of the operating system. The first Rust + ARM Assembly image is the Phase 1 milestone, added in a later pull request ([ADR 0001](docs/decisions/0001-rust-and-arm-assembly.md)).
+The buildable artifacts today are QEMU-only test fixtures. The **Phase 1 Rust + ARM Assembly kernel image** boots on QEMU's `virt` board and prints a heartbeat and a checksum ([working notes](docs/phase-1/rust-foundation.md), [ADR 0001](docs/decisions/0001-rust-and-arm-assembly.md)); it has not run on the Samsung. The **Goose toolchain probe** is now a reference artifact: a tiny Goose program cross-compiled for ARMv7-A and run in QEMU with no Linux and no C library. It tests the toolchain and is not part of the operating system.
 
 ## Repository map
 
