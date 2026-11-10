@@ -32,8 +32,11 @@ if [ ! -f "$elf" ]; then
 fi
 
 set +e
+# -nic none: the images use no network device. Without it, virt adds a default
+# virtio-net NIC and QEMU exits 1 before running the guest when that NIC's
+# option ROM (efi-virtio.rom, package ipxe-qemu) is not installed.
 timeout --kill-after=5 "$limit" "$qemu" \
-    -M virt -cpu cortex-a15 -m 64M \
+    -M virt -cpu cortex-a15 -m 64M -nic none \
     -nographic -monitor none -serial stdio \
     -semihosting-config enable=on,target=native \
     -kernel "$elf" </dev/null >"$log" 2>&1
