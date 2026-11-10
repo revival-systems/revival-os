@@ -12,17 +12,17 @@ These facts come from public sources and **have not yet been confirmed on the ow
 
 ## What "replacing Android" means here
 
-On this phone, early boot is fixed vendor firmware: the SoC boot ROM, Qualcomm's signed secondary bootloaders, TrustZone, the RPM firmware and Samsung's bootloader. Those stay. Revival OS replaces what that chain loads from the `boot` (or `recovery`) partition: today, the Linux kernel and the Android userspace above it. The finished OS must not need Linux or Android to run. Some peripherals (Wi-Fi, modem, video, GPU) also run vendor firmware, which Revival OS would load rather than replace. Details: [ARCHITECTURE.md](ARCHITECTURE.md#what-stays-vendor-firmware).
+On this phone, early boot is fixed vendor firmware: the SoC boot ROM, Qualcomm's signed secondary bootloaders, TrustZone, the RPM firmware and Samsung's bootloader. Those stay. Revival OS replaces what that chain loads from the `boot` (or `recovery`) partition: today, the Linux kernel and the Android userspace above it. **The owner intends the final device to boot Revival OS, not Android; personal data are disposable.** Some peripherals (Wi-Fi, modem, video, GPU) also run vendor firmware, which Revival OS would load rather than replace. These essential firmware components must not be erased just because Android is being replaced. Details: [ARCHITECTURE.md](ARCHITECTURE.md#what-stays-vendor-firmware).
 
 There is no PC BIOS or UEFI on this device.
 
 ## How the work proceeds
 
-Every milestone adds the smallest capability that can be observed and tested on the real phone, with a recorded recovery path. Emulator results never count as hardware results. Android is not erased until independent boot has been proved and the owner decides to. See [ROADMAP.md](ROADMAP.md).
+Every milestone adds the smallest capability that can be observed and tested on the real phone, with a recorded rescue path. Emulator results never count as hardware results. **The Samsung is dedicated to Revival OS experiments; Android and personal data need not be preserved.** Phase 0 stock boot/reboot checks are only a one-time hardware baseline; after that, *boot* and *reboot* milestones measure **Revival OS itself**, one tiny capability at a time: first our code executing, then a normal power-on boot path, then a logo/console and individual drivers. Android removal is eventual and controlled, not a prerequisite for the first experiments. See [ROADMAP.md](ROADMAP.md).
 
 | Phase | Capability | State |
 | --- | --- | --- |
-| 0 | Identify the hardware, boot chain and recovery paths; stock boot, reboot and recovery | Research documented; **physical checks not started** |
+| 0 | One-time stock hardware baseline; identify the boot chain and emergency rescue path | Research documented; physical verification evidence pending review |
 | 1 | Freestanding Rust + ARM Assembly foundation for ARMv7-A | Not started; Goose feasibility kept as reference ([findings](docs/toolchain/goose-freestanding-notes.md)) |
 | 2 | First bare-metal boot with observable output | Not started |
 | 3–9 | Kernel foundations → hardware → networking → camera → standalone camera → internet → hardening | Not started |
