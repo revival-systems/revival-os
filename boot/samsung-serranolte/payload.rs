@@ -1,4 +1,4 @@
-//! payload.rs - GT-I9195 Phase 2 proof-of-execution payload (v1).
+//! payload.rs - GT-I9195 Phase 2 proof-of-execution payload (v1.1).
 //!
 //! `#![no_std]`, ARMv7-A (target `armv7a-none-eabi`, soft-float). DEVICE code:
 //! the Rust half of the smallest image that proves Revival OS code runs on the
@@ -7,22 +7,24 @@
 //! kernel tree (ARCHITECTURE.md places `kernel/` at Phase 3).
 //!
 //! Memory (ADR 0001, owner's rule): native call stack + statically reserved
-//! data only. No heap, no allocator. No `svc`.
+//! data only. No heap, no allocator. No `svc`. No timer, no watchdog.
 //!
-//! v1 LIGHTENS the PR #9 candidate spec (docs/phase-2/boot-payload-research.md,
-//! "v1 payload decision"): it performs NO MMIO reads of the display controller,
-//! timer or watchdog. It reads only CPU registers (captured by kstart.S) and,
-//! conditionally, one word of RAM at r2. Its only writes are to the two
-//! candidate framebuffers, which are RAM. The handoff values it paints are
-//! whatever the emulator/bootloader supplies; on the phone they are what
-//! Phase 2 measures.
+//! v1.1 still LIGHTENS the PR #9 candidate spec (docs/phase-2/boot-payload-research.md,
+//! "v1 payload decision"). It reads CPU registers (captured by kstart.S), one
+//! guarded word of RAM at *r2, and exactly ONE display-controller register (the
+//! MDP4 framebuffer address) which it reads LAST, after a result is already on
+//! screen, so a hang there costs nothing already painted. It writes ONLY to
+//! framebuffers. The handoff values it paints are whatever the emulator or
+//! bootloader supplies; on the phone they are what Phase 2 measures.
 //!
 //! SIGNAL: both candidate framebuffers are painted (540x960, 3 bytes/pixel,
-//! stride 1620), then eight recorded words are drawn as rows of 32 blocks
+//! stride 1620), then nine recorded words are drawn as rows of 32 blocks
 //! (MSB first, white = 1, black = 0) so a photograph carries the handoff state:
 //!   0x88100000 filled bytes FF 00 00  (shows red or blue -> reveals byte order)
 //!   0x88300000 filled bytes 00 FF 00  (green in either order)
-//! The host oracle tests/boot/serrano_v1.py reproduces this byte for byte.
+//! If the MDP4 register names a plausible third framebuffer, that is painted
+//! grey (80 80 80) with the same rows. The host oracle tests/boot/serrano_v1.py
+//! reproduces the two candidate buffers byte for byte.
 
 #![no_std]
 #![no_main]
@@ -41,29 +43,41 @@ const WIDTH: usize = 540;
 const HEIGHT: usize = 960;
 const BPP: usize = 3;
 const STRIDE: usize = 1620; // WIDTH * BPP, no padding
+const FB_BYTES: u64 = STRIDE as u64 * HEIGHT as u64; // 1_555_200
 
-// Device RAM window for the conditional read of *r2. Start 0x80000000, size
-// ~1.5 GiB (gt-i9195.md). r2 is read only if it lies here and is word-aligned;
-// otherwise the recorded word is the sentinel below (e.g. r2 == 0 under QEMU).
-const RAM_START: u32 = 0x8000_0000;
-const RAM_END: u32 = 0x8000_0000 + 0x6000_0000; // 1.5 GiB -> 0xE000_0000
-const R2_NOT_IN_RAM: u32 = 0xFFFF_FFFF;
+// The guarded read of *r2 is narrowed to the tags page [0x80200000, 0x80208000),
+// where the bootloader's ATAGS/DTB pointer (tags_addr 0x80200100) should fall,
+// and must be word-aligned. Anything else records the sentinel (e.g. r2 == 0
+// under QEMU, which is outside this window).
+const R2_READ_LO: u32 = 0x8020_0000;
+const R2_READ_HI: u32 = 0x8020_8000;
+const R2_OUT_OF_RANGE: u32 = 0xFFFF_FFFF;
 
-// Completion marker: the payload's final write, one word to a scratch cell in
-// the unreserved gap between the two framebuffers (0x8827_BB00..0x8830_0000).
-// An external observer (the QEMU harness now; any future on-device probe) can
-// poll it to know painting finished before reading the framebuffers, instead
-// of racing a fixed delay. It is in RAM on both QEMU and the phone and touches
-// nothing else. See docs/phase-2 "v1 payload decision".
-const DONE_ADDR: usize = 0x8829_0000;
-const DONE_VALUE: u32 = 0xD09E_D09E;
+// MDP4 DMA_P source-buffer address register (docs/phase-2 section 3). v1.1 reads
+// it as the very LAST action, after a-b are painted, to discover the real
+// framebuffer address on the device. In QEMU virt this address is flash and
+// reads back 0x00000000, which fails the plausibility check (not in RAM).
+const MDP_DMA_P_BUF_ADDR: usize = 0x0519_0008;
+
+// Device DRAM and the reserved regions a discovered framebuffer must avoid
+// (gt-i9195.md memory map). All half-open [lo, hi); checked by is_plausible_fb.
+const DEV_RAM_LO: u64 = 0x8000_0000;
+const DEV_RAM_HI: u64 = 0x8000_0000 + 0x6000_0000; // 1.5 GiB -> 0xE000_0000
+const RESERVED: [(u64, u64); 6] = [
+    (0x8020_0000, 0x8020_8000), // ATAGS / tags page
+    (0x8020_8000, 0x8120_8000), // this image + its 64 KiB stack (link.ld, 16 MiB)
+    (0x8000_0000, 0x8020_0000), // SMEM (2 MiB)
+    (0x8830_0000, 0x8860_0000), // bootloader framebuffer reserved (3 MiB)
+    (0x8F00_0000, 0x8F70_0000), // WCNSS (7 MiB)
+    (0x8FB0_0000, 0x8FE0_0000), // modem rmtfs (3 MiB)
+];
+const GREY_PX: [u8; BPP] = [0x80, 0x80, 0x80];
 
 // Block geometry for the encoded word rows. 32 blocks * 16 px = 512 <= 540;
-// 8 rows * 16 px = 128 <= 960. White = 0xFF bytes, black = 0x00 bytes (both
+// 9 rows * 16 px = 144 <= 960. White = 0xFF bytes, black = 0x00 bytes (both
 // order-independent, so the word rows read the same regardless of RGB/BGR).
 const BLOCK_W: usize = 16;
 const BLOCK_H: usize = 16;
-const WORDS: usize = 8;
 
 // --- checksum: reused verbatim from the Phase 1 fixture (trivial) ------------
 // Same table and algorithm as tests/qemu/virt-armv7/kernel.rs, so the value is
@@ -120,7 +134,7 @@ fn draw_block(base: usize, bx: usize, by: usize, on: bool) {
             let p = row + x * BPP;
             let mut c = 0usize;
             while c < BPP {
-                // SAFETY: as in `fill`; x < 512 <= WIDTH, y < 128 <= HEIGHT.
+                // SAFETY: as in `fill`; x < 512 <= WIDTH, y < 144 <= HEIGHT.
                 unsafe { write_volatile((p + c) as *mut u8, shade) };
                 c += 1;
             }
@@ -130,58 +144,106 @@ fn draw_block(base: usize, bx: usize, by: usize, on: bool) {
     }
 }
 
-/// Draw the eight recorded words as rows of 32 blocks, MSB first.
-fn draw_words(base: usize, words: &[u32; WORDS]) {
-    let mut row = 0usize;
-    while row < WORDS {
-        let w = words[row];
-        let mut bit = 0usize;
-        while bit < 32 {
-            let on = (w >> (31 - bit)) & 1 != 0;
-            draw_block(base, bit, row, on);
-            bit += 1;
-        }
-        row += 1;
+/// Draw one 32-bit word as a row of 32 blocks (MSB first) at block-row `row`.
+fn draw_row(base: usize, row: usize, value: u32) {
+    let mut bit = 0usize;
+    while bit < 32 {
+        let on = (value >> (31 - bit)) & 1 != 0;
+        draw_block(base, bit, row, on);
+        bit += 1;
     }
+}
+
+/// Is `fb` a plausible real framebuffer to also paint? It must be word-aligned,
+/// hold the whole 1620x960 buffer inside device RAM, differ from both candidate
+/// addresses, and not overlap this image, its stack, ATAGS or any reserved
+/// region (gt-i9195.md). Pure arithmetic; it performs no memory access.
+fn is_plausible_fb(fb: u32) -> bool {
+    if fb & 3 != 0 {
+        return false;
+    }
+    let lo = fb as u64;
+    let hi = lo + FB_BYTES;
+    if lo < DEV_RAM_LO || hi > DEV_RAM_HI {
+        return false;
+    }
+    if fb as usize == FB_RED || fb as usize == FB_GREEN {
+        return false;
+    }
+    let mut i = 0usize;
+    while i < RESERVED.len() {
+        let (rlo, rhi) = RESERVED[i];
+        if lo < rhi && rlo < hi {
+            return false;
+        }
+        i += 1;
+    }
+    true
 }
 
 /// Payload entry, called by kstart.S with a pointer to the 7 captured words
 /// [r0, r1, r2, r3, cpsr, sctlr, entry]. Returns after painting; kstart.S then
-/// halts in a masked wfi loop.
+/// halts in a masked wfi loop. The image writes ONLY to framebuffers.
+///
+/// Order (v1.1): the risky steps run LAST, after a visible result is on screen.
+///   a. fill both candidate framebuffers;
+///   b. read *r2 (guarded) and draw the 8 handoff word rows in both;
+///   c. read the MDP4 framebuffer-address register (the one display-controller
+///      access, done last so a hang costs nothing already painted); draw it as
+///      a 9th row, and if it names a plausible framebuffer, paint that grey and
+///      draw all 9 rows there too.
 #[no_mangle]
 pub extern "C" fn payload_main(handoff: *const u32) {
-    // SAFETY: kstart.S passes a 7-word array on the stack; it is valid and
-    // aligned for the duration of this call.
+    // SAFETY: kstart.S passes a 7-word array on the stack; valid for this call.
     let h = unsafe { core::slice::from_raw_parts(handoff, 7) };
     let r0 = h[0];
     let r1 = h[1];
     let r2 = h[2];
-    // h[3] (r3) is captured but not among the eight painted words (the spec
-    // lists r0, r1, r2, CPSR, SCTLR, entry, *r2, checksum).
+    // h[3] (r3) is captured but not painted.
     let cpsr = h[4];
     let sctlr = h[5];
     let entry = h[6];
 
-    // Conditional single read of *r2 (the only non-framebuffer memory access),
-    // guarded so it never faults: r2 must be in device RAM and word-aligned.
-    let at_r2 = if r2 >= RAM_START && r2 < RAM_END && (r2 & 3) == 0 {
-        // SAFETY: r2 is within the device RAM window and word-aligned.
+    // Guarded single read of *r2: only inside the tags page and word-aligned.
+    let at_r2 = if r2 >= R2_READ_LO && r2 < R2_READ_HI && (r2 & 3) == 0 {
+        // SAFETY: r2 is inside the tags page and word-aligned.
         unsafe { read_volatile(r2 as *const u32) }
     } else {
-        R2_NOT_IN_RAM
+        R2_OUT_OF_RANGE
     };
 
-    let words: [u32; WORDS] = [r0, r1, r2, cpsr, sctlr, entry, at_r2, checksum()];
+    // The 8 handoff words (the 9th, below, is the display register, read last).
+    let words8: [u32; 8] = [r0, r1, r2, cpsr, sctlr, entry, at_r2, checksum()];
 
+    // a. fill both candidate framebuffers.
     fill(FB_RED, [0xFF, 0x00, 0x00]);
     fill(FB_GREEN, [0x00, 0xFF, 0x00]);
-    draw_words(FB_RED, &words);
-    draw_words(FB_GREEN, &words);
 
-    // Final write: publish the completion marker. Must be last.
-    // SAFETY: DONE_ADDR is a single word in RAM, in the scratch gap between the
-    // framebuffers; it overlaps nothing else. Single-threaded.
-    unsafe { write_volatile(DONE_ADDR as *mut u32, DONE_VALUE) };
+    // b. draw the 8 handoff rows in both (visible before any risky read).
+    let mut row = 0usize;
+    while row < 8 {
+        draw_row(FB_RED, row, words8[row]);
+        draw_row(FB_GREEN, row, words8[row]);
+        row += 1;
+    }
+
+    // c. the single display-controller read, done last. In QEMU virt it returns
+    // 0 (flash); on the device it names the live framebuffer.
+    // SAFETY: a single volatile read of a fixed MMIO/flash address; no write.
+    let mdp = unsafe { read_volatile(MDP_DMA_P_BUF_ADDR as *const u32) };
+    draw_row(FB_RED, 8, mdp);
+    draw_row(FB_GREEN, 8, mdp);
+
+    if is_plausible_fb(mdp) {
+        let third = mdp as usize;
+        fill(third, GREY_PX);
+        let mut row = 0usize;
+        while row < 8 {
+            draw_row(third, row, words8[row]);
+            row += 1;
+        }
+        draw_row(third, 8, mdp);
+    }
 }
 
 /// This payload has no reachable panic in v1; the handler exists because

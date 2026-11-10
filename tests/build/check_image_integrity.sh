@@ -6,20 +6,23 @@
 # "FAIL <name>: <reason>" lines (like tests/qemu/run.sh and tests/expect.sh)
 # and exits nonzero on any failure.
 #
-# Usage: tests/build/check_image_integrity.sh IMAGE WORKDIR
+# Usage: tests/build/check_image_integrity.sh IMAGE WORKDIR [NAME_PREFIX]
+# NAME_PREFIX defaults to "build-rust" (the Phase 1 names, unchanged); the
+# Phase 2 payload passes "payload" for its own PASS/FAIL names.
 set -euo pipefail
 
-if [ "$#" -ne 2 ]; then
-    echo "usage: $0 IMAGE WORKDIR" >&2
+if [ "$#" -lt 2 ] || [ "$#" -gt 3 ]; then
+    echo "usage: $0 IMAGE WORKDIR [NAME_PREFIX]" >&2
     exit 2
 fi
 img=$1
 work=$2
+prefix=${3:-build-rust}
 name=$(basename "$img")
 mkdir -p "$work"
 
 if [ ! -f "$img" ]; then
-    echo "FAIL build-rust-corrupt-image-rejected: $img does not exist (run make build)"
+    echo "FAIL ${prefix}-corrupt-image-rejected: $img does not exist (run make build)"
     exit 1
 fi
 
@@ -44,21 +47,21 @@ PY
 # checklist verification (sha256sum -c) must report it as FAILED.
 actual=$(sha256sum "$corrupt" | awk '{print $1}')
 if [ "$actual" = "$expected" ]; then
-    echo "FAIL build-rust-corrupt-image-rejected: the corrupted copy still matches the expected hash"
+    echo "FAIL ${prefix}-corrupt-image-rejected: the corrupted copy still matches the expected hash"
     exit 1
 fi
 checkfile=$work/$name.expected.sha256
 printf '%s  %s\n' "$expected" "$corrupt" >"$checkfile"
 if sha256sum -c "$checkfile" >/dev/null 2>&1; then
-    echo "FAIL build-rust-corrupt-image-rejected: sha256sum -c accepted the corrupted copy"
+    echo "FAIL ${prefix}-corrupt-image-rejected: sha256sum -c accepted the corrupted copy"
     exit 1
 fi
-echo "PASS build-rust-corrupt-image-rejected ($name: a one-byte change is rejected by SHA-256)"
+echo "PASS ${prefix}-corrupt-image-rejected ($name: a one-byte change is rejected by SHA-256)"
 
 # Step 5: the original image must be byte-for-byte unchanged.
 still=$(sha256sum "$img" | awk '{print $1}')
 if [ "$still" != "$expected" ]; then
-    echo "FAIL build-rust-image-unchanged: $name changed during the check (now $still, was $expected)"
+    echo "FAIL ${prefix}-image-unchanged: $name changed during the check (now $still, was $expected)"
     exit 1
 fi
-echo "PASS build-rust-image-unchanged ($name unchanged: $expected)"
+echo "PASS ${prefix}-image-unchanged ($name unchanged: $expected)"

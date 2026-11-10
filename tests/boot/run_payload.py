@@ -5,15 +5,18 @@ on `qemu-system-arm -M virt -cpu cortex-a15 -m 2048`, loaded at 0x80208000 via
 `-device loader` with the PC set there and no `-kernel` (task test (a)). RAM at
 0x40000000..0xC0000000 spans the load address and both framebuffers.
 
-It drives QEMU over QMP: start paused, `cont`, poll the payload's completion
-marker (so there is no fixed-delay race), then `pmemsave` both framebuffer
-regions. Each dump is compared BYTE FOR BYTE against the host oracle
-(serrano_v1.generate_fb with the expected handoff words), the encoded word rows
-are decoded and checked for structural invariants, and the observed fill colour
-and completion marker are reported. Prints PASS/FAIL lines; exits nonzero on any
-failure. No device is contacted.
+It drives QEMU over QMP: start paused, `cont`, then poll the program counter
+(R15, read with `info registers`) until it rests in the payload's `halt_loop`
+(address passed in from the ELF symbol) - so completion is detected without any
+device-side marker and without racing a fixed delay. It then `pmemsave`s both
+framebuffer regions. Each dump is compared BYTE FOR BYTE against the host oracle
+(serrano_v1.generate_fb with the expected handoff words), the nine encoded word
+rows are decoded and checked for structural invariants, and the observed fill
+colour is reported. The QMP socket lives in a short temporary directory removed
+on exit (a long checkout path otherwise exceeds the AF_UNIX limit). Prints
+PASS/FAIL lines; exits nonzero on any failure. No device is contacted.
 
-Usage: run_payload.py --payload PAYLOAD.bin --workdir DIR [--qemu BIN] [--timeout S]
+Usage: run_payload.py --payload BIN --workdir DIR --halt-addr ADDR [--qemu BIN] [--timeout S]
 """
 
 from __future__ import annotations
@@ -22,14 +25,17 @@ import argparse
 import json
 import os
 import re
+import shutil
 import socket
 import subprocess
 import sys
+import tempfile
 import time
 
 from tests.boot import serrano_v1 as oracle
 
 NAME = "qemu-payload"
+R15_RE = re.compile(r"R15=([0-9a-fA-F]{8})")
 
 
 def _fail(msg: str) -> int:
@@ -72,6 +78,10 @@ class Qmp:
     def hmc(self, command_line: str) -> str:
         return self.execute("human-monitor-command", **{"command-line": command_line})
 
+    def pc(self) -> int | None:
+        m = R15_RE.search(self.hmc("info registers"))
+        return int(m.group(1), 16) if m else None
+
     def close(self):
         try:
             self.sock.close()
@@ -79,21 +89,14 @@ class Qmp:
             pass
 
 
-def _read_u32(qmp: Qmp, addr: int) -> int:
-    out = qmp.hmc(f"xp/1wx {addr:#x}")
-    tokens = re.findall(r"0x[0-9a-fA-F]+", out)
-    if not tokens:
-        raise ValueError(f"could not parse xp output: {out!r}")
-    return int(tokens[-1], 16)
-
-
-def run(payload: str, workdir: str, qemu: str, timeout: float) -> int:
+def run(payload: str, workdir: str, halt_addr: int, qemu: str, timeout: float) -> int:
     os.makedirs(workdir, exist_ok=True)
-    sockpath = os.path.join(workdir, "qmp.sock")
-    if os.path.exists(sockpath):
-        os.unlink(sockpath)
     red_dump = os.path.join(workdir, "red.dump")
     green_dump = os.path.join(workdir, "green.dump")
+    # Keep the QMP socket path short (AF_UNIX sun_path is ~108 bytes); the
+    # repo checkout path may be long. Removed in the finally block.
+    sockdir = tempfile.mkdtemp(prefix="rvos-qmp-")
+    sockpath = os.path.join(sockdir, "q.sock")
 
     cmd = [
         qemu, "-M", "virt", "-cpu", "cortex-a15", "-m", "2048",
@@ -105,7 +108,6 @@ def run(payload: str, workdir: str, qemu: str, timeout: float) -> int:
     deadline = time.monotonic() + timeout
     qmp = None
     try:
-        # Wait for the QMP socket to appear and accept a connection.
         while True:
             if proc.poll() is not None:
                 out = proc.stdout.read().decode(errors="replace") if proc.stdout else ""
@@ -122,21 +124,19 @@ def run(payload: str, workdir: str, qemu: str, timeout: float) -> int:
 
         qmp.execute("cont")
 
-        # Poll the completion marker instead of racing a fixed delay.
+        # Poll the PC until it rests in the halt loop (halt_addr .. +8).
         while True:
-            try:
-                if _read_u32(qmp, oracle.DONE_ADDR) == oracle.DONE_VALUE:
-                    break
-            except (ValueError, RuntimeError):
-                pass
+            pc = qmp.pc()
+            if pc is not None and halt_addr <= pc < halt_addr + 8:
+                break
             if time.monotonic() > deadline:
-                return _fail("payload did not publish the completion marker in time")
+                return _fail(f"payload PC did not reach halt_loop ({halt_addr:#x}) in time "
+                             f"(last PC {pc:#x})" if pc is not None else
+                             f"payload PC did not reach halt_loop ({halt_addr:#x}) in time")
             time.sleep(0.05)
 
-        # Dump both framebuffer regions and the marker word.
         qmp.hmc(f'pmemsave {oracle.FB_RED:#x} {oracle.FB_BYTES} "{red_dump}"')
         qmp.hmc(f'pmemsave {oracle.FB_GREEN:#x} {oracle.FB_BYTES} "{green_dump}"')
-        marker = _read_u32(qmp, oracle.DONE_ADDR)
         qmp.execute("quit")
     finally:
         if qmp:
@@ -145,11 +145,9 @@ def run(payload: str, workdir: str, qemu: str, timeout: float) -> int:
             proc.wait(timeout=5)
         except subprocess.TimeoutExpired:
             proc.kill()
+        shutil.rmtree(sockdir, ignore_errors=True)
 
     # --- verification (pure host, deterministic) ------------------------------
-    if marker != oracle.DONE_VALUE:
-        return _fail(f"completion marker {marker:#x} != {oracle.DONE_VALUE:#x}")
-
     expected = {
         "red": (red_dump, oracle.FILL_RED),
         "green": (green_dump, oracle.FILL_GREEN),
@@ -172,13 +170,14 @@ def run(payload: str, workdir: str, qemu: str, timeout: float) -> int:
             return _fail(f"{label} decoded words {[hex(w) for w in words]} "
                          f"!= expected {[hex(w) for w in oracle.EXPECTED_WORDS]}")
 
-    px = oracle.fill_pixel_at(
-        open(red_dump, "rb").read(), oracle.WIDTH // 2, oracle.HEIGHT // 2)
-    words = oracle.decode_words(open(red_dump, "rb").read())
+    with open(red_dump, "rb") as fh:
+        red = fh.read()
+    px = oracle.fill_pixel_at(red, oracle.WIDTH // 2, oracle.HEIGHT // 2)
+    words = oracle.decode_words(red)
     print(f"PASS {NAME} (both framebuffers byte-identical to the oracle; "
           f"RED fill bytes {tuple(px)}; "
           f"entry={words[5]:#x} cpsr={words[3]:#x} sctlr={words[4]:#x} "
-          f"checksum={words[7]:#x})")
+          f"checksum={words[7]:#x} mdp4={words[8]:#x} -> no third buffer)")
     return 0
 
 
@@ -186,12 +185,14 @@ def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--payload", required=True)
     parser.add_argument("--workdir", required=True)
+    parser.add_argument("--halt-addr", required=True, type=lambda s: int(s, 0),
+                        help="address of the halt_loop symbol in the payload ELF")
     parser.add_argument("--qemu", default=os.environ.get("QEMU", "qemu-system-arm"))
     parser.add_argument("--timeout", type=float,
                         default=float(os.environ.get("QEMU_TIMEOUT", "20")))
     args = parser.parse_args(argv)
     try:
-        return run(args.payload, args.workdir, args.qemu, args.timeout)
+        return run(args.payload, args.workdir, args.halt_addr, args.qemu, args.timeout)
     except (OSError, EOFError, RuntimeError, ValueError) as exc:
         return _fail(str(exc))
 

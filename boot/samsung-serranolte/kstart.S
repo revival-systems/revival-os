@@ -63,7 +63,11 @@ real_start:
     bl      payload_main            @ Rust; paints both framebuffers, returns
 
     @ --- halt forever, interrupts masked -------------------------------------
-2:  wfi
-    b       2b
+    @ halt_loop is a global symbol so the QEMU harness can resolve its address
+    @ from the ELF and poll the PC until it rests here (no completion marker).
+    .global halt_loop
+halt_loop:
+    wfi
+    b       halt_loop
 
     .ltorg

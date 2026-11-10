@@ -14,8 +14,6 @@ device or a network.
 
 from __future__ import annotations
 
-import struct
-
 # Framebuffer geometry (docs/hardware/gt-i9195.md; matches payload.rs).
 WIDTH = 540
 HEIGHT = 960
@@ -28,16 +26,19 @@ FB_GREEN = 0x8830_0000  # mainline-fork / reserved framebuffer
 FILL_RED = (0xFF, 0x00, 0x00)
 FILL_GREEN = (0x00, 0xFF, 0x00)
 
-# Encoded-word block geometry (matches payload.rs).
+# Encoded-word block geometry (matches payload.rs). 9 rows * 16 = 144 <= 960.
 BLOCK_W = 16
 BLOCK_H = 16
-WORDS = 8
+WORDS = 9
 WHITE = (0xFF, 0xFF, 0xFF)
 BLACK = (0x00, 0x00, 0x00)
+FILL_GREY = (0x80, 0x80, 0x80)  # a plausible third (discovered) framebuffer
 
-# Completion marker the payload writes last (matches payload.rs).
-DONE_ADDR = 0x8829_0000
-DONE_VALUE = 0xD09E_D09E
+# MDP4 DMA_P source-buffer address register (docs/phase-2 section 3), read last
+# by the payload. In QEMU virt it is flash and reads back 0x00000000, which is
+# not a plausible framebuffer, so no third buffer is painted in the emulator.
+MDP_DMA_P_BUF_ADDR = 0x0519_0008
+MDP4_QEMU = 0x0000_0000
 
 # Checksum: same table and algorithm as the Phase 1 fixture and payload.rs,
 # recomputed here independently so the test does not trust the payload's value.
@@ -65,21 +66,49 @@ def checksum() -> int:
 # These are EMULATOR values; on the phone they are what Phase 2 measures. The
 # byte-for-byte compare pins them, and assert_handoff_invariants() documents what
 # each must mean. r3 is captured by kstart.S but is not among the painted words.
-R2_NOT_IN_RAM = 0xFFFF_FFFF
+R2_OUT_OF_RANGE = 0xFFFF_FFFF
 ENTRY_ADDR = 0x80208000
 QEMU_CPSR = 0x4000_01D3   # SVC(0x13) + A(0x100) + I(0x80) + F(0x40) + Z(0x40000000)
 QEMU_SCTLR = 0x00C5_0078  # cortex-a15 reset; MMU bit (0) clear
 
-# Order matches payload.rs: r0, r1, r2, cpsr, sctlr, entry, *r2, checksum.
+# Device DRAM and the reserved regions a discovered framebuffer must avoid
+# (gt-i9195.md memory map); must match payload.rs. All half-open [lo, hi).
+DEV_RAM_LO = 0x8000_0000
+DEV_RAM_HI = 0x8000_0000 + 0x6000_0000  # 1.5 GiB -> 0xE000_0000
+RESERVED = [
+    (0x8020_0000, 0x8020_8000),  # ATAGS / tags page
+    (0x8020_8000, 0x8120_8000),  # the image + its 64 KiB stack (link.ld, 16 MiB)
+    (0x8000_0000, 0x8020_0000),  # SMEM (2 MiB)
+    (0x8830_0000, 0x8860_0000),  # bootloader framebuffer reserved (3 MiB)
+    (0x8F00_0000, 0x8F70_0000),  # WCNSS (7 MiB)
+    (0x8FB0_0000, 0x8FE0_0000),  # modem rmtfs (3 MiB)
+]
+
+
+def is_plausible_fb(fb: int) -> bool:
+    """Mirror of payload.rs is_plausible_fb: would the payload also paint a
+    third (grey) framebuffer at this discovered address?"""
+    if fb & 3:
+        return False
+    lo, hi = fb, fb + FB_BYTES
+    if lo < DEV_RAM_LO or hi > DEV_RAM_HI:
+        return False
+    if fb in (FB_RED, FB_GREEN):
+        return False
+    return not any(lo < rhi and rlo < hi for rlo, rhi in RESERVED)
+
+
+# Order matches payload.rs: r0, r1, r2, cpsr, sctlr, entry, *r2, checksum, MDP4.
 EXPECTED_WORDS = [
-    0x0000_0000,   # r0  (ARM boot convention wants 0; QEMU zeroes GPRs)
-    0x0000_0000,   # r1
-    0x0000_0000,   # r2
-    QEMU_CPSR,     # cpsr at entry
-    QEMU_SCTLR,    # sctlr
-    ENTRY_ADDR,    # run-time entry address
-    R2_NOT_IN_RAM,  # *r2 sentinel (r2 == 0 is not in the device RAM window)
-    checksum(),    # Rust checksum, recomputed here
+    0x0000_0000,      # r0  (ARM boot convention wants 0; QEMU zeroes GPRs)
+    0x0000_0000,      # r1
+    0x0000_0000,      # r2
+    QEMU_CPSR,        # cpsr at entry
+    QEMU_SCTLR,       # sctlr
+    ENTRY_ADDR,       # run-time entry address
+    R2_OUT_OF_RANGE,  # *r2 sentinel (r2 == 0 is outside the tags-page window)
+    checksum(),       # Rust checksum, recomputed here
+    MDP4_QEMU,        # MDP4 DMA_P buffer address (flash -> 0 in QEMU, read last)
 ]
 
 
@@ -88,16 +117,21 @@ def assert_handoff_invariants(words: list[int]) -> None:
 
     Raises AssertionError with a specific message on any violation.
     """
-    r0, r1, r2, cpsr, sctlr, entry, at_r2, csum = words
+    r0, r1, r2, cpsr, sctlr, entry, at_r2, csum, mdp = words
     assert r0 == 0, f"r0 should be 0 (ARM boot convention), got {r0:#x}"
     assert entry == ENTRY_ADDR, f"entry {entry:#x} != load address {ENTRY_ADDR:#x}"
     assert (cpsr & 0x1F) == 0x13, f"CPSR mode {cpsr & 0x1F:#x} is not SVC (0x13)"
     assert (cpsr >> 7) & 1, "CPSR I bit clear: IRQ was not masked at entry"
     assert (cpsr >> 6) & 1, "CPSR F bit clear: FIQ was not masked at entry"
     assert (sctlr & 1) == 0, f"SCTLR M bit set: MMU on at entry ({sctlr:#x})"
-    assert at_r2 == R2_NOT_IN_RAM, (
-        f"*r2 slot {at_r2:#x} != sentinel {R2_NOT_IN_RAM:#x} (r2 was {r2:#x})")
+    assert at_r2 == R2_OUT_OF_RANGE, (
+        f"*r2 slot {at_r2:#x} != sentinel {R2_OUT_OF_RANGE:#x} (r2 was {r2:#x})")
     assert csum == checksum(), f"checksum {csum:#x} != {checksum():#x}"
+    # In QEMU the MDP4 register is flash and reads 0, not a plausible
+    # framebuffer, so the payload paints no third buffer. On the phone this may
+    # differ, and reading it is the point.
+    assert not is_plausible_fb(mdp), (
+        f"MDP4 value {mdp:#x} was treated as a plausible framebuffer in QEMU")
 
 
 def _put_px(buf: bytearray, x: int, y: int, px: tuple) -> None:
@@ -155,8 +189,3 @@ def decode_words(buf: bytes) -> list[int]:
 def fill_pixel_at(buf: bytes, x: int, y: int) -> tuple:
     """Sample one pixel of a dump (used to report the observed fill colour)."""
     return _get_px(buf, x, y)
-
-
-def done_marker_word(raw4: bytes) -> int:
-    """Interpret a 4-byte dump of DONE_ADDR as a little-endian u32."""
-    return struct.unpack("<I", raw4)[0]

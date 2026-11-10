@@ -201,28 +201,38 @@ Items 1–6 are the same gates Phase 0 and the ROADMAP already set. Items 7–12
 
 ## v1 payload decision
 
-The first payload (built and tested in QEMU in step 1, not flashed) deliberately **lightens** the candidate specification above. It is implemented in [boot/samsung-serranolte/](../../boot/samsung-serranolte/) (`kstart.S`, `payload.rs`, `link.ld`), packed by [tools/pack_bootimg.py](../../tools/pack_bootimg.py), and tested by [tests/boot/](../../tests/boot/) under `make check` (target `test-payload`).
+The first payload (built and tested in QEMU, not flashed) deliberately **lightens** the candidate specification above. It is implemented in [boot/samsung-serranolte/](../../boot/samsung-serranolte/) (`kstart.S`, `payload.rs`, `link.ld`), packed by [tools/pack_bootimg.py](../../tools/pack_bootimg.py), and tested by [tests/boot/](../../tests/boot/) under `make check` (target `test-payload`). This note covers **v1.1** (a small review revision of v1).
 
-What v1 keeps: the entry capture (`r0`–`r3`, CPSR, SCTLR, run-time entry address), IRQ+FIQ masking, stack in the image's own static region, `.bss` zeroing, both candidate framebuffers painted (`0x88100000` bytes `FF 00 00`; `0x88300000` bytes `00 FF 00`) with the eight recorded words drawn as block rows, a masked `wfi` halt, and the packaging (Android boot image v0, page 2048, kernel at `0x80208000`, zImage words, 1-byte zero ramdisk, `SEANDROIDENFORCE` trailer). The image contains **no `svc`** and links with zero undefined symbols.
+What it keeps: the entry capture (`r0`–`r3`, CPSR, SCTLR, run-time entry address), IRQ+FIQ masking, stack in the image's own static region, `.bss` zeroing, both candidate framebuffers painted (`0x88100000` bytes `FF 00 00`; `0x88300000` bytes `00 FF 00`) with the recorded words drawn as block rows, a masked `wfi` halt, and the packaging (Android boot image v0, page 2048, kernel at `0x80208000`, zImage words, 1-byte zero ramdisk, `SEANDROIDENFORCE` trailer). The image writes **only to framebuffers**, contains **no `svc`**, and links with zero undefined symbols.
 
-What v1 drops from the candidate spec, and why:
+**Order of operations (v1.1): risky steps last.** The payload paints a visible result before it does anything that could hang, so a hang still leaves evidence on screen:
 
-- **No MMIO register reads.** The spec would read the display controller to find the framebuffer, and read the watchdog and timer. v1 reads **only CPU registers** (plus one guarded word at `r2`). A read from a display/timer/watchdog block whose clock or power domain the bootloader left off can hang the device with no output ([lk2nd guards its own MDP reads for exactly this](../../boot/samsung-serranolte/payload.rs)), and the framebuffer address itself is unconfirmed (section 3). So v1 writes both candidate addresses blind and lets the photograph say which is live and in what byte order, before any code depends on reading that hardware. This is blocker #9 above, kept open.
-- **No timer.** With no timer read, v1 cannot hold the signal for a measured interval; it simply paints and halts, and the display (a continuously-refreshed video-mode panel, section 3) keeps showing the last frame until the battery is pulled. A measured hold waits for the timer path to be confirmed.
-- **No reset and no watchdog interaction.** v1 neither pets nor disables the watchdog and never triggers a reset (every reset route has an unknown outcome, section 5). If the watchdog is running, the device resets itself and that interval is itself the measurement.
+1. fill both candidate framebuffers;
+2. read `*r2` (guarded, below) and draw the eight handoff word rows in both;
+3. **as the very last action**, read one display-controller register and act on it (below).
 
-v1 adds one small behaviour not in the spec: a **completion-marker word** (`0xD09ED09E` at `0x88290000`, in the unreserved gap between the two framebuffers) written last, so an external observer can tell painting finished before reading the framebuffers instead of racing a fixed delay. It is a single word to otherwise-unused RAM and is harmless on the device.
+What it still drops from the candidate spec, and why:
 
-**Write-region safety (step 3 check).** All addresses the payload touches are in RAM and clear of the image, its stack, ATAGS and the documented reserved regions:
+- **Almost no MMIO reads, and the one it does is last.** v1.1 reads **only CPU registers** plus one guarded word at `*r2`, and then — as the final step — the single **MDP4 DMA_P buffer-address register** (`0x05190008`, section 3) to discover the real framebuffer address. That read is last precisely because a read from a display block whose clock or power domain the bootloader left off can hang with no output ([lk2nd guards its own MDP reads for this reason](../../boot/samsung-serranolte/payload.rs)); by then both candidate buffers and the eight handoff rows are already painted. It still reads **no timer and no watchdog** register.
+- **No timer.** Without a timer read the payload cannot hold the signal for a measured interval; it paints and halts, and the continuously-refreshed video-mode panel (section 3) keeps showing the last frame until the battery is pulled.
+- **No reset and no watchdog interaction.** It neither pets nor disables the watchdog and never triggers a reset (every reset route has an unknown outcome, section 5). If the watchdog is running, the device resets itself and that interval is the measurement.
+
+**Narrowed `*r2` read.** The guarded read of `*r2` is restricted to the tags page `[0x80200000, 0x80208000)` (word-aligned), where the bootloader's ATAGS/DTB pointer (`tags_addr 0x80200100`) should fall — not all of RAM. Anything else records the sentinel `0xFFFFFFFF` (as under QEMU, where `r2 == 0`).
+
+**The MDP4 register as a ninth word, and the optional third buffer.** The register value is drawn as a ninth word row in both candidate buffers. If it names a **plausible framebuffer** — word-aligned; the whole 540×960×3 buffer inside device RAM `[0x80000000, 0xE0000000)`; not equal to either candidate; and not overlapping the image/stack, the tags page, SMEM, the reserved framebuffer, WCNSS or rmtfs (section "Write-region safety") — the payload also fills that address grey (`80 80 80`) and draws all nine rows there. Otherwise it paints nothing more. In QEMU `virt` that register is flash and reads back `0x00000000`, which is not in RAM and so fails the check: the emulator exercises the **"no third buffer"** path, and a host unit test covers both the accept and reject cases of the plausibility rule.
+
+**No device-side completion marker.** v1 briefly wrote a marker word so the harness could tell painting had finished; v1.1 removes it (the image writes only framebuffers). The QEMU harness instead polls the CPU's PC over QMP until it rests in the `halt_loop` symbol (resolved from the ELF), with a bounded timeout, and its QMP socket lives in a short temporary directory so a long checkout path cannot exceed the `AF_UNIX` limit.
+
+**Write-region safety (step 3 check).** Every address the payload writes is in RAM and clear of the image, its stack, ATAGS and the documented reserved regions:
 
 | Region | Range | Clear of |
 | --- | --- | --- |
 | Image + 64 KiB stack | `0x80208000` .. < `0x81208000` (16 MiB reserved, used < 1 MiB) | above ATAGS `0x80200100` and SMEM `0x80000000`+2 MiB (ends `0x80200000`); far below `0x88100000` |
 | FB_RED fill | `0x88100000` .. `0x8827BB00` (1,555,200 B) | below FB_GREEN; above SMEM; not a documented reserved region (the contested LKML address, in the free `0x88000000`–`0x88300000` gap) |
-| Completion marker | `0x88290000` (4 B) | between FB_RED end and FB_GREEN start |
 | FB_GREEN fill | `0x88300000` .. `0x8847BB00` (1,555,200 B) | within the documented 3 MiB framebuffer reservation `0x88300000`+3 MiB (ends `0x88600000`); below WCNSS `0x8F000000` |
+| Third buffer (only if plausible) | a discovered MDP4 address, 1,555,200 B | gated by the plausibility rule above, so by construction aligned, wholly in RAM, and clear of every reserved region and both candidates; not painted in QEMU |
 
-The two framebuffers do not overlap each other (`0x8827BB00` < `0x88300000`). None of these ranges is a bootloader-chain, `efs`, `persist` or `modem` partition; they are DRAM only. QEMU `-m 2048` (RAM `0x40000000`–`0xC0000000`) spans all of them, which is why the emulator test exercises the real addresses.
+The MDP4 read at `0x05190008` is a register **read**, not a write. The two candidate framebuffers do not overlap each other (`0x8827BB00` < `0x88300000`). None of these ranges is a bootloader-chain, `efs`, `persist` or `modem` partition; they are DRAM only. QEMU `-m 2048` (RAM `0x40000000`–`0xC0000000`) spans all of them, which is why the emulator test exercises the real addresses.
 
 ## Sources
 
