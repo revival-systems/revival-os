@@ -67,7 +67,7 @@ Sources: Revival Server issues [#120](https://github.com/revival-systems/revival
 
 **Physical verification:** Required for every step. All of it is on the owner's device.
 
-**Boot, reboot and recovery evidence (Phase 0 only):** The time from power-on to the stock lock screen for each diagnostic cold boot, the reboot count, and photographs of recovery and Download mode. A final baseline boot shows the same firmware build. These are **stock hardware diagnostics**, not Revival OS boot results; verifying personal files is not required.
+**Boot, reboot and recovery evidence:** Phase 0 only. The time from power-on to the stock lock screen for each diagnostic cold boot, the reboot count, and photographs of recovery and Download mode. A final baseline boot shows the same firmware build. These are **stock hardware diagnostics**, not Revival OS boot results; verifying personal files is not required.
 
 **Next safe milestone:** Phase 1 (host and emulator only, no device writes). Phase 0's results feed the separate Phase 2 write-plan decision.
 
