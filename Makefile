@@ -377,8 +377,8 @@ clean: ## Remove the build directory (sources are never touched)
 # ---- interactive (not tests) ----------------------------------------------
 
 qemu-run: $(QEMU_OUT)/probe-0.elf | need-qemu ## Run the checksum probe in QEMU interactively (Ctrl-A X quits)
-	$(QEMU) -M virt -cpu cortex-a15 -m 64M -nographic -semihosting-config enable=on,target=native -kernel $<
+	$(QEMU) -M virt -cpu cortex-a15 -m 64M -nic none -nographic -semihosting-config enable=on,target=native -kernel $<
 
 qemu-debug: $(QEMU_OUT)/probe-0.elf | need-qemu ## Start QEMU halted with a GDB server on port 1234
 	@echo "In another terminal: gdb-multiarch $< -ex 'target remote :1234'"
-	$(QEMU) -M virt -cpu cortex-a15 -m 64M -nographic -semihosting-config enable=on,target=native -s -S -kernel $<
+	$(QEMU) -M virt -cpu cortex-a15 -m 64M -nic none -nographic -semihosting-config enable=on,target=native -s -S -kernel $<
