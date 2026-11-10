@@ -8,20 +8,22 @@ The kernel is written in **Rust (`#![no_std]`) and ARM Assembly** ([ADR 0001](de
 
 Revival OS is built by observing it run, not by writing design documents ahead of code. Every increment is the smallest capability that can be seen and tested, and it goes through this cycle:
 
+**Device-first meaning:** The Samsung is dedicated experimental hardware. Its Android installation and personal data are not development deliverables. The initial Phase 0 stock checks are a one-time safety and capability baseline. All Phase 2+ boot and reboot demonstrations must execute **our Revival OS image**, with one independently verifiable improvement at a time.
+
 **Build → Boot → Observe → Test → Reboot → Recover → Measure → Document.**
 
 1. **Build** a runnable image for the increment (host/QEMU first).
-2. **Boot** it — in QEMU now; on the Samsung only under an approved write plan ([AGENTS.md](../AGENTS.md#hardware-safety-contract)).
+2. **Boot** the current **Revival OS** increment — on QEMU for early code checks, and on the Samsung through an approved write plan ([AGENTS.md](../AGENTS.md#hardware-safety-contract)). The first device increment is only a minimal proof that our code executes; the logo, console and drivers are later increments.
 3. **Observe** the actual output (serial line, screen, log), not what it "should" do.
 4. **Test** a positive case and at least one negative/failure case.
-5. **Reboot** / reset repeatedly to show the result is deterministic.
-6. **Recover**: confirm the controlled QEMU reset/halt path; on hardware, the approved recovery procedure and a safe return.
+5. **Reboot** / reset **the Revival OS payload** repeatedly and prove its expected startup/observable behavior is deterministic. Restarting stock Android is only a Phase 0 diagnostic, not a later milestone.
+6. **Recover**: confirm a controlled QEMU reset/halt; on hardware, retain access to Download mode or the approved rescue mechanism so a crashed payload can be replaced and **another Revival OS test** can run. Stock images are emergency rescue material, not something to reinstall after every successful increment. Never write protected boot-firmware or device-identity partitions.
 7. **Measure** when meaningful (boot time, latency, memory, allocation bounds), with units and repeats.
 8. **Document** the exact commands, versions, image hash, output and pass/fail as the increment's evidence.
 
 Rules that do not bend:
 
-- **One increment at a time.** No building future phases ahead of the one in hand.
+- **One increment at a time.** No building future phases ahead of the one in hand. A boot proof is separate from a logo, a logo from a console, and each driver from the next. Each capability is verified on the Samsung where hardware is involved.
 - **QEMU evidence is not hardware evidence.** A QEMU pass never counts as a Samsung boot ([TESTING.md](TESTING.md)).
 - **A phase closes only on its required evidence** ([ROADMAP.md](../ROADMAP.md)), never because code compiles or a document exists.
 - **A failure is a result**: record it with its evidence and re-plan; never work around it silently.
