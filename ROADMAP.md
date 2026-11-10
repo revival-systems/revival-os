@@ -21,7 +21,7 @@ Sources: Revival Server issues [#120](https://github.com/revival-systems/revival
 
 | Phase | Capability | Runs on | State |
 | --- | --- | --- | --- |
-| 0 | Hardware identity, stock boot/reboot, recovery paths | Device (read-only) | Research done; physical checks not started |
+| 0 | One-time hardware identity and stock rescue baseline | Device (read-only) | Physical tests partly reported; evidence review and remaining checks pending |
 | 1 | Rust + ARM Assembly freestanding foundation (ARMv7-A) | Host + emulator | Not started; Goose feasibility kept as reference |
 | 2 | First bare-metal boot with observable output | Device (first write) | Not started |
 | 3 | Exceptions, MMU, memory, interrupts, timer, watchdog | Device + emulator | Not started |
