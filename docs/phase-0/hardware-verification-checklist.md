@@ -1,6 +1,6 @@
 # Phase 0 hardware verification checklist: GT-I9195 on Ubuntu
 
-**Purpose:** confirm the exact phone, its firmware, and its boot, recovery and Download-mode paths, **without writing anything to the phone**. This is the observable test for [Phase 0](../../ROADMAP.md#phase-0--samsung-identification-boot-reboot-and-recovery). The research behind each step is in [gt-i9195.md](../hardware/gt-i9195.md).
+**Purpose:** confirm the exact phone, its firmware, and its boot, recovery and Download-mode paths, **without writing anything to the phone**. This is a **one-time stock-hardware baseline and rescue assessment**, not a recurring requirement to boot Android. From Phase 2 onward, boot and reboot milestones must exercise **Revival OS code**. The owner intends to remove Android and does not require preserving personal files. This is the observable test for [Phase 0](../../ROADMAP.md#phase-0--samsung-identification-boot-reboot-and-recovery). The research behind each step is in [gt-i9195.md](../hardware/gt-i9195.md).
 
 **Status:** not yet performed. No result has been recorded.
 
@@ -88,7 +88,7 @@ lsusb > "$EV/A3-lsusb-before.txt"
 
 **B4. Cards.** Record whether a SIM card and a microSD card are inserted, and the microSD size. Leave them as they are.
 
-## C. Stock Android baseline
+## C. Stock Android baseline (one-time diagnostics only)
 
 **C1. Software identity.** Power on normally. Open Settings → About device (the menu name varies by version) and record:
 
@@ -101,7 +101,7 @@ lsusb > "$EV/A3-lsusb-before.txt"
 
 Take a photo or screenshot (Power + Home) to `$EV/private/`.
 
-**C2. Cold boot timing, 3 trials.** For each trial:
+**C2. Stock cold boot timing, 3 trials (diagnostic baseline only).** These stock boots are not evidence that Revival OS boots. For each trial:
 
 1. Hold Power, then choose Power off.
 2. Wait 10 seconds.
@@ -218,7 +218,7 @@ adb shell dumpsys battery | tee "$EV/C9-battery.txt"
 
 - Record the level, health, temperature and voltage.
 
-**C10. Reboot, 3 trials.**
+**C10. Stock ADB reboot, 3 trials (diagnostic baseline only).** After Phase 0, reboot milestones must test the Revival OS image, not Android.
 
 ```sh
 for i in 1 2 3; do
@@ -252,7 +252,7 @@ Save the output as `$EV/C12-heimdall-detect-android.txt`.
 
 ## D. Personal data (owner's decision)
 
-**D1.** Phase 0 changes nothing on the phone, so a backup is a precaution for later phases, not a requirement now. If you want one, copy your own files to a location **outside** the evidence directory and outside every repository. For example:
+**D1.** The owner has designated this phone for experiments and has no requirement to preserve its personal data. Phase 0 still performs no erase or write. A backup is optional and not a pass criterion. If you choose to copy files, keep them **outside** the evidence directory and every repository. For example:
 
 ```sh
 adb pull /sdcard/DCIM "$HOME/phone-backup/gt-i9195/DCIM"
@@ -269,11 +269,11 @@ adb pull /sdcard/DCIM "$HOME/phone-backup/gt-i9195/DCIM"
 3. When the Samsung logo appears, release **Power** only, and keep holding Volume Up + Home until the recovery menu appears. If Android boots instead, power off and try again.
 4. Photograph the menu and any text at its top or bottom to `$EV/private/`. Transcribe the header (for example "Android system recovery") and any build string.
 5. **Do not select** any wipe, factory reset or "apply update" item. Use the volume keys to highlight **reboot system now**, then press Power.
-6. Confirm that Android boots and your data is still there.
+6. Confirm that the current stock firmware boots. This is a Phase 0 diagnostic, **not** a requirement to preserve Android or inspect personal files.
 
 If the screen shows only an Android robot and no menu for 30 seconds, remove the battery, reinsert it and power on normally.
 
-- **Pass:** 3 of 3 trials enter recovery, leave it with **reboot system now**, and boot Android with data intact.
+- **Pass:** 3 of 3 diagnostic trials enter stock recovery, leave it with **reboot system now**, and boot the existing stock firmware. Personal-data checks are not required.
 
 ## F. Download mode
 
@@ -332,7 +332,7 @@ The Heimdall manual states that after a command with `--no-reboot`, the next com
 
 If a command hangs for more than 2 minutes, remove the battery (no transfer is running) and record what happened.
 
-**F6. Leave Download mode by removing the battery, 3 trials.**
+**F6. Leave Download mode by removing the battery, 3 trials.** This proves a physical emergency exit path; these returns to the existing stock baseline are not Revival OS boot/reboot milestones.
 
 1. With Download mode idle (no command running), remove the battery for 10 seconds.
 2. Reinsert it and power on normally.
@@ -374,11 +374,12 @@ sha256sum "$f" | tee "$EV/G3-firmware-sha256.txt"
 
 ## H. Close-out
 
-**H1. Final check.** Power on normally. Confirm:
+**H1. Final Phase 0 baseline check.** Power on the existing stock firmware and confirm:
 
 - `adb shell getprop ro.build.fingerprint` equals the value in `C5-getprop-selected.txt`;
-- your photos and data are present;
-- Wi-Fi reconnects.
+- Wi-Fi reconnects, or record why that diagnostic check cannot be completed.
+
+Do **not** test preservation of personal photos or files; the owner has declared these disposable. This stock boot is **not** a future Revival OS boot/reboot acceptance criterion.
 
 **H2. Evidence summary.** Copy the template from [docs/TESTING.md](../TESTING.md#phase-0-summary-template), fill it in from the `$EV` files, and **redact** identifiers. Include the text outputs that are free of identifiers.
 
