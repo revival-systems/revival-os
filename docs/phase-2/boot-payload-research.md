@@ -1,0 +1,215 @@
+# Phase 2 pre-write research: the GT-I9195 proof-of-execution payload
+
+**Researched:** 2026-11-10, from public source code and public reports only. **No device was touched, no image was built, and nothing here has been confirmed on the owner's phone.**
+
+**This document proposes and approves no flash command.** It is input to a later write-plan issue ([AGENTS.md](../../AGENTS.md#hardware-safety-contract), rule 1). Every device write still needs that approved plan.
+
+It builds on [gt-i9195.md](../hardware/gt-i9195.md) and does not repeat it. Where that file already states a fact, this one cites it. The questions come from [ROADMAP Phase 2](../../ROADMAP.md#phase-2--first-bare-metal-boot) and the boot handoff contract in [ARCHITECTURE.md](../../ARCHITECTURE.md#contracts-to-define).
+
+## Labels and sources
+
+| Label | Meaning |
+| --- | --- |
+| **Source** | Stated in a cited file and line, or a cited URL. The citation says what kind of source it is; a community report weighs less than project source code. |
+| **Inference** | Our conclusion from the cited sources. No source states it. |
+| **Unknown** | No reliable information found. The entry says what would resolve it. |
+
+Samsung does not publish its `aboot` source. Every statement about what the stock bootloader does internally is therefore an Inference or an Unknown, never a Source.
+
+Source trees were read at these commits. A citation such as `[LK] arch/arm/crt0.S:41-51` means that file and those lines at the pinned commit.
+
+| Tag | Tree | Commit |
+| --- | --- | --- |
+| **[LK]** | lk2nd, a fork of Qualcomm's reference LK bootloader: <https://github.com/msm8916-mainline/lk2nd> | [`cf45aefd22d7`](https://github.com/msm8916-mainline/lk2nd/tree/cf45aefd22d744b2bf9b39455afae697ce430063) (`main`, 2026-11-07) |
+| **[SK]** | Stock-derived Samsung kernel, LineageOS: <https://github.com/LineageOS/android_kernel_samsung_msm8930-common> | [`94cbcc369124`](https://github.com/LineageOS/android_kernel_samsung_msm8930-common/tree/94cbcc3691247ded64f6c772ca37b5916f9f4b4a) (`lineage-18.1`) |
+| **[FK]** | Community mainline fork: <https://github.com/msm8227-mainline/linux> | [`b51f999a8ab2`](https://github.com/msm8227-mainline/linux/tree/b51f999a8ab27982c2b5ea07f963cd226058ac04) (`msm8227-6.19`) |
+| **[LKML]** | Pavel Machek, "mainline on Samsung S4 mini (seranoltexx), earlyfb patch?", 2026-01-02 and 2026-01-03: [first message](https://lkml.iu.edu/hypermail/linux/kernel/2601.0/00939.html), [follow-up](https://lkml.iu.edu/hypermail/linux/kernel/2601.0/01442.html). A hands-on report from one S4 Mini booted through lk2nd. | n/a |
+
+The task brief names the installed bootloader as the `I9195XXSCQAN` family. The repository holds no recorded evidence of the installed build yet (checklist steps C5 and F2), so nothing below is tied to that exact build.
+
+## Answers in brief
+
+| # | Question | Answer | Label |
+| --- | --- | --- | --- |
+| 1 | Payload format | A version-0 Android boot image with a **raw, non-Linux binary** in the kernel slot is what lk2nd ships for this phone. No ramdisk content, ATAGS, QCDT or signature is needed in the image. Whether the zImage magic word and the `SEANDROIDENFORCE` trailer are *required* is not known; lk2nd carries both. Behaviour on a failed check is not known. | Source (packaging); Unknown (which fields are checked, failure behaviour) |
+| 2 | Entry | Expected: load and entry at `0x80208000`, ARM state, `r0 = 0`, `r1 = 3727`, `r2` → ATAGS, SVC mode, IRQ masked, MMU and caches off. All of it is expected, none measured. FIQ is probably **not** masked. | Inference; Unknown until measured |
+| 3 | Framebuffer | The stock bootloader does leave a live 24-bit scan-out for the stock kernel. The address is **disputed**: `0x88300000` in the fork, `0x88100000` in a 2026 hands-on report. It must be read from the display controller, not hard-coded. Byte order is expected to be blue, green, red in memory. No cache flush is needed while the data cache is off. | Source (scan-out exists); Unknown (address on this unit, byte order, recovery path) |
+| 4 | Watchdog | Registers are known and agree across three trees. Whether it is running at handoff is not known; indirect evidence says probably not. | Source (registers); Unknown (state and timeout) |
+| 5 | Halt and reset | `PS_HOLD` control is at `0x00800820`; writing 0 hands the decision to the PMIC. Whether that resets or powers off depends on PMIC state we cannot yet set. A watchdog-bite reset needs no PMIC. An interrupt-masked halt ended by removing the battery is the only route with no unverified register. | Source (registers); Unknown (outcome on this phone) |
+| 6 | lk2nd option B | Build target `lk2nd-msm8960`. It is written to the start of `BOOT` and then treats `BOOT` + 512 KiB as the real boot partition. Its `fastboot boot` accepts a non-Linux payload on this phone through an ATAGS-copy path. It changes the entry state, so results under lk2nd are not the stock handoff. | Source (build, layout); Inference (payload path, state changes) |
+
+## 1. Payload format
+
+| Point | Finding | Label and evidence |
+| --- | --- | --- |
+| Container | Android boot image, header version 0, page size 2048, base `0x80200000`. | Source: [gt-i9195.md](../hardware/gt-i9195.md#boot-image-format-and-handoff). lk2nd builds the same container for this SoC: `[LK] lk2nd/device/2nd/rules.mk:54-70`, `[LK] target/msm8960/rules.mk:10-14`, defaults in `[LK] lk2nd/scripts/mkbootimg:519-543`. |
+| Raw binary in the kernel slot | lk2nd's kernel is `lk.bin`, a flat `objcopy -O binary` output, not a zImage and not Linux. For `lk2nd-msm8960` nothing is appended to it. lk2nd lists the GT-I9195 as supported and states that the stock bootloader loads it "just like the original Android image". | Source: `[LK] make/build.mk:4-7`, `[LK] lk2nd/device/2nd/rules.mk:29-35`, `[LK] lk2nd/device/dts/msm8960/rules.mk:4-5` (only a bundled DTB, no appended one), `[LK] Documentation/devices.md:249`, `[LK] README.md:23-30`. Project claim, not tested on this unit. |
+| zImage magic | lk2nd places the three zImage header words in its binary: magic `0x016f2818` at offset `0x24`, start `0` at `0x28`, image end at `0x2c`. Its commit message says Qualcomm's bootloader uses them to find an appended DTB. So every lk2nd image this bootloader is reported to accept carried the magic. | Source: `[LK] arch/arm/crt0.S:41-51`; lk2nd commit [`92d6f0f228`](https://github.com/msm8916-mainline/lk2nd/commit/92d6f0f228). **Unknown** whether Samsung's `aboot` rejects a kernel without it. Resolved only by a hardware test, or avoided by keeping the three words. |
+| Ramdisk | lk2nd ships a 1-byte ramdisk containing a single zero. Its commit gives no reason. | Source: `[LK] lk2nd/device/2nd/rules.mk:48-51`; commit [`2c81fe6c9b`](https://github.com/msm8916-mainline/lk2nd/commit/2c81fe6c9b). **Unknown** whether a zero-length ramdisk is accepted. Hardware test, or keep the byte. |
+| ATAGS, DTB, QCDT (`dt.img`) | None is carried in the image. LineageOS builds this device's boot image with plain `mkbootimg` arguments, postmarketOS's `deviceinfo` sets no QCDT or DTB field, and `lk2nd-msm8960` builds no QCDT. | Source: LineageOS [`BoardConfigCommon.mk`](https://github.com/LineageOS/android_device_samsung_serrano-common/blob/lineage-18.1/BoardConfigCommon.mk) lines 39-43 and no custom boot-image makefile in that tree; postmarketOS `deviceinfo` (cited in gt-i9195.md); `[LK] lk2nd/device/2nd/rules.mk:37-46`. ATAGS are produced by the bootloader at run time (Inference, section 2). |
+| `SEANDROIDENFORCE` trailer | lk2nd appends these 16 bytes after every boot image it builds. LineageOS and postmarketOS do not append them for this device, and both were bootable, so the trailer is not needed to boot. | Source: `[LK] lk2nd/device/2nd/rules.mk:82`. Inference for "not needed". What this bootloader prints when the trailer is missing is **Unknown**. Community reports on Samsung phones of this era describe a `Set Warranty Bit: kernel` line at the top left with the boot continuing ([one Galaxy S4 report](https://forums.androidcentral.com/threads/set-warranty-bit-kernel-comes-up-on-samsung-galaxy-s4.685489)). |
+| Signature | No check blocks an unsigned image on this variant. | Inference, already in [gt-i9195.md](../hardware/gt-i9195.md#bootloader-lock-and-knox). The Knox warranty bit is the cost. |
+| Behaviour on a failed check | Not documented anywhere we found. One GT-I9195 owner reports the text "Could not do normal boot" with the phone staying in Odin (Download) mode, after a failed update rather than a custom image ([report](https://forums.androidcentral.com/threads/error-while-trying-to-do-update-s4-mini.647651)). Another GT-I9195 owner reports `Set Warranty Bit : Kernel` and no further boot after flashing a kernel package ([report](https://forums.androidcentral.com/threads/mistake-when-using-odin-and-not-selecting-usb-debugging-my-samsung-galaxy-s4-mini.769702)). | **Unknown.** Only the ROADMAP's negative test (a deliberately bad header) on the phone answers this. |
+
+## 2. Entry address and handoff state
+
+No public source records the state this bootloader hands over. lk2nd logs exactly these values when it starts (`[LK] lk2nd/device/2nd/parse-tags.c:163-164`), but we found no published log for a GT-I9195. The table gives what the code around the bootloader expects.
+
+| Point | Expected value | Label and evidence |
+| --- | --- | --- |
+| Load address | `0x80208000`, the header's `kernel_addr` (base + `0x8000`). | Inference. Qualcomm's reference LK copies the kernel to the header address (`[LK] app/aboot/aboot.c:3459-3461`); Samsung's build may differ. lk2nd does not rely on it: it records its real address and relocates itself (`[LK] arch/arm/crt0.S:53-56`, `:110-129`). **Unknown** until measured. |
+| Entry point | First byte of the kernel image, in ARM state. | Inference: `[LK] app/aboot/aboot.c:1212`, `:1316`; `[LK] project/msm8960.mk:18` (`ENABLE_THUMB := false`). |
+| `r0`, `r1`, `r2` | `r0 = 0`; `r1` = machine number, expected 3727; `r2` = physical address of an ATAGS list, expected `0x80200100`. | Inference. Reference LK calls `entry(0, machtype, tags)` (`[LK] app/aboot/aboot.c:1316`). The stock kernel registers machine `SERRANO` = 3727 (`[SK] arch/arm/tools/mach-types:1027`, `[SK] arch/arm/mach-msm/board-serrano.c:4727-4737`). lk2nd identifies this phone from the bootloader's command line, which it can only read when `r0 = 0` and `r2` points at valid tags (`[LK] lk2nd/device/2nd/parse-tags.c:166-186`, `[LK] lk2nd/device/dts/msm8960/bundle.dts:25-28`). |
+| ATAGS or DTB | ATAGS. | Inference: [gt-i9195.md](../hardware/gt-i9195.md#boot-image-format-and-handoff) (board files), and [LKML] booted mainline only through lk2nd's "ATAGS from the previous bootloader" path. |
+| CPU mode | SVC. HYP is not expected. | Inference: LK runs in SVC (`[LK] arch/arm/crt0.S:171-173`). HYP support on Krait remains Unknown in gt-i9195.md. |
+| Interrupt masks | IRQ masked. **FIQ probably not masked.** | Inference: reference LK's critical section sets only the I bit (`[LK] arch/arm/ops.S:37-41`, `[LK] include/kernel/thread.h:129-134`). The payload must mask FIQ itself. |
+| MMU and caches | Off. | Inference: `[LK] app/aboot/aboot.c:1304-1308`; the ARM Linux boot protocol cited in gt-i9195.md. lk2nd does not trust this either and clears the MMU and cache bits first (`[LK] arch/arm/crt0.S:63-77`). |
+| Second core | **Unknown** (held in reset or parked). Not needed for Phase 2. | Measured later (Phase 3). |
+
+**What lk2nd's entry code assumes** (Source: `[LK] arch/arm/crt0.S:31-204`): nothing about its load address until it has relocated; nothing about the stack; a privileged mode with CP15 access; RAM at its link address `0x88F00000` (`[LK] target/msm8960/rules.mk:7-8`). It saves `r0`–`r3` and its own address before touching anything. That is the pattern to copy.
+
+## 3. Framebuffer
+
+| Point | Finding | Label and evidence |
+| --- | --- | --- |
+| Does the stock bootloader leave the panel scanning out? | **Yes, when it boots the stock kernel.** The stock kernel for this board sets `cont_splash_enabled`, and at start-up reads the splash size and address back from the display controller and copies the image, assuming 3 bytes per pixel. That code only makes sense if the bootloader hands over a running display. | Source: `[SK] arch/arm/mach-msm/board-8930-display.c:1528`, `[SK] drivers/video/msm/mdp.c:3028-3080`. |
+| Same for an image in `recovery`, and for a non-Samsung image? | Probably. lk2nd cannot initialise this display itself and only draws on a splash an earlier bootloader left running, and it lists the GT-I9195 without the display caveat it gives two neighbouring devices. [LKML] drew to the framebuffer on an S4 Mini under lk2nd. The bootloader tells the kernel about the display and the boot mode with `lcd_attached=` and `androidboot.boot_recovery=`. | Inference: `[LK] lk2nd/project/msm8x60-late.mk:13-20`, `[LK] Documentation/devices.md:242-250`, `[SK] drivers/video/msm/mipi_samsung_oled-8930.c:2257-2298`. **Unknown** for the recovery-key path specifically; the phone answers it. |
+| Address | **Disputed.** The fork says `0x88300000`. [LKML] found that address wrong on the device tested and got output only at `0x88100000`. Qualcomm's reference value for this SoC family is `0x89000000`, so the address is Samsung's choice and may vary by bootloader build. | Source (conflicting): `[FK] arch/arm/boot/dts/qcom/qcom-msm8930-samsung-serranolte.dts:28-49`, `:145-150`; [LKML]; `[LK] target/msm8960/include/target/display.h:32`. **Unknown** for this unit. |
+| How to find the address without guessing | Read it from the MDP4 display controller (base `0x05100000`): DMA_P buffer address at `0x05190008`, size at `0x05190004`, stride at `0x0519000C`, config at `0x05190000`; or the RGB1 pipe source address at `0x05140010`. lk2nd and the stock kernel both do this. | Source: `[LK] include/dev/lcdc.h:36-40`, `[LK] platform/msm8960/include/platform/iomap.h:113-114`, `[LK] platform/msm_shared/include/mdp4.h:60-67`, `[LK] lk2nd/display/cont-splash/dma.c:16-24`, `[LK] lk2nd/display/cont-splash/pipe.c:58-69`, `[SK] drivers/video/msm/mdp.c:3046-3055`. Unverified on this phone. Reading a display register while its clock is off can hang (`[LK] lk2nd/display/cont-splash/target_display.c:42-52`). |
+| Geometry | 540×960, 24 bits per pixel, video-mode DSI panel. Stride 1620 bytes (540 × 3) is the fork's value; the stock kernel also assumes 3 bytes per pixel with no padding. | Source: `[SK] drivers/video/msm/mipi_samsung_oled_video_qhd_pt-8930.c:1954-1969`, `:2040-2042`; `[FK]` as above; `[SK] drivers/video/msm/mdp.c:3039-3052`. The real stride is in the register above. |
+| Byte order | Expected **blue, green, red** in memory. The fork's `r8g8b8` means red in bits 23–16 of a little-endian 24-bit pixel, so byte 0 is blue. Reference LK writes `0xRRGGBB` low byte first, which is the same order. | Source for the naming: `[FK] Documentation/devicetree/bindings/display/simple-framebuffer.yaml:103`, `[LK] dev/fbcon/fbcon.c:67-75`, `:131-134`. Inference for this phone: lk2nd emits `r8g8b8` for any 24-bit splash without reading the pack pattern (`[LK] lk2nd/display/simplefb.c:152-154`). **Unknown** until seen; the payload must reveal it, not depend on it. |
+| Cache flush | Not needed while the data cache is off, as expected at entry: a store goes straight to RAM, and the controller reads RAM. lk2nd flushes only because it runs with caches on. A video-mode panel is refreshed continuously, so no "start" write is needed either. | Inference: section 2; `[LK] lk2nd/display/cont-splash/convert.c:22-24`; `[LK] lk2nd/display/cont-splash/refresh.c:76-110`. |
+
+## 4. Watchdog
+
+| Point | Finding | Label and evidence |
+| --- | --- | --- |
+| Registers | Watchdog 0 lives in the KPSS timer block: reset (pet) `+0x38`, enable `+0x40`, status `+0x44`, bark time `+0x4C`, bite time `+0x5C`. It counts the 32,768 Hz sleep clock. | Source, three trees agree: `[LK] platform/msm8960/include/platform/iomap.h:74-76`; `[SK] arch/arm/mach-msm/restart.c:38-41`, `[SK] arch/arm/mach-msm/msm_watchdog.c:42-48` with `[SK] arch/arm/mach-msm/msm_watchdog.h:17`; `[FK] drivers/watchdog/qcom-wdt.c:25-31` with `[FK] arch/arm/boot/dts/qcom/qcom-msm8227-common.dtsi:262-272`. |
+| Block address | `0x0200A000` in lk2nd and the fork; the stock kernel uses `0x0208A000` for the watchdog. The fork gives the block a per-CPU offset of `0x80000`. So `0x0200A000` is most likely the current CPU's view and `0x0208A000` CPU 0's own frame, and on CPU 0 both reach the same watchdog. | Source for the two addresses: `[LK] platform/msm8960/include/platform/iomap.h:48`, `[SK] arch/arm/mach-msm/include/mach/msm_iomap-8930.h:35-39`, `[SK] arch/arm/mach-msm/devices-8960.c:1719-1724`. Inference for the aliasing. |
+| Pet and disable | Pet: write 1 to reset (`0x0200A038`). Disable: write 0 to enable (`0x0200A040`). | Source: `[SK] arch/arm/mach-msm/msm_watchdog.c:128-143`, `[SK] arch/arm/mach-msm/restart.c:306`, `[FK] drivers/watchdog/qcom-wdt.c:87-101`. Unverified on this phone. The stock kernel marks this watchdog `has_secure`, so TrustZone may also be involved. |
+| Is it running at handoff? | **Unknown.** Probably not: lk2nd's code for this SoC never pets or disables it outside its reboot routine, yet lk2nd idles in its menu on this phone; and the stock kernel programs the timeouts and enables the watchdog itself late in boot. | Inference: `[LK] target/msm8960/init.c:203-222` is the only watchdog code in `platform/msm8960` and `target/msm8960`; `[SK] arch/arm/mach-msm/msm_watchdog.c:419-440`. Resolved on the phone by reading enable and status at entry. |
+| Time to reset, if it is running | **Unknown.** Reference points only: the stock kernel uses a 45-second bark with the bite 3 seconds later; the reboot fallback arms a bite of `0x31F3` ticks, about 0.39 seconds. | Source: `[SK] arch/arm/mach-msm/devices-8960.c:1719-1724`, `[SK] arch/arm/mach-msm/msm_watchdog.c:421-422`, `[SK] arch/arm/mach-msm/restart.c:314-317`. |
+
+## 5. Deterministic halt and reset
+
+| Route | Finding | Label and evidence |
+| --- | --- | --- |
+| `PS_HOLD` | Control register `PSHOLD_CTL_SU` at TLMM base `0x00800000` + `0x820` = **`0x00800820`**. Writing 0 drops `PS_HOLD` and the PMIC acts. | Source: `[LK] platform/msm8960/include/platform/iomap.h:71-77`, `[LK] target/msm8960/init.c:82-92`, `:203-209`; `[SK] arch/arm/mach-msm/restart.c:43`, `:135-149`, `:306-311`; `[SK] arch/arm/mach-msm/include/mach/msm_iomap-8930.h:89`. |
+| Reset or power-off? | The PMIC decides, from two registers programmed just before `PS_HOLD` is dropped. Both lk2nd and the stock kernel program them every time. That needs an SSBI PMIC write, and this phone's PMIC is still unconfirmed (PM8917 or PM8038). What a bare `PS_HOLD` drop does in the state the bootloader leaves is **Unknown**. | Source: `[LK] dev/pmic/pm8921/pm8921.c:288-322`, `[SK] arch/arm/mach-msm/restart.c:141`, `:270`. Hardware test. |
+| Watchdog bite | Needs no PMIC: reset = 1, bark and bite set short, enable = 1, and the SoC resets after about 0.39 seconds. lk2nd also writes 3 to `TCSR_WDOG_CFG` at `0x1A400030`. | Source: `[SK] arch/arm/mach-msm/restart.c:314-317`, `[LK] target/msm8960/init.c:212-218`, `[LK] platform/msm8960/include/platform/iomap.h:46`, `:73`. How Samsung's bootloader treats a watchdog reset is **Unknown**. |
+| Restart reason | A word at `0x2A03F65C` tells the next boot what to do. The stock kernel writes `0x12345678` for a normal restart, `0x77665502` for recovery and `0x12345671` for Download mode. | Source: `[LK] platform/msm8960/include/platform/iomap.h:41-42`, `[SK] arch/arm/mach-msm/restart.c:45`, `:272-304`. **Unknown** what the bootloader does with a stale or missing value after a payload-triggered reset. |
+| Halt | Mask IRQ and FIQ, then loop on `wfi`. Removing the battery ends it. This uses no unverified register, but it is deterministic only if the watchdog is not running. | Source for the battery: [gt-i9195.md](../hardware/gt-i9195.md#recovery-mechanisms). |
+
+## 6. lk2nd, option B
+
+| Point | Finding | Label and evidence |
+| --- | --- | --- |
+| Build | Project `lk2nd-msm8960`, output `lk2nd.img`; the prebuilt release asset is `lk2nd-msm8960.img` (release 23.1). The device entry matches bootloader versions `I9195*`. Not built or run for this research. | Source: `[LK] project/lk2nd-msm8960.mk:1-4`, `[LK] lk2nd/project/lk2nd.mk:38-40`, `[LK] lk2nd/device/dts/msm8960/bundle.dts:25-46`, `[LK] README.md:83-91`; [releases](https://github.com/msm8916-mainline/lk2nd/releases). |
+| What it writes, and where | lk2nd is installed through the stock flashing interface at the **start of `BOOT`**. Running, it presents the first 512 KiB of `BOOT` as a virtual partition `lk2nd` and the rest as `boot`, so a later boot-image write through lk2nd lands at `BOOT` + 512 KiB. | Source: `[LK] README.md:43-47`, `:67-73`; `[LK] lk2nd/project/lk2nd.mk:14-18`; `[LK] lk2nd/device/2nd/partition.c:87-95`. |
+| Consequences for Android | Installing lk2nd overwrites the start of the stock boot image, so Android no longer boots from `BOOT` until a boot image is written again through lk2nd. If lk2nd were placed in `recovery` instead, a release build would still split `BOOT`, and any lk2nd flash command aimed at `boot` or `lk2nd` would write inside the stock boot image. Only a RAM boot writes nothing. | Inference from the code above and `[LK] app/aboot/aboot.c:3459-3475`. A write plan must say which partition, and list the lk2nd commands allowed. |
+| Does `fastboot boot` take a non-Linux payload? | lk2nd says so: "any kind of kernel can be packed into an Android boot image". The code path needs a valid header, RAM addresses that do not overlap lk2nd, and either a DTB in the image or ATAGS inherited from the stock bootloader. On this phone that should be the ATAGS path. There is no zImage check on that path. | Source: `[LK] README.md:28-30`, `[LK] app/aboot/aboot.c:3404-3411`, `:3442-3456`. Inference for "should work here". Caveats from [LKML]: a non-empty ramdisk was required, and an appended DTB needed an lk2nd patch. |
+| Entry state compared with stock | Differs. `r1` comes from lk2nd's own board lookup. `r2` points at tags lk2nd rebuilt, at the header's tags address. lk2nd has run its own drivers (interrupt controller, clocks, PMIC, eMMC, USB, Samsung MUIC reset) and has drawn on the framebuffer. It masks IRQ, stops its timer and turns the MMU and caches off before jumping, and leaves the display on. | Source: `[LK] app/aboot/aboot.c:1202-1317`, `[LK] target/msm8960/init.c:171-174`, `[LK] lk2nd/device/2nd/parse-tags.c:94-106`, `:206-242`, `[LK] platform/msm8960/platform.c:99-106`, `[LK] platform/init.c:74`, `[LK] platform/msm_shared/timer.c:96-102`, `[LK] lk2nd/device/2nd/samsung-muic-reset.c:12-47`. Inference: a result under lk2nd is not the stock handoff state. |
+| What it would measure for us | lk2nd logs the stock bootloader's `r0`–`r2` and load address, and the splash address, size, stride and format, and offers that log over USB. It can also read registers and read partitions back. | Source: `[LK] lk2nd/device/2nd/parse-tags.c:163-164`, `[LK] lk2nd/display/cont-splash/dma.c:26-31`, `[LK] lk2nd/fastboot/misc.c:13`, `[LK] lk2nd/fastboot/debug/register.c:61-68`, `[LK] lk2nd/fastboot/fetch.c:131-132`. |
+| Risk it adds | The same interface offers flash, erase and register-write commands for every partition, protected ones included. | Source: `[LK] lk2nd/fastboot/debug/register.c:43-68`. A plan using lk2nd must name the only commands permitted. |
+
+## Candidate payload specification
+
+A proposal for review, not a build instruction. **Every value is unverified on the device** unless the row says otherwise; "expected" means "from the sections above".
+
+**Image packaging** (copies lk2nd's known layout, section 1):
+
+| Field | Value |
+| --- | --- |
+| Container | Android boot image, header version 0, page size 2048 |
+| `kernel_addr` / `ramdisk_addr` / `second_addr` / `tags_addr` | `0x80208000` / `0x81200000` / `0x81100000` / `0x80200100` (lk2nd's values; LineageOS uses `0x82200000` for the ramdisk) |
+| Kernel | Flat binary. Branch at offset 0; zImage words at `0x24`, `0x28`, `0x2c` (`0x016f2818`, `0`, image size) |
+| Ramdisk | 1 byte, value 0 |
+| Second stage, QCDT, appended DTB, signature | None |
+| Command line, board name | A short fixed string; empty board name |
+| Trailer | 16 bytes `SEANDROIDENFORCE` after the image |
+| Recorded | SHA-256 of the final file, and of two clean builds, which must match |
+
+**Entry code** (ARM Assembly):
+
+1. Save `r0`–`r3`, the CPSR, SCTLR and its own run-time address before changing anything.
+2. Mask IRQ and FIQ. Do not rely on the bootloader for FIQ.
+3. Run position-independently until the run-time address has been compared with the link address `0x80208000`; record whether they match.
+4. Set the stack inside the image's own reserved static region, zero `.bss`, call the Rust entry.
+
+**The one observable signal:** a full-screen fill of the framebuffer, held for 10 seconds.
+
+- The framebuffer address, size and stride are read from the display controller (section 3). The payload writes only if the address equals one of the two reported values (`0x88300000` or `0x88100000`) and the size is 540×960. Otherwise it writes nothing and goes straight to the end state, which is itself a recorded result.
+- Top half: bytes `FF 00 00` per pixel. It shows blue if the order is blue-green-red, red if it is the reverse. Bottom half: white, which is correct in either order and cannot be mistaken for the Samsung splash.
+- Across the middle, one row of 32 blocks per recorded word, most significant bit first, white for 1 and dark grey for 0, so that a photograph carries the handoff state.
+- The hold is timed with the KPSS general-purpose timer at 32,768 Hz (`[LK] platform/msm_shared/timer.c:104-117`), with a bounded busy loop if the counter does not advance.
+
+**End state:** halt. IRQ and FIQ masked, `wfi` loop; the owner removes the battery. The watchdog is neither petted nor disabled in this first payload, so if it is running the phone resets on its own and the elapsed time is the ROADMAP's watchdog measurement. A payload-triggered reset (`PS_HOLD` or watchdog bite) is a separate, later increment, because its outcome is unknown (section 5).
+
+**What the entry code must record** (one 32-bit word each):
+
+| Word | Why |
+| --- | --- |
+| `r0`, `r1`, `r2` | Boot handoff contract |
+| CPSR | Mode, and the I, F, A and T bits |
+| SCTLR | MMU and cache enable bits |
+| Run-time entry address | Confirms the load address |
+| First word at `r2`, if `r2` lies in RAM | ATAGS (`0x54410001`) or DTB (`0xd00dfeed`) |
+| Watchdog enable and status | Section 4 |
+| Display buffer address, size, stride, config | Section 3 |
+| A checksum computed in Rust | Proves Rust code ran, as in Phase 1 |
+
+**Reuse from Phase 1** ([rust-foundation.md](../phase-1/rust-foundation.md)):
+
+| Shared with the Phase 1 QEMU fixture | GT-I9195-specific, new |
+| --- | --- |
+| The entry-stub pattern: mask interrupts, set the stack, zero `.bss`, call Rust | Link address `0x80208000`, the position-independent prologue and the register capture |
+| `#![no_std]` Rust, `panic=abort`, target `armv7a-none-eabi`, soft-float, no heap | Boot-image packing, the zImage words and the trailer |
+| The static-table checksum and the panic handler's structure | Framebuffer output in place of the PL011 UART; the panic handler paints, it does not print |
+| Build checks: no undefined symbols, ELF attributes, byte-identical rebuilds, hosted-dependency rejection, corrupted-image rejection | **No `svc` at all.** The semihosting exit must not exist in the device image |
+| | Display-controller and watchdog register reads, the timer delay, the halt |
+
+Device-specific logic that is pure computation (the header packer, the pattern generator) can be tested on the host. Nothing device-specific can be tested in QEMU, which has no MSM8930 machine ([TESTING.md](../TESTING.md#not-implemented-yet)).
+
+## Questions only the phone can answer
+
+Research cannot close these. They are not guessed here.
+
+1. Whether the bootloader accepts a kernel without the zImage words, a zero-length ramdisk, or a missing trailer, and what it shows and does when it rejects an image.
+2. The actual load address and entry state: `r0`–`r2`, mode, interrupt masks, MMU and caches.
+3. Whether the display is still scanning out when a non-Samsung image is started from `recovery`, the framebuffer address on this unit, and the byte order.
+4. Whether the watchdog is running at handoff, and its timeout.
+5. What a `PS_HOLD` drop or a watchdog bite does in the state the bootloader leaves, and how the bootloader treats the next boot.
+
+## Blockers before any write
+
+| # | Missing | Who resolves it |
+| --- | --- | --- |
+| 1 | Phase 0 passed, with its evidence reviewed (ROADMAP Phase 2 entry gate). | Owner (remaining checklist steps); orchestrator (review) |
+| 2 | The installed build recorded as evidence: bootloader version, build, baseband, CSC (checklist C5, F2). | Owner |
+| 3 | The Download-mode status lines photographed and transcribed: Knox warranty bit, secure boot, reactivation lock, write protection (F2). | Owner |
+| 4 | Download mode shown reliable, Heimdall detection, and the PIT listing `BOOT` and `RECOVERY` with sizes (F1, F4, F5). | Hardware test, by the owner |
+| 5 | Verified stock `boot` and `recovery` images for the **installed** build, with checksums, held outside the repository (G1–G3). Without them a written partition cannot be restored. | Owner obtains; research identifies the matching package |
+| 6 | The owner's explicit acceptance that a non-Samsung image is reported to set the Knox warranty bit permanently. | Owner |
+| 7 | The method: option A (`recovery`) or option B (lk2nd), and the single partition to be written. For option B, the partition, the allowed lk2nd commands, and a review of lk2nd as a third-party component. | Owner and orchestrator |
+| 8 | The payload itself: a reviewed pull request with the entry code, the packer, host tests, a reproducible build and a recorded SHA-256. None of it exists. | Implementer, then orchestrator review |
+| 9 | A decision on the payload reading display-controller and timer registers, given that a read from an unclocked block can hang. | Research and orchestrator review; then hardware test |
+| 10 | The deliberately invalid image for the ROADMAP's negative test, and the recovery steps that follow it. | Implementer; owner approves in the write plan |
+| 11 | The five phone-only questions above, accepted in the write plan as open, with the expected observation and the recovery action for each outcome. | Hardware test |
+| 12 | An approved write-plan issue naming the phase, partition, image, SHA-256, method and emergency rescue procedure. | Owner and orchestrator |
+
+Items 1–6 are the same gates Phase 0 and the ROADMAP already set. Items 7–12 are new from this research.
+
+## Sources
+
+Checked 2026-11-10. Line numbers refer to the pinned commits in the table at the top.
+
+- lk2nd: <https://github.com/msm8916-mainline/lk2nd> at `cf45aefd22d744b2bf9b39455afae697ce430063`; commits [`92d6f0f228`](https://github.com/msm8916-mainline/lk2nd/commit/92d6f0f228) (zImage header), [`2c81fe6c9b`](https://github.com/msm8916-mainline/lk2nd/commit/2c81fe6c9b) (1-byte ramdisk), [`64ab4e976d`](https://github.com/msm8916-mainline/lk2nd/commit/64ab4e976d) (dummy header addresses)
+- Stock-derived kernel: <https://github.com/LineageOS/android_kernel_samsung_msm8930-common> at `94cbcc3691247ded64f6c772ca37b5916f9f4b4a`
+- Community mainline fork: <https://github.com/msm8227-mainline/linux> at `b51f999a8ab27982c2b5ea07f963cd226058ac04`
+- LineageOS device tree: <https://github.com/LineageOS/android_device_samsung_serrano-common/blob/lineage-18.1/BoardConfigCommon.mk>
+- postmarketOS wiki, Samsung Galaxy S4 Mini LTE (names `lk2nd-msm8960.img` for this device): <https://wiki.postmarketos.org/wiki/Samsung_Galaxy_S4_Mini_LTE_(samsung-serranolte)>
+- Kernel mailing list, January 2026: <https://lkml.iu.edu/hypermail/linux/kernel/2601.0/00939.html>, <https://lkml.iu.edu/hypermail/linux/kernel/2601.0/01442.html>
+- Community reports of bootloader messages (not authoritative): the three forum threads linked in section 1
+- Earlier research in this repository: [gt-i9195.md](../hardware/gt-i9195.md), especially [boot image format and handoff](../hardware/gt-i9195.md#boot-image-format-and-handoff), [debug output interfaces](../hardware/gt-i9195.md#debug-output-interfaces), [recovery mechanisms](../hardware/gt-i9195.md#recovery-mechanisms) and [Download mode and flashing tools](../hardware/gt-i9195.md#download-mode-and-flashing-tools)
+
+The downloaded source trees were read outside this repository and are not committed. Nothing in them was built or run.
