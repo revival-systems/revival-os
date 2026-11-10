@@ -44,6 +44,22 @@ FIXTURE     := tests/qemu/virt-armv7
 # The target flags select libgcc's ARMv7-A build, the one the code is compiled for.
 ARM_LDFLAGS := $(ARM_ARCH) -nostdlib -T $(FIXTURE)/link.ld -Wl,--gc-sections -Wl,--build-id=none
 
+# Rust bare-metal toolchain (Phase 1+, ADR 0001), pinned in tools/pins.env and
+# rust-toolchain.toml and installed isolated by tools/install-rust.sh.
+RUST_PREFIX ?= $(HOME)/.local/share/revival-os
+export RUSTUP_HOME := $(RUST_PREFIX)/rustup
+export CARGO_HOME  := $(RUST_PREFIX)/cargo
+RUSTC       ?= $(CARGO_HOME)/bin/rustc
+# A no_std ARMv7-A binary. rustc links its own core and compiler_builtins; the
+# Arm GNU linker (bfd) is only the backend, and no C library or -lgcc is added.
+RUST_FLAGS  := --target $(RUST_TARGET) --edition 2021 --crate-type bin \
+               -C panic=abort -C opt-level=2 -C relocation-model=static \
+               -D warnings --remap-path-prefix $(CURDIR)=.
+RUST_LINK   := -C linker=$(ARM_CC) -C linker-flavor=gcc -C link-arg=-fuse-ld=bfd \
+               -C link-arg=-nostartfiles -C link-arg=-nostdlib \
+               -C link-arg=-Wl,--gc-sections -C link-arg=-Wl,--build-id=none \
+               -C link-arg=-Wl,-T,$(FIXTURE)/link.ld
+
 GEN      := $(OUT)/gen
 QEMU_OUT := $(OUT)/qemu-virt-armv7
 HOST_OUT := $(OUT)/host
@@ -60,14 +76,22 @@ PROBE_SURFACE  := calloc gs_idxfail gs_panic gs_rt_start_$(GOOSE_RUNTIME)
 # Boundary tests of the stub's allocator, in an image of their own.
 ALLOC_ELF      := $(QEMU_OUT)/alloc.elf
 ALLOC_CASES    := 28
+# Phase 1 Rust kernel images: the heartbeat (normal) plus two negative-test
+# builds selected by a cfg, mirroring the probe's PROBE_CASE.
+KERNEL_MODES   := heartbeat panic oob
+KERNEL_ELFS    := $(foreach m,$(KERNEL_MODES),$(QEMU_OUT)/kernel-$(m).elf)
+# Phase 1 Rust negative-test artifacts (hosted-dependency rejection and
+# corrupted-image detection). Built only by test-rust, never by `build`, and
+# kept out of the reproducibility set.
+RUSTNEG        := $(OUT)/rust-negative
 
 SHELL_SCRIPTS := $(wildcard tools/*.sh tests/*.sh tests/*/*.sh)
 PY_FILES      := $(wildcard tests/*.py tests/*/*.py)
 OWN_C         := $(wildcard $(FIXTURE)/*.c tests/host/*.c tests/build/link-negative/*.c)
 
 .PHONY: help doctor install-toolchain build test test-build test-unit test-qemu \
-        test-repro lint check-docs check clean qemu-run qemu-debug \
-        need-goose need-arm need-qemu
+        test-rust test-repro lint check-docs check clean qemu-run qemu-debug \
+        need-goose need-arm need-qemu need-rust
 
 help: ## List the targets
 	@echo "Revival OS local development (docs/DEVELOPMENT.md):"
@@ -76,9 +100,10 @@ help: ## List the targets
 doctor: ## Check that every required tool is installed and pinned
 	@tools/doctor.sh
 
-install-toolchain: ## Install the pinned Goose compiler and Arm toolchain (no sudo)
+install-toolchain: ## Install the pinned Goose compiler, Arm toolchain and Rust (no sudo)
 	tools/install-goose.sh
 	tools/install-arm-toolchain.sh
+	tools/install-rust.sh
 
 # ---- tool guards: fail with the fix, never skip ---------------------------
 
@@ -88,6 +113,8 @@ need-arm:
 	@test -x "$(ARM_CC)" || { echo "missing Arm toolchain at $(ARM_BIN): run make install-toolchain"; exit 1; }
 need-qemu:
 	@command -v "$(QEMU)" >/dev/null || { echo "missing $(QEMU): sudo apt install qemu-system-arm"; exit 1; }
+need-rust:
+	@test -x "$(RUSTC)" || { echo "missing Rust at $(RUSTC): run make install-toolchain (tools/install-rust.sh)"; exit 1; }
 
 # ---- generated C -----------------------------------------------------------
 
@@ -144,8 +171,25 @@ $(ALLOC_ELF) $(ALLOC_ELF:.elf=.map) &: $(QEMU_OUT)/start.o $(QEMU_OUT)/alloc_mai
 	$(ARM_CC) $(ARM_LDFLAGS) -Wl,-Map=$(ALLOC_ELF:.elf=.map) -o $(ALLOC_ELF) \
 	    $(QEMU_OUT)/start.o $(QEMU_OUT)/alloc_main.o $(QEMU_OUT)/minirt.o -lgcc
 
-build: $(PROBE_ELFS) $(PROBE_BINS) $(ALLOC_ELF) ## Build every artifact that exists today (the ARMv7-A probe and allocator test images)
-	@cd $(QEMU_OUT) && sha256sum probe-*.elf probe-*.bin alloc.elf
+# ---- Phase 1 Rust kernel images for QEMU virt -----------------------------
+
+# The ARM entry stub: sets the stack, zeroes .bss, calls Rust kmain, and holds
+# the one documented semihosting-exit svc. Assembled, not Rust (ADR 0001).
+$(QEMU_OUT)/kstart.o: $(FIXTURE)/kstart.S | need-arm
+	@mkdir -p $(@D)
+	$(ARM_CC) $(ARM_ARCH) -g $(REPRO) -c $< -o $@
+
+# rustc drives the link (its own core + compiler_builtins); the Arm GNU linker
+# is the backend via -fuse-ld=bfd; kstart.o supplies _start and the exit. The
+# mode stem selects the image: heartbeat (none), panic, or oob.
+$(QEMU_OUT)/kernel-%.elf: $(FIXTURE)/kernel.rs $(QEMU_OUT)/kstart.o $(FIXTURE)/link.ld | need-rust need-arm
+	@mkdir -p $(@D)
+	cfg=; case '$*' in panic) cfg='--cfg kmode_panic';; oob) cfg='--cfg kmode_oob';; esac; \
+	$(RUSTC) $(RUST_FLAGS) $(RUST_LINK) -C link-arg=$(QEMU_OUT)/kstart.o $$cfg \
+	    --emit link -o $@ $(FIXTURE)/kernel.rs
+
+build: $(PROBE_ELFS) $(PROBE_BINS) $(ALLOC_ELF) $(KERNEL_ELFS) ## Build every artifact that exists today (the ARMv7-A probe, allocator and Rust kernel images)
+	@cd $(QEMU_OUT) && sha256sum probe-*.elf probe-*.bin alloc.elf kernel-*.elf
 
 # ---- link check (build-link-map) -------------------------------------------
 
@@ -197,7 +241,7 @@ $(HOST_OUT)/probe_host_asan: $(HOST_OUT)/probe_gen_asan.o $(HOST_OUT)/probe_main
 
 # ---- tests -----------------------------------------------------------------
 
-test: test-build test-unit test-qemu test-repro ## Run every automated test (build, unit, QEMU, reproducibility)
+test: test-build test-unit test-qemu test-rust test-repro ## Run every automated test (build, unit, QEMU, Rust kernel, reproducibility)
 
 test-build: build $(QEMU_OUT)/hosted_probe.o $(LINK_CHECKED) ## Check the freestanding build: link inputs, symbols, ELF attributes, no system calls
 	@mkdir -p $(LOGS)
@@ -268,6 +312,37 @@ test-qemu: build | need-qemu ## Boot the probe and allocator test images in QEMU
 	    "probe: unexpected exception, vector 1"
 	@tests/qemu/run.sh qemu-alloc-bounds $(ALLOC_ELF) $(LOGS)/qemu-alloc.log 0 \
 	    "alloc: PASS ($(ALLOC_CASES) of $(ALLOC_CASES) cases)"
+
+test-rust: $(KERNEL_ELFS) $(FIXTURE)/hosted_std.rs $(FIXTURE)/hosted_libc.rs tests/build/check_image_integrity.sh | need-qemu need-arm need-rust ## Boot the Phase 1 Rust kernel images, check build attributes, and reject hosted deps and corrupted images
+	@mkdir -p $(LOGS)
+	@tests/qemu/run.sh qemu-rust-heartbeat $(QEMU_OUT)/kernel-heartbeat.elf $(LOGS)/krt-heartbeat.log 0 \
+	    "revival-os: phase 1 rust heartbeat"
+	@tests/qemu/run.sh qemu-rust-panic $(QEMU_OUT)/kernel-panic.elf $(LOGS)/krt-panic.log 1 "panic:"
+	@tests/qemu/run.sh qemu-rust-bounds $(QEMU_OUT)/kernel-oob.elf $(LOGS)/krt-bounds.log 1 "panic:"
+	@u=$$($(ARM_NM) -u $(QEMU_OUT)/kernel-heartbeat.elf | wc -l | tr -d ' '); \
+	  if [ "$$u" = 0 ]; then echo "PASS build-rust-symbols (no undefined symbols; Rust links its own core)"; \
+	  else echo "FAIL build-rust-symbols: $$u undefined"; $(ARM_NM) -u $(QEMU_OUT)/kernel-heartbeat.elf; exit 1; fi
+	@n=$$($(ARM_OBJDUMP) -d $(QEMU_OUT)/kernel-heartbeat.elf | grep -cE '\s(svc|swi|smc|hvc)\s' || true); \
+	  if [ "$$n" = 1 ]; then echo "PASS build-rust-one-svc (only the documented semihosting exit)"; \
+	  else echo "FAIL build-rust-one-svc: found $$n"; exit 1; fi
+	@a=$$($(ARM_READELF) -A $(QEMU_OUT)/kernel-heartbeat.elf); \
+	  grep -q 'Tag_CPU_arch: v7$$' <<<"$$a" && grep -q 'Tag_CPU_arch_profile: Application' <<<"$$a" \
+	  && $(ARM_READELF) -h $(QEMU_OUT)/kernel-heartbeat.elf | grep -q 'soft-float ABI' \
+	  && echo "PASS build-rust-elf-attributes (ARMv7-A, Application, soft-float EABI)" \
+	  || { echo "FAIL build-rust-elf-attributes"; exit 1; }
+	@mkdir -p $(RUSTNEG)
+	@$(EXPECT) build-rust-rejects-std nonzero "may not support the standard library" \
+	    $(LOGS)/krt-neg-std.log -- \
+	    $(RUSTC) $(RUST_FLAGS) $(RUST_LINK) -C link-arg=$(QEMU_OUT)/kstart.o \
+	    --emit link -o $(RUSTNEG)/kernel-hosted-std.elf $(FIXTURE)/hosted_std.rs
+	@$(RUSTC) $(RUST_FLAGS) --emit obj -o $(RUSTNEG)/hosted_libc.o $(FIXTURE)/hosted_libc.rs 2>$(LOGS)/krt-neg-libc-obj.log \
+	  && echo "PASS build-rust-hosted-libc-compiles (valid no_std fixture; the link failure below is the libc symbol, not a compile error)" \
+	  || { echo "FAIL build-rust-hosted-libc-compiles (see $(LOGS)/krt-neg-libc-obj.log)"; exit 1; }
+	@$(EXPECT) build-rust-rejects-libc nonzero "undefined reference to \`puts'" \
+	    $(LOGS)/krt-neg-libc.log -- \
+	    $(RUSTC) $(RUST_FLAGS) $(RUST_LINK) -C link-arg=$(QEMU_OUT)/kstart.o \
+	    --emit link -o $(RUSTNEG)/kernel-hosted-libc.elf $(FIXTURE)/hosted_libc.rs
+	@tests/build/check_image_integrity.sh $(QEMU_OUT)/kernel-heartbeat.elf $(RUSTNEG)
 
 test-repro: ## Build twice from scratch in separate directories and require identical outputs
 	@rm -rf $(OUT)/repro-a $(OUT)/repro-b
