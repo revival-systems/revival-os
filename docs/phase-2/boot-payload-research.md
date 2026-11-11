@@ -199,6 +199,85 @@ Research cannot close these. They are not guessed here.
 
 Items 1–6 are the same gates Phase 0 and the ROADMAP already set. Items 7–12 are new from this research.
 
+## v1 payload decision
+
+The first payload (built and tested in QEMU, not flashed) deliberately **lightens** the candidate specification above. It is implemented in [boot/samsung-serranolte/](../../boot/samsung-serranolte/) (`kstart.S`, `payload.rs`, `link.ld`), packed by [tools/pack_bootimg.py](../../tools/pack_bootimg.py), and tested by [tests/boot/](../../tests/boot/) under `make check` (target `test-payload`). This note covers **v1.3** (the third review revision of v1).
+
+What it keeps: the entry capture (`r0`–`r3`, CPSR, SCTLR, run-time entry address), IRQ+FIQ masking, stack in the image's own static region, `.bss` zeroing, both candidate framebuffers painted (`0x88100000` bytes `FF 00 00`; `0x88300000` bytes `00 FF 00`) with the recorded words drawn as rows of bit cells, a masked `wfi` halt, and the packaging (Android boot image v0, page 2048, kernel at `0x80208000`, zImage words, 1-byte zero ramdisk, `SEANDROIDENFORCE` trailer). The image writes **only to framebuffers**, contains **no `svc`**, and links with zero undefined symbols.
+
+**Order of operations: risky steps last.** The payload paints a visible result before it does anything that could hang or fault, so either still leaves evidence on screen:
+
+1. fill both candidate framebuffers;
+2. read `*r2` (guarded, below) and draw the eight handoff word rows in both;
+3. **as the very last action**, read one display-controller register and act on it (below).
+
+In v1.1 the compiled code did not follow this order: it read `*r2` before the fills. v1.2 moves that read after both fills in the source; it is a volatile read, so the compiler cannot move it back above the (volatile) fill writes, and the disassembly shows it after both fill loops.
+
+**Halt-only exception vectors (v1.2): a safety net, not fault reporting.** v1.1 installed no vectors, so a fault ran whatever the bootloader had left in `VBAR`; in QEMU a write fault never reached the halt and the CPU ran away. The image now starts with the same header as lk2nd (`[LK] arch/arm/crt0.S:31-51`): a reset branch at `0x00`, the seven exception vectors at `0x04`–`0x1C`, a branch over the zImage words at `0x20`, and the three zImage words unchanged at `0x24`/`0x28`/`0x2C`. Every vector is a bare `b halt_loop`. Right after masking IRQ and FIQ, `kstart.S` points `VBAR` at the run-time address of `_start` that it has already captured. On a fault the payload **only halts**: no handler code, no stack use, nothing painted, no reset. Whatever was on screen before the fault stays there. This is deliberately **not** the Phase 3a capability (exception vectors that *report* an undefined instruction and a data abort, then reset); nothing here identifies or reports the fault. Limits to keep in mind:
+
+- `VBAR` is used only while `SCTLR.V` (bit 13) is 0. The payload does not write `SCTLR`, so if the bootloader hands over with high vectors selected, the net is inert and a fault behaves as in v1.1. The painted `SCTLR` row shows bit 13, so a photograph says which case applied. lk2nd clears that bit itself (`[LK] arch/arm/crt0.S:63-77`). **Unknown** on this unit until measured.
+- A fault taken before the `VBAR` write (the first ten instructions: the two header branches, the entry capture and the interrupt mask) is not caught.
+- On the phone a halted fault and a normal halt look the same unless the picture is incomplete; only the emulator can read the CPU mode.
+
+**For the orchestrator: ROADMAP Phase 2 negative test.** [ROADMAP.md](../../ROADMAP.md) Phase 2 lists "A payload that triggers an exception before any handler exists shows its observable behaviour". With these vectors this payload has no state in which "no handler exists" once `VBAR` is set, ten instructions after entry, so that test now needs either a separate no-vector variant of the image or a change of wording (for example, to "an exception is caught by the halt-only vector and the picture painted so far stays on screen"). ROADMAP.md is not edited here; the decision is the orchestrator's.
+
+**Stack alignment (v1.2).** `kstart.S` pushes eight words (`r4`–`r11`) instead of seven, so `sp` is 8-byte aligned at the call into Rust, as the AAPCS requires. The handoff array is still the first seven words; the eighth is padding.
+
+What it still drops from the candidate spec, and why:
+
+- **Almost no MMIO reads, and the one it does is last.** The payload reads **only CPU registers** plus one guarded word at `*r2`, and then — as the final step — the single **MDP4 DMA_P buffer-address register** (`0x05190008`, section 3) to discover the real framebuffer address. That read is last precisely because a read from a display block whose clock or power domain the bootloader left off can fail with no output. lk2nd's source says so, and checks the MDP power domain before reading where the platform defines that register ([`lk2nd/display/cont-splash/target_display.c:42-52`](https://github.com/msm8916-mainline/lk2nd/blob/cf45aefd22d744b2bf9b39455afae697ce430063/lk2nd/display/cont-splash/target_display.c#L42-L52), Source). The guard is compiled only when `MDP_GDSCR` or `MDSS_GDSCR` is defined, and `[LK] platform/msm8960/include/platform/iomap.h` defines neither, so on this SoC lk2nd reads the MDP registers unguarded (Inference from the source). By then both candidate buffers and the eight handoff rows are already painted. It still reads **no timer and no watchdog** register.
+- **No timer.** Without a timer read the payload cannot hold the signal for a measured interval; it paints and halts, and the continuously-refreshed video-mode panel (section 3) keeps showing the last frame until the battery is pulled.
+- **No reset and no watchdog interaction.** It neither pets nor disables the watchdog and never triggers a reset (every reset route has an unknown outcome, section 5). If the watchdog is running, the device resets itself and that interval is the measurement.
+
+**Narrowed `*r2` read.** The guarded read of `*r2` is restricted to the tags page `[0x80200000, 0x80208000)` (word-aligned), where the bootloader's ATAGS/DTB pointer (`tags_addr 0x80200100`) should fall — not all of RAM. Anything else records the sentinel `0xFFFFFFFF` (as under QEMU, where `r2 == 0`).
+
+**The MDP4 register as a ninth word, and the optional third buffer.** The register value is drawn as a ninth word row in both candidate buffers. If it names a **plausible framebuffer** — word-aligned; the whole 540×960×3 buffer inside device RAM `[0x80000000, 0xE0000000)`; not equal to either candidate; and not overlapping the image/stack, the tags page, SMEM, WCNSS or rmtfs (section "Write-region safety") — the payload also fills that address grey (`80 80 80`) and draws all nine rows there. Otherwise it paints nothing more.
+
+**Rule change (v1.3): the bootloader's framebuffer reservation is allowed.** The v1.1 and v1.2 rule also rejected any address overlapping the reserved framebuffer region `[0x88300000, 0x88600000)`. That was a mistake: it is the one region where a framebuffer is expected, and section 3 records that the address inside it is Samsung's choice and differs between bootloader builds (`0x88300000` in the fork, `0x88100000` on the [LKML] unit). The GREEN fill covers `0x88300000` .. `0x8847BB00` only, so if this unit's buffer starts at `0x8847BB00` or above inside the reservation, neither candidate fill reaches it, and v1.2 also refused to paint it as the third buffer: the screen would have shown no sign of life. Reproduced on v1.2 with the register reading `0x8847C000`: nothing was painted there. v1.3 removes that region from the reserved list in the payload and in the oracle. The two exact candidate addresses are still excluded (they are already painted), and every other reserved region is still rejected. A discovered address that overlaps a candidate fill (for example `0x88400000`) is painted grey over part of it; that was already the case for addresses overlapping the RED fill.
+
+The upper bound `0xE0000000` (`DEV_RAM_HI`) is **unverified on this unit**: it is the nominal 1.5 GiB above the DRAM base, not a measured end of usable RAM. A register value that passes the rule but is not backed by RAM makes the grey fill fault; the halt-only vectors then stop the CPU with both candidate buffers and all nine rows already painted.
+
+**How the third-buffer code is tested (v1.2).** In QEMU `virt` the register address is flash and reads back `0x00000000` by default, which fails the rule: that is the plain run. v1.1 tested the other outcomes only through a Python mirror of the rule. v1.2 runs the Rust code itself on each of them by supplying the register value as a read-only emulated flash image (`-drive if=pflash,unit=1,...`, a 64 MiB sparse file with the little-endian word at offset `0x01190008` = `0x05190008` − `0x04000000`), one bounded QEMU run per value:
+
+| Injected value | Why | Required result |
+| --- | --- | --- |
+| none (`0x00000000`) | the plain run | both candidates byte-exact; no third buffer |
+| `0x89000000` | plausible | third buffer grey with all nine rows, byte-exact; both candidates byte-exact with row 9 = the value |
+| `0x88100000` | a candidate address | nothing extra painted; both candidates byte-exact |
+| `0x8F000000` | reserved (WCNSS) | the region it names stays all zero |
+| `0x89000002` | not word-aligned | the region it names stays all zero |
+| `0x8847C000` (v1.3) | inside the framebuffer reservation, past the end of the GREEN fill | third buffer grey with all nine rows, byte-exact; both candidates byte-exact with row 9 = the value (the regions do not overlap) |
+| `0xBFF00000` | plausible for the device, but the buffer crosses the emulator's RAM end at `0xC0000000` | the fill takes a data abort: PC rests in `halt_loop`, CPU mode is ABT (`0x17`), both candidates byte-exact with nine rows |
+
+In every run without a fault the CPU must still be in SVC mode at the halt, since a faulted run now also ends in `halt_loop`, and its stack pointer must be 8-byte aligned. The first `0x30` bytes of the image are also checked statically: each of the seven vectors must be a branch to `halt_loop`, and `halt_loop` must be exactly `wfi` and a branch to itself. Only the data-abort vector is exercised at run time.
+
+**Tests for the paths the phone will run (v1.3).** Every run above enters with `r0` = `r1` = `r2` = 0, so the in-range `*r2` read never ran, although it is the path the phone takes. Two cases now enter through a five-instruction test-only shim, loaded outside the image at `0x80100000`, that sets `r0`–`r3` and jumps to the payload; known words are planted in RAM with QEMU's `-device loader,addr=A,data=V,data-len=4`. Nothing is added to the image.
+
+| Case | Entry state | Required result |
+| --- | --- | --- |
+| Device-like handoff | `r0` = 0, `r1` = `0x00000E8F` (machine 3727, section 2), `r2` = `0x80200100`, with `0x00000005` stored there | rows show those values and row 7 (`*r2`) is `0x00000005`, byte-exact in both candidates; clean SVC halt |
+| Guard edges, read | `r2` = `0x80200000`; `r2` = `0x80207FFC` (first and last word of the tags page) | row 7 is the word planted there |
+| Guard edges, refused | `r2` = `0x80208000` (the image); `0x801FFFFC` (just below the page); `0x80200102` (not word-aligned) | row 7 is the sentinel `0xFFFFFFFF`, although other words are stored at or around those addresses |
+
+Two more cases check what `kstart.S` claims about an image the bootloader loads somewhere else: the same bytes are loaded and started at `0x80A08000`. Both candidates must be byte-exact with the entry row = `0x80A08000` and a clean halt in the relocated `halt_loop`; and with `0xBFF00000` injected, the fault must still end in the relocated `halt_loop` in ABT mode, which shows `VBAR` follows the run-time address. (The stack and the empty `.bss` stay at their link addresses, which are RAM in both the emulator and the device memory map; the image has no `.rodata` or `.data` and makes no other absolute reference to itself.)
+
+**Reading the picture on trial day.** Eight rows with no ninth row mean the display-register read hung or faulted: rows 1–8 are drawn before the read, and row 9 only after it returns. The fault half was checked by the reviewer on a copy with one instruction patched so the read hits an unmapped address: it halts in ABT mode with eight rows drawn and row 9 left as fill colour. There is no repository test for that.
+
+**Word rows readable from a photograph (v1.2).** In v1.1 the 16×16 blocks touched, so a run of equal bits merged into one bar that cannot be counted from a photo. Each bit is now a separate cell, 12 px wide and 24 px tall, with the framebuffer's fill colour showing between cells: 4 px between bits, 7 px between nibbles, 8 px between rows, and a margin from the screen edge. Bit `b` (0 = most significant) of row `r` starts at `x = 6 + 16·b + 3·⌊b/4⌋`, `y = 16 + 32·r`. The last cell ends at x = 535 and y = 296, inside 540×960 (checked at compile time in `payload.rs`). White is 1 and black is 0, as before. The host oracle and decoder use the same geometry; this is the only v1.2 change that alters the expected framebuffer bytes.
+
+**No device-side completion marker.** v1 briefly wrote a marker word so the harness could tell painting had finished; v1.1 removes it (the image writes only framebuffers). The QEMU harness instead polls the CPU's PC over QMP until it rests in the `halt_loop` symbol (resolved from the ELF), with a bounded timeout, then reads the CPU mode to tell a normal halt from a faulted one, and its QMP socket lives in a short temporary directory so a long checkout path cannot exceed the `AF_UNIX` limit.
+
+**Write-region safety (step 3 check).** Every address the payload writes is in RAM and clear of the image, its stack, ATAGS and the documented reserved regions:
+
+| Region | Range | Clear of |
+| --- | --- | --- |
+| Image + 64 KiB stack | `0x80208000` .. < `0x81208000` (16 MiB reserved, used < 1 MiB) | above ATAGS `0x80200100` and SMEM `0x80000000`+2 MiB (ends `0x80200000`); far below `0x88100000` |
+| FB_RED fill | `0x88100000` .. `0x8827BB00` (1,555,200 B) | below FB_GREEN; above SMEM; not a documented reserved region (the contested LKML address, in the free `0x88000000`–`0x88300000` gap) |
+| FB_GREEN fill | `0x88300000` .. `0x8847BB00` (1,555,200 B) | within the documented 3 MiB framebuffer reservation `0x88300000`+3 MiB (ends `0x88600000`); below WCNSS `0x8F000000` |
+| Third buffer (only if plausible) | a discovered MDP4 address, 1,555,200 B | gated by the plausibility rule above, so by construction aligned, inside the nominal RAM range (upper bound unverified, above), not at either candidate address, and clear of the image/stack, the tags page, SMEM, WCNSS and rmtfs; it may lie in the bootloader's framebuffer reservation and may overlap a candidate fill (v1.3); painted in QEMU only by the injected-value runs |
+
+The MDP4 read at `0x05190008` is a register **read**, not a write. The two candidate framebuffers do not overlap each other (`0x8827BB00` < `0x88300000`). None of these ranges is a bootloader-chain, `efs`, `persist` or `modem` partition; they are DRAM only. QEMU `-m 2048` (RAM `0x40000000`–`0xC0000000`) spans the image and both candidates, which is why the emulator test exercises the real addresses. The only system-control (CP15) register the payload writes is `VBAR`; it writes no memory outside the framebuffers and its own stack.
+
 ## Sources
 
 Checked 2026-11-10. Line numbers refer to the pinned commits in the table at the top.
