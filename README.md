@@ -2,7 +2,7 @@
 
 A lightweight, independent operating system written in **Rust and ARM Assembly** (`#![no_std]`, ARMv7-A), intended to run directly on repurposed phone hardware and, later, on cameras, robots and other embedded devices. It began as a [Goose](https://github.com/aardappel/goose)-based prototype; that work is kept as a studied reference ([ADR 0001](docs/decisions/0001-rust-and-arm-assembly.md)).
 
-**Status: Phase 0 — research and hardware verification. No operating-system code exists yet.** Nothing in this repository boots, and no hardware milestone has been passed. This repository currently holds the architecture, the milestone plan and the first target's research and test procedure.
+**Status: Phase 0 — research and hardware verification. A QEMU-only Rust + ARM Assembly kernel exists (the Phase 1 foundation); no Revival OS code has run on the phone yet.** That kernel boots only in the QEMU emulator ([working notes](docs/phase-1/rust-foundation.md)), which is not a hardware result, and no hardware milestone has been passed. This repository also holds the architecture, the milestone plan and the first target's research and test procedure.
 
 ## First target
 
@@ -12,18 +12,18 @@ These facts come from public sources and **have not yet been confirmed on the ow
 
 ## What "replacing Android" means here
 
-On this phone, early boot is fixed vendor firmware: the SoC boot ROM, Qualcomm's signed secondary bootloaders, TrustZone, the RPM firmware and Samsung's bootloader. Those stay. Revival OS replaces what that chain loads from the `boot` (or `recovery`) partition: today, the Linux kernel and the Android userspace above it. The finished OS must not need Linux or Android to run. Some peripherals (Wi-Fi, modem, video, GPU) also run vendor firmware, which Revival OS would load rather than replace. Details: [ARCHITECTURE.md](ARCHITECTURE.md#what-stays-vendor-firmware).
+On this phone, early boot is fixed vendor firmware: the SoC boot ROM, Qualcomm's signed secondary bootloaders, TrustZone, the RPM firmware and Samsung's bootloader. Those stay. Revival OS replaces what that chain loads from the `boot` (or `recovery`) partition: today, the Linux kernel and the Android userspace above it. **The owner intends the final device to boot Revival OS, not Android; personal data are disposable.** Some peripherals (Wi-Fi, modem, video, GPU) also run vendor firmware, which Revival OS would load rather than replace. These essential firmware components must not be erased just because Android is being replaced. Details: [ARCHITECTURE.md](ARCHITECTURE.md#what-stays-vendor-firmware).
 
 There is no PC BIOS or UEFI on this device.
 
 ## How the work proceeds
 
-Every milestone adds the smallest capability that can be observed and tested on the real phone, with a recorded recovery path. Emulator results never count as hardware results. Android is not erased until independent boot has been proved and the owner decides to. See [ROADMAP.md](ROADMAP.md).
+Every milestone adds the smallest capability that can be observed and tested on the real phone, with a recorded rescue path. Emulator results never count as hardware results. **The Samsung is dedicated to Revival OS experiments; Android and personal data need not be preserved.** Phase 0 stock boot/reboot checks are only a one-time hardware baseline; after that, *boot* and *reboot* milestones measure **Revival OS itself**, one tiny capability at a time: first our code executing, then a normal power-on boot path, then a logo/console and individual drivers. Android removal is eventual and controlled, not a prerequisite for the first experiments. See [ROADMAP.md](ROADMAP.md).
 
 | Phase | Capability | State |
 | --- | --- | --- |
-| 0 | Identify the hardware, boot chain and recovery paths; stock boot, reboot and recovery | Research documented; **physical checks not started** |
-| 1 | Freestanding Rust + ARM Assembly foundation for ARMv7-A | Not started; Goose feasibility kept as reference ([findings](docs/toolchain/goose-freestanding-notes.md)) |
+| 0 | One-time stock hardware baseline; identify the boot chain and emergency rescue path | Research documented; physical verification evidence pending review |
+| 1 | Freestanding Rust + ARM Assembly foundation for ARMv7-A | QEMU foundation implemented ([PR #5](https://github.com/revival-systems/revival-os/pull/5) merged; [working notes](docs/phase-1/rust-foundation.md)); formal gate review pending; not yet run on the Samsung. Goose feasibility kept as reference ([findings](docs/toolchain/goose-freestanding-notes.md)) |
 | 2 | First bare-metal boot with observable output | Not started |
 | 3–9 | Kernel foundations → hardware → networking → camera → standalone camera → internet → hardening | Not started |
 
@@ -38,7 +38,7 @@ make doctor              # every required tool must be "ok"
 make check               # lint, docs and every test; run before each push
 ```
 
-The only buildable artifact today is the **Goose toolchain probe**, now a reference artifact: a tiny Goose program cross-compiled for ARMv7-A and run in QEMU with no Linux and no C library. It tests the toolchain and is not part of the operating system. The first Rust + ARM Assembly image is the Phase 1 milestone, added in a later pull request ([ADR 0001](docs/decisions/0001-rust-and-arm-assembly.md)).
+The buildable artifacts today are QEMU-only test fixtures. The **Phase 1 Rust + ARM Assembly kernel image** boots on QEMU's `virt` board and prints a heartbeat and a checksum ([working notes](docs/phase-1/rust-foundation.md), [ADR 0001](docs/decisions/0001-rust-and-arm-assembly.md)); it has not run on the Samsung. The **Goose toolchain probe** is now a reference artifact: a tiny Goose program cross-compiled for ARMv7-A and run in QEMU with no Linux and no C library. It tests the toolchain and is not part of the operating system.
 
 ## Repository map
 

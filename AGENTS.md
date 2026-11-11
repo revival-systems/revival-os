@@ -43,9 +43,9 @@ Coding agents work on this repository under one orchestrated workflow. This file
 
 The first device is the owner's Samsung GT-I9195. These rules apply to every agent and every phase:
 
-1. **No write to the device without an approved write plan.** The plan is a GitHub issue naming the phase, the exact partition, the image and its SHA-256, the method, and the recovery procedure, approved by the owner and the orchestrator.
+1. **No write to the device without an approved write plan.** The plan is a GitHub issue naming the phase, the exact partition, the image and its SHA-256, the method, and an emergency rescue procedure, approved by the owner and the orchestrator. Recovery must restore a safe route for further Revival OS testing; restoring Android is not the success criterion.
 2. **Never written, under any plan:** the bootloader chain (`sbl1`, `sbl2`, `sbl3`, `aboot`, `rpm`, `tz` and any other boot-firmware partition), `efs`, `persist` and `modem`.
-3. **No erase of Android** until independent boot is proved and the owner decides.
+3. **Dedicated experimental phone; no Android retention requirement.** The owner permits eventual removal of Android and personal data. Phase 0 remains read-only. Do not erase Android or any partition merely for cleanup: first prove independent Revival OS execution, verify an emergency rescue path, and obtain a separate approved, partition-specific write plan. Phase 2+ boot/reboot results are for Revival OS, never for the Android lock screen.
 4. **No bootloader unlocking, Knox or security-setting changes,** and no exploits or rooting.
 5. **Read-only commands only** outside an approved write plan. The Phase 0 checklist lists which commands those are ([docs/phase-0/hardware-verification-checklist.md](docs/phase-0/hardware-verification-checklist.md#rules-for-this-checklist)).
 6. **The owner performs physical steps.** An agent prepares the procedure and reads the results.
