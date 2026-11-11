@@ -261,7 +261,7 @@ In every run without a fault the CPU must still be in SVC mode at the halt, sinc
 
 Two more cases check what `kstart.S` claims about an image the bootloader loads somewhere else: the same bytes are loaded and started at `0x80A08000`. Both candidates must be byte-exact with the entry row = `0x80A08000` and a clean halt in the relocated `halt_loop`; and with `0xBFF00000` injected, the fault must still end in the relocated `halt_loop` in ABT mode, which shows `VBAR` follows the run-time address. (The stack and the empty `.bss` stay at their link addresses, which are RAM in both the emulator and the device memory map; the image has no `.rodata` or `.data` and makes no other absolute reference to itself.)
 
-**Reading the picture on trial day.** Eight rows with no ninth row mean the display-register read hung or faulted: rows 1–8 are drawn before the read, and row 9 only after it returns. The fault half was checked by the reviewer on a copy with one instruction patched so the read hits an unmapped address: it halts in ABT mode with eight rows drawn and row 9 left as fill colour. There is no repository test for that.
+**Reading the picture on trial day.** Eight rows with no ninth row mean the display-register read hung or faulted: rows 1–8 are drawn before the read, and row 9 only after it returns. The fault half was checked by the reviewer on a copy with one instruction patched so the read hits an unmapped address: it halts in ABT mode with eight rows drawn and row 9 left as fill colour. There is no repository test for that. The [row-reading tool](#row-reading-tool) takes the eight rows and states this case.
 
 **Word rows readable from a photograph (v1.2).** In v1.1 the 16×16 blocks touched, so a run of equal bits merged into one bar that cannot be counted from a photo. Each bit is now a separate cell, 12 px wide and 24 px tall, with the framebuffer's fill colour showing between cells: 4 px between bits, 7 px between nibbles, 8 px between rows, and a margin from the screen edge. Bit `b` (0 = most significant) of row `r` starts at `x = 6 + 16·b + 3·⌊b/4⌋`, `y = 16 + 32·r`. The last cell ends at x = 535 and y = 296, inside 540×960 (checked at compile time in `payload.rs`). White is 1 and black is 0, as before. The host oracle and decoder use the same geometry; this is the only v1.2 change that alters the expected framebuffer bytes.
 
@@ -312,6 +312,39 @@ Tests, all under `make check`:
 | `payload-invalid-repro-identical` | Two clean builds give a byte-identical `payload-invalid.img` |
 | `payload-frozen` | `payload.bin` and `payload.img` have the SHA-256 values in the table above, so adding the packer option did not change the real image |
 | `unit-python` | The option is off by default; only the magic differs; the checker reports a second differing byte, an unchanged magic, a different bad magic, a changed length and swapped arguments |
+
+### Row-reading tool
+
+[tools/read_rows.py](../../tools/read_rows.py) turns the rows typed from a photograph into the Phase 2 record. It runs on the host, uses only the Python standard library and contacts no device. It decodes what was typed, so its output is not hardware evidence by itself: the photograph is ([TESTING.md](../TESTING.md#recording-evidence)).
+
+```sh
+python3 tools/read_rows.py --fill blue 00000000 00000E8F 80200100 00000093 00C50078 80208000 00000005 22BECBA4 88100000
+```
+
+The input is the fill colour seen (`red`, `blue`, `green` or `grey`) and the rows from the top, each as eight hex digits: nine rows, or eight if the ninth is missing. A shorter word is refused, because a row is 32 cells and a short word is a dropped digit. The command above is the handoff section 2 expects, on a blue screen. Its CPSR and SCTLR words are examples that satisfy section 2 (SVC, IRQ masked, MMU and caches off); the other bits of those two registers are not predicted.
+
+| Part of the record | What it says |
+| --- | --- |
+| First line | Whether row 8 equals `0x22BECBA4`, the checksum the Rust code computes. The payload can paint no other value there, so a mismatch means the rows were misread, and the record says so before anything else. A match vouches for row 8 only. |
+| Rows as typed | Each row as 32 cells in groups of four (`#` white, `.` black), to compare with the photograph by eye. |
+| `r0`, `r1`, `r2` | Against the expected handoff: 0, machine number 3727, and an address inside the tags page `[0x80200000, 0x80208000)`. |
+| CPSR | The mode, the I, F and A masks, the Thumb bit and the endianness, as the bootloader left them. |
+| SCTLR | MMU (M), data cache (C), instruction cache (I), alignment check (A) and high vectors (V). With V set, `VBAR` is ignored and the halt-only vectors were inert. |
+| Entry address | The link address `0x80208000`, or relocated and by how much. |
+| `*r2` | The sentinel `0xFFFFFFFF`, an ATAG_CORE header, the device-tree magic, or something else. |
+| MDP4 word | A candidate address, a third buffer the payload painted grey, or rejected with the reason. The rule is the oracle's ([serrano_v1.py](../../tests/boot/serrano_v1.py), `fb_rejection`); the tool holds no copy of it or of its constants. |
+| Fill colour | Which buffer is on screen and what it shows about the byte order: red or blue is `0x88100000` (red means byte 0 is red, blue means byte 0 is blue), green is `0x88300000`, grey is the MDP4 address. Green and grey do not show the order. |
+| Row count | Nine rows: the display-register read returned. Eight rows: it hung or faulted. |
+
+The record ends with a list of the fields that differ from the expected handoff. Inputs that contradict each other are listed separately as "cannot be right as typed": a grey screen whose ninth row is not an address the payload paints, or a `*r2` row that is not the sentinel when `r2` is an address the payload never reads. The exit status is 0 when the rows decode, 1 when the checksum row is wrong or the inputs contradict each other, and 2 for a usage error.
+
+**What `*r2` holds.** The payload records the first word at `r2`. An ATAGS list starts with the ATAG_CORE header, whose first word is its size in words (5, or 2 for an empty core tag); the tag number `0x54410001` is the second word, which the payload does not record. A device tree starts with the bytes `d0 0d fe ed`, which a little-endian read returns as `0xEDFE0DD0`. The tool recognises those values, not the ones in the candidate specification's table above, which names the tag number and the magic as they are usually written.
+
+**The expected screen.** Each run also writes the screen for that colour and those rows as a 540×960 PNG, so the owner can see what to look for: by default `build/boot-serrano/expected-screen-<colour>-<n>rows.png`, or the path given with `--png`; `--no-png` writes none. The fill is drawn as it is seen, and an eight-row input leaves the ninth row unpainted. The PNG is never committed: a path inside the repository but outside `build/` is refused.
+
+Limits: the tool knows only the four fills the payload paints, assuming the panel's order is red-green-blue or the reverse. Any other screen, or one with fewer than eight rows, is recorded as seen, not decoded.
+
+Tests (`unit-python`, [test_read_rows.py](../../tests/boot/test_read_rows.py)): each decoded field; the plain QEMU words; the section-2 expected device words on red, blue and green; one changed field at a time; a misread checksum row, said first, with exit status 1; an eight-row input; the contradictory inputs; and the command line's refusals. The PNG is read back by a small reader in the test and decoded by the oracle to the same words, for every fill and for an eight-row picture.
 
 ## Sources
 
