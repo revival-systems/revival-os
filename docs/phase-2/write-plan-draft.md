@@ -5,7 +5,7 @@
 - **No command in this document may be run** until an approved write-plan issue exists ([AGENTS.md](../../AGENTS.md#hardware-safety-contract), rule 1).
 - **The issue is opened by the owner or the orchestrator, not by an agent.** This file is the proposed text of that issue, for the two of them to review, correct and approve.
 - Every `heimdall flash` line below is a proposal. Until the issue is approved, the only commands allowed on the phone are the read-only ones in the [Phase 0 checklist](../phase-0/hardware-verification-checklist.md#rules-for-this-checklist) (rule 5).
-- Written 2026-11-11 from the repository's documents and public sources. **No device was touched and no flash command was run to write it.**
+- Written 2026-11-11 from the repository's documents and public sources, and revised the same day after review (v2). **No device was touched and no flash command was run to write it.**
 
 **Phase:** 2, first bare-metal boot ([ROADMAP.md](../../ROADMAP.md#phase-2--first-bare-metal-boot)). **Method:** A, decided by the orchestrator on 2026-11-11 ([PR #10 comment](https://github.com/revival-systems/revival-os/pull/10#issuecomment-6792632937), decision B). **Partition:** `RECOVERY`, and no other.
 
@@ -56,7 +56,7 @@ What follows for the plan, whichever way the check comes out (Inference):
 What follows for the plan:
 
 1. **Every write uses `--no-reboot`.** Without it the phone restarts into Android, which may undo the write (above).
-2. **After the write, the owner waits for Heimdall to exit, then removes the battery.** The battery is never removed while Heimdall is running.
+2. **After the write, the owner waits for Heimdall to exit, waits 10 seconds, photographs the screen, then unplugs the cable and removes the battery.** The battery is never removed while Heimdall is running.
 3. **The power button is not used to leave Download mode.** The manual says it is safe, but a restart by the power button boots normally, which is what the plan avoids.
 
 ## 1. What is written
@@ -69,7 +69,7 @@ Only `RECOVERY` is written, with these images, built at the reviewed commit. Bot
 | `build/boot-serrano/payload-invalid.img` | 6,160 bytes | `34dc91c64811346a3766e71044c2260340fadec0a0ea327e4126a1ef7a584d7b` |
 | Stock `recovery.img` of the installed build (rescue only) | **Pending** E-9 | **Pending** E-9; kept in the private evidence, never in the repository |
 
-**Reviewed commit:** the images were reviewed at `85f9c8b` ([PR #11](https://github.com/revival-systems/revival-os/pull/11)) and are unchanged in its merge with `main`, `6a38a79`. The issue names the commit on `main` that contains both pull requests (**Pending** their merge, E-11).
+**Reviewed commit:** the payload ([PR #10](https://github.com/revival-systems/revival-os/pull/10)) was merged into `main` on 2026-11-11 as `8ff31f0`. The two images were reviewed at `85f9c8b` ([PR #11](https://github.com/revival-systems/revival-os/pull/11)) and are unchanged in its merge with `main`, `6a38a79`. PR #11 is not merged yet; the issue names the commit on `main` that contains it (**Pending** its merge, E-11).
 
 **The partition.**
 
@@ -87,7 +87,7 @@ Heimdall refuses a name that is not in the phone's PIT (Source for the original 
 | --- | --- | --- | --- | --- | --- |
 | W1 | `payload-invalid.img` | `34dc91c6…4d7b` (full value above) | `RECOVERY` | `heimdall flash --<RECOVERY_PIT_NAME> build/boot-serrano/payload-invalid.img --no-reboot` | ROADMAP negative test: a deliberately invalid image shows how the bootloader rejects images (section 7). |
 | W2 | `payload.img` | `bde09074…ce02` (full value above) | `RECOVERY` | `heimdall flash --<RECOVERY_PIT_NAME> build/boot-serrano/payload.img --no-reboot` | The proof of execution: five trials of the same image (section 6). |
-| W3 | `payload.img` again | as W2 | `RECOVERY` | as W2 | **Conditional, at most once.** Only if Android started before the five trials were complete and stock recovery was then seen in place of the payload (section 4, "If Android starts"). |
+| W3 | `payload.img` again | as W2 | `RECOVERY` | as W2 | **Conditional, at most once.** Only if Android started before the five trials were complete and stock recovery was then seen in place of the payload (section 4, "If Android starts"). The count restarts after it: five trials, each from a removed battery. |
 | W4 | Stock `recovery.img` | **Pending** E-9 | `RECOVERY` | `heimdall flash --<RECOVERY_PIT_NAME> <private firmware directory>/recovery.img --no-reboot` | **Conditional, rescue only.** Only if required for recovery (section 9). Not a routine step. |
 
 Rules for every row:
@@ -149,7 +149,7 @@ Blockers 7 to 10 are not open: 7 is decided (method A), 8 and 9 are the reviewed
 
 ### Conditions this draft adds
 
-- [ ] **E-11. Pull requests #10 and #11 are merged into `main`, and the issue names the commit to build from.**
+- [ ] **E-11. Pull request #11 is merged into `main`, and the issue names the commit to build from.** PR #10 was merged on 2026-11-11 as `8ff31f0`; PR #11 is pending.
   Closed by: the orchestrator.
   Evidence: the commit SHA in the issue. `make check` on it prints `PASS payload-frozen` with the two hashes in section 1.
 - [ ] **E-12. The recovery keys reach stock recovery 3 of 3 (E1), and the battery exit from Download mode works 3 of 3 (F6).** Both are part of Phase 0; they are listed because every trial depends on them.
@@ -222,9 +222,11 @@ For W1 and W2, and for W3 or W4 if their condition applies.
 | D1 | Power the phone off. Hold Volume Down + Home + Power until the warning screen appears, then release. Press Volume Up to continue. | The warning screen, then the download screen, as recorded in F1 and F2. | Any other screen appears, or the warning does not appear in two attempts. |
 | D2 | Photograph the status lines at the top left. Before the first write this is the "before" photograph for Knox (section 10). | The lines recorded in F2. | A line differs from F2 before the first write, or reactivation lock reads on. |
 | D3 | Connect the cable. Run `lsusb \| grep -i 04e8`, then `heimdall detect`. | The Download-mode USB ID recorded in F3; `Device detected`. | No device, a different ID, or any error. |
-| D4 | Read the proposed command for this write aloud from the **issue**, compare the file name and the partition name with section 1, then run it. Do not touch the phone, the cable or the battery while it runs. | Heimdall reports the upload as successful and ends the session without rebooting the phone. Save the complete output. | Heimdall prints any error, asks any question, names any other partition, or runs for more than 2 minutes. After 2 minutes, interrupt it with Ctrl-C, unplug the cable and remove the battery; the content of `RECOVERY` is then not known. In every case, do not repeat the command. |
-| D5 | Wait until the shell prompt has returned. Look at the phone. | The phone still shows the download screen. | The phone restarts by itself. If Android then appears, go to "If Android starts". |
-| D6 | Unplug the cable. Remove the battery and wait 10 seconds. | The screen goes dark. | — |
+| D4 | Read the proposed command for this write aloud from the **issue**, compare the file name and the partition name with section 1, then run it. Do not touch the phone, the cable or the battery while it runs. | The lines already recorded in F4 and F5 for a Heimdall session on this host, including any `WARNING` lines seen there; then the upload messages for this one partition, `Uploading <RECOVERY_PIT_NAME>` and `<RECOVERY_PIT_NAME> upload successful`; then `Ending session...`, with no `Rebooting device...` line after it. Save the complete output. | Any line starts `ERROR`. Heimdall asks any question, names any other partition, or runs for more than 2 minutes. After 2 minutes, interrupt it with Ctrl-C, unplug the cable and remove the battery; the content of `RECOVERY` is then not known. In every case, do not repeat the command. |
+| D5 | Wait until the shell prompt has returned. Wait 10 more seconds without touching the phone or the cable, then photograph the phone's screen. The pause lets the write settle. | The phone still shows the download screen. What it shows after `--no-reboot` is Unknown on this unit; the photograph is the record. | The phone restarts by itself. If Android then appears, go to "If Android starts". |
+| D6 | Only after the photograph: unplug the cable, remove the battery and wait 10 seconds. | The screen goes dark. | — |
+
+The upload and end-of-session messages named in D4 are the original project's (Source: [`FlashAction.cpp:255-260`](https://github.com/Benjamin-Dobell/Heimdall/blob/3997d5cc607e6c603c6e7c0d07e42e9868c62af2/heimdall/source/FlashAction.cpp#L255-L260), `BridgeManager.cpp:560` and `:586`); for the installed 2.1.0 their wording is an Inference. A line that is none of the expected ones and does not start `ERROR` is recorded and reported; the write is not repeated because of it.
 
 ### One trial
 
@@ -247,17 +249,21 @@ Proposed; the issue fixes the numbers.
 | Trial | Time from the picture appearing | Why |
 | --- | --- | --- |
 | The first trial of each image | 10 minutes | The watchdog question: does the phone reset by itself, and after how long. The reference timeouts in the research are 0.39 and 48 seconds ([section 4](boot-payload-research.md#4-watchdog)); neither is known to apply. |
-| Later trials | 2 minutes, or 30 seconds beyond the reset time seen in the first trial | Enough to see the same behaviour again. |
+| Later trials, if no trial has reset by itself | 2 minutes | Enough to see the same behaviour again. |
+| Later trials, after a self-reset that started anything but Android | 30 seconds beyond the reset time seen | Enough to see the same reset again. |
+| Later trials, after a self-reset that started Android | **Shorter than the reset time seen.** The battery is removed before that time, after the still photograph (T4). | Android must not start again: each Android boot may replace the payload with stock recovery. |
 | A trial where nothing appears | 10 minutes from the key release | A black or unchanging screen needs the same time to show a reset. |
 
-If the phone resets by itself, keep filming and do not touch any key: what it starts next is part of the result (section 6).
+The first time the phone resets by itself, keep filming and do not touch any key: what it starts next is part of the result (section 6).
+
+**After a self-reset that started Android.** Every later trial, including the one in step A3, ends by removing the battery **before** the reset time seen, after the still photograph, so that Android does not start. The reset time and what starts next are recorded from the one trial that showed them; they are not measured again. If the reset comes too soon to photograph the screen and remove the battery, stop and report. Proposed margin, for the issue to fix: the battery is out at least 10 seconds before the reset time seen.
 
 ### The series
 
 | Step | Action | Stop if |
 | --- | --- | --- |
 | S1 | For `payload-invalid.img`: up to 3 trials. One trial is enough if it ends in Android starting, because `RECOVERY` may then have changed. | The three results differ from each other. |
-| S2 | For `payload.img`: 5 trials, each started from a removed battery (T1–T7), with no Android boot and no Download-mode entry between them. The pass criterion is the same picture in 5 of 5. | Two trials differ: record both, stop, report. A failed trial is recorded, not repeated or replaced. |
+| S2 | For `payload.img`: 5 trials, each started from a removed battery (T1–T7), with no Android boot and no Download-mode entry between them. The pass criterion is the same picture in 5 of 5. If W3 is used, the count restarts after it (A4). | Two trials differ: record both, stop, report. A failed trial is recorded, not repeated or replaced. |
 | S3 | After the last trial of each image: enter Download mode (D1), photograph the status lines (D2), run `heimdall detect` (D3), and leave by removing the battery (D6). Under option (b) the entry for W2 is this check for the first image. | Download mode cannot be reached: section 9. |
 | S4 | Write nothing more. `RECOVERY` is left holding the last image written; a stock image is not restored unless section 9 requires it. | — |
 
@@ -267,10 +273,10 @@ At any point after W1 and before the last trial.
 
 | Step | Action | Why, and what follows |
 | --- | --- | --- |
-| A1 | Do not remove the battery. Let Android reach the lock screen. Keep filming and note the time. | If this build restores recovery at boot, Android may be writing `RECOVERY` at that moment (Inference). Interrupting it would leave the partition half written. |
-| A2 | Power off from Android's own menu. Record that Android started, and what led to it: the keys, a restart after the write, a reset during a trial, or a rejected image. | The content of `RECOVERY` is now not known. |
-| A3 | Run one trial (T1–T5) to see what `RECOVERY` holds. | The test image's own outcome again: the image survived an Android boot, which answers E-13's question for this build; continue the series. The stock recovery menu: the image was replaced; select **reboot system now** and nothing else, as in checklist E1, let Android start, and power off from its menu. |
-| A4 | If `payload.img` was replaced and its five trials are not complete, W3 may be used, once. | A second Android start after W3: stop and report. No further write is covered. |
+| A1 | Do not remove the battery. Let Android reach the lock screen. Accept no prompt in Android: no update, no setup. Touch nothing else. Keep filming and note the time. | If this build restores recovery at boot, Android may be writing `RECOVERY` at that moment (Inference). Interrupting it would leave the partition half written. |
+| A2 | Power off from Android's own power menu, and do nothing else in Android. Record that Android started, and what led to it: the keys, a restart after the write, a reset during a trial, or a rejected image. | The content of `RECOVERY` is now not known. |
+| A3 | Run one trial (T1–T5) to see what `RECOVERY` holds. If Android was started by a self-reset, end this trial before the reset time seen ("How long to film"). | The test image's own outcome again: the image survived an Android boot, which answers E-13's question for this build; continue the series. The stock recovery menu: the image was replaced; select **reboot system now** and nothing else, as in checklist E1, let Android start, and power off from its menu. |
+| A4 | If `payload.img` was replaced and its five trials are not complete, W3 may be used, once. **The count then restarts:** five trials after W3, each from a removed battery. | Trials before W3 are recorded but do not count toward 5 of 5. A second Android start after W3: stop and report. No further write is covered. |
 
 ## 5. Order of the two images
 
@@ -278,17 +284,18 @@ Both orders run the same two tests. They differ in the number of writes and in w
 
 | | (a) Payload first | (b) Invalid image first |
 | --- | --- | --- |
-| Sequence | Write `payload.img`; 5 trials. Write `payload-invalid.img`; up to 3 trials. Write a known-good image again (`payload.img`), so that `RECOVERY` does not end holding an image built to be rejected. | Write `payload-invalid.img`; up to 3 trials. Write `payload.img`; 5 trials. |
+| Sequence | Write `payload.img`; 5 trials. Write `payload-invalid.img`; up to 3 trials. Write a known-good image again (`payload.img`), so that the payload can be shown to restart after the negative test and `RECOVERY` does not end holding an image built to be rejected. | Write `payload-invalid.img`; up to 3 trials. Write `payload.img`; 5 trials. |
 | Planned writes | 3 | 2 |
 | Maximum with the conditional rows (one repeat, one rescue) | 5 | 4 |
 | The first write ever made to this phone | The image whose layout copies lk2nd's, which the bootloader is reported to accept. | The image built to be refused. How the bootloader refuses, and what state that leaves, is Unknown. |
 | If the payload shows nothing (logo or black screen) | Read without knowing what a refusal looks like. It cannot be told apart from a refusal until the invalid image has been tried. | Read against a refusal already seen: a different screen means the image was accepted and the payload itself failed to show. |
 | If the invalid image shows nothing | Read against a payload result already seen. | Cannot be told apart from an accepted image whose payload is invisible, until the payload has been tried. |
+| ROADMAP, after each test: "show that the payload can be restarted" | After the negative test the payload is no longer in `RECOVERY`. Showing that it restarts needs the third write. | Met without an extra write: the payload is written after the negative test, and its five trials are the restarts. |
 | State at the end | `RECOVERY` holds `payload.img`, after one more write. | `RECOVERY` holds `payload.img`. |
 
 In both orders the ambiguity of a silent screen is resolved only once both images have been tried. The rejection path is exercised in both, because the ROADMAP requires the negative test.
 
-**The reviewer suggests (b):** two writes, and the rejection behaviour is known before a silent payload result has to be interpreted. **The orchestrator decides** (E-14). Sections 1 and 4 are written for (b). Under (a) the rows of section 1 become: W1 `payload.img`, W2 `payload-invalid.img`, W3 `payload.img` again, W4 the conditional repeat, W5 the conditional rescue.
+**The reviewer suggests (b):** two writes, the rejection behaviour is known before a silent payload result has to be interpreted, and the ROADMAP's restart after the negative test is met with no extra write. **The orchestrator decides** (E-14). Sections 1 and 4 are written for (b). Under (a) the rows of section 1 become: W1 `payload.img`, W2 `payload-invalid.img`, W3 `payload.img` again, W4 the conditional repeat, W5 the conditional rescue.
 
 ## 6. Outcomes for `payload.img`
 
@@ -305,7 +312,7 @@ Every outcome is recorded with the video, the still photograph and the times. "R
 | **The Samsung logo, or a black screen, that never changes** | Not decided by this screen. Either the bootloader did not start the image, or the payload ran and nothing it wrote is being shown, or it hung before painting. Compare with what the invalid image showed (section 5). | The screen, for the full 10 minutes; whether and when it resets; any small text. If the image was accepted, this is the ROADMAP's fail criterion "no observable output after the image is accepted". | End the trial by removing the battery. Run one more trial; if it is the same, stop and report. |
 | **The stock recovery menu** | `RECOVERY` does not hold the payload. Android replaced it, or the write did not take effect. | The menu's header text, as in checklist E1. | Select **reboot system now** and nothing else; let Android start; power off from its menu. Then "If Android starts", step A4. |
 | **Android starts** | The recovery keys were not taken, or the bootloader passed over `RECOVERY` and loaded `BOOT`. | The time, and how the keys were held. | "If Android starts", from A1. |
-| **The phone resets by itself** | A watchdog, or the bootloader's own timer, is running. The time from the picture to the reset is the ROADMAP's watchdog measurement. | That time, from the video, and what starts next without any key held: the payload again, Android, Download mode, or another screen. | The payload again: let it run for the filming time; if it keeps resetting, remove the battery and record a reset loop. Android: "If Android starts". Anything else: remove the battery, stop, report. |
+| **The phone resets by itself** | A watchdog, or the bootloader's own timer, is running. The time from the picture to the reset is the ROADMAP's watchdog measurement. | That time, from the video, and what starts next without any key held: the payload again, Android, Download mode, or another screen. | The payload again: let it run for the filming time; if it keeps resetting, remove the battery and record a reset loop. Android: "If Android starts"; from then on every trial ends before the reset time seen, so that Android does not start again (section 4, "How long to film"). Anything else: remove the battery, stop, report. |
 | **Download mode, or an error screen with text** | The bootloader refused `payload.img`, or failed to start it. Not expected: images with this layout are reported to be accepted. | Every line of text, transcribed exactly, and a photograph. | Touch no key. Remove the battery. Stop and report; section 9 says what is checked next. |
 | **Anything else** | Not foreseen. | The video and a description. | Remove the battery. Stop and report (rule 8). |
 
@@ -466,7 +473,7 @@ Everything this draft leaves open, in one place.
 | The reading of rule 4 | Pending decision | E-15 |
 | Filming times; whether the eight-row picture counts as the pass; whether W3 is allowed | Pending decision | The issue's review |
 | Does this build's Android rewrite `RECOVERY` at boot? | Unknown | E-13 (the two files), then the phone if Android starts |
-| What the phone shows after a `--no-reboot` write, on this unit | Unknown | Step D5 |
+| What the phone shows after a `--no-reboot` write, on this unit | Unknown | Step D5's photograph |
 | Does Heimdall 2.1.0's end-of-session code match the original project's? | Unknown (source not fetched) | Step D5 shows the behaviour |
 | Are bytes of `RECOVERY` beyond the image's length changed by the transfer? | Unknown | Not resolved; not relied on |
 | How the bootloader rejects an image, and what state that leaves | Unknown | Section 7 |
