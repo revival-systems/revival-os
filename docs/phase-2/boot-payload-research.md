@@ -193,7 +193,7 @@ Research cannot close these. They are not guessed here.
 | 7 | The method: option A (`recovery`) or option B (lk2nd), and the single partition to be written. For option B, the partition, the allowed lk2nd commands, and a review of lk2nd as a third-party component. **Decided 2026-11-11 (decision B, [PR #10 comment](https://github.com/revival-systems/revival-os/pull/10#issuecomment-6792632937)): method A for first-write planning, with the payload written only to `RECOVERY`.** The first probe then runs directly under the stock bootloader, with no lk2nd in the handoff being measured. It proves recovery-key execution only; a normal power-on boot of Revival OS is a later increment, and method B stays a separately reviewed later option for RAM-boot iteration. This is a planning decision, not approval of a write: the write plan (item 12) is still required. | Owner and orchestrator |
 | 8 | The payload itself: a reviewed pull request with the entry code, the packer, host tests, a reproducible build and a recorded SHA-256. None of it exists. | Implementer, then orchestrator review |
 | 9 | A decision on the payload reading display-controller and timer registers, given that a read from an unclocked block can hang. | Research and orchestrator review; then hardware test |
-| 10 | The deliberately invalid image for the ROADMAP's negative test, and the recovery steps that follow it. | Implementer; owner approves in the write plan |
+| 10 | The deliberately invalid image for the ROADMAP's negative test, and the recovery steps that follow it. **The image is now built and tested on the host** ([Trial kit](#trial-kit-host-only)); it is not approved for any write. The recovery steps that follow it are still open and belong in the write plan. | Implementer; owner approves in the write plan |
 | 11 | The five phone-only questions above, accepted in the write plan as open, with the expected observation and the recovery action for each outcome. | Hardware test |
 | 12 | An approved write-plan issue naming the phase, partition, image, SHA-256, method and emergency rescue procedure. | Owner and orchestrator |
 
@@ -277,6 +277,41 @@ Two more cases check what `kstart.S` claims about an image the bootloader loads 
 | Third buffer (only if plausible) | a discovered MDP4 address, 1,555,200 B | gated by the plausibility rule above, so by construction aligned, inside the nominal RAM range (upper bound unverified, above), not at either candidate address, and clear of the image/stack, the tags page, SMEM, WCNSS and rmtfs; it may lie in the bootloader's framebuffer reservation and may overlap a candidate fill (v1.3); painted in QEMU only by the injected-value runs |
 
 The MDP4 read at `0x05190008` is a register **read**, not a write. The two candidate framebuffers do not overlap each other (`0x8827BB00` < `0x88300000`). None of these ranges is a bootloader-chain, `efs`, `persist` or `modem` partition; they are DRAM only. QEMU `-m 2048` (RAM `0x40000000`–`0xC0000000`) spans the image and both candidates, which is why the emulator test exercises the real addresses. The only system-control (CP15) register the payload writes is `VBAR`; it writes no memory outside the framebuffers and its own stack.
+
+## Trial kit (host only)
+
+Host-side preparation for the first trial. **Nothing here contacts a device, and nothing here is approved for a write**; every write still needs the approved write plan (blocker 12). The payload is frozen at the reviewed v1.3 bytes: `make check` (test `payload-frozen`) fails if the SHA-256 of `payload.bin` or `payload.img` changes.
+
+| File (in `build/boot-serrano/`) | Size | SHA-256 |
+| --- | --- | --- |
+| `payload.bin` (frozen) | 1,636 bytes | `8ee519ae31a9d005f72e14e21ff5c0b7baadefbec225083013820d5700616a2b` |
+| `payload.img` (frozen) | 6,160 bytes | `bde09074c1e7f48ac04be318bba9905228fc26ad077e94ab9ded5dc00bb1ce02` |
+| `payload-invalid.img` (negative test) | 6,160 bytes | `34dc91c64811346a3766e71044c2260340fadec0a0ea327e4126a1ef7a584d7b` |
+
+### Negative-test image (blocker 10)
+
+ROADMAP Phase 2 asks for "a deliberately invalid image (bad header)" to show how the bootloader rejects images. `make payload-invalid` builds `build/boot-serrano/payload-invalid.img` from the same `payload.bin`, using the packer's `--invalid-magic` option, which is off by default. It prints the SHA-256 on a line that starts `INVALID-MAGIC-NEGATIVE-TEST`, so the hash cannot be taken for the payload's. `make build` and `make payload` do not build it and do not print it.
+
+**One field is wrong, and only one.** The 8-byte magic at offset 0 reads `INVALID!` in place of `ANDROID!`. Every other byte is the same as in `payload.img`: the load addresses, the page size, the image id, the 1-byte ramdisk and the trailer. Four byte values actually differ (offsets 0, 2, 3 and 4), because `INVALID!` and `ANDROID!` share the letters at the other four positions.
+
+**The kernel slot still holds the real payload, on purpose.** Whether Samsung's `aboot` checks the magic at all is Unknown (section 1). The trial then answers the question either way:
+
+| What the phone does with `payload-invalid.img` | What it means |
+| --- | --- |
+| It refuses to start the image | The bootloader checks the magic. What it shows and does next is the ROADMAP's record of how it rejects an image. |
+| The normal picture appears (fill colour and word rows) | The bootloader does not check the magic. That is a result too, and the payload ran from an image with a bad header. |
+
+With a harmless or empty kernel slot the second outcome would show nothing, and could not be told apart from a hang. What the bootloader shows when it refuses an image, and the state it leaves the phone in, are still Unknown (section 1, "Behaviour on a failed check"). The recovery steps for each outcome are for the write plan, not for this document.
+
+Tests, all under `make check`:
+
+| Test | Pass when |
+| --- | --- |
+| `payload-invalid-magic-only` | `payload-invalid.img` has the same length as `payload.img`, starts with `INVALID!`, and is identical from offset 8 on; the reader accepts `payload.img` and rejects `payload-invalid.img` for the magic alone ([check_negative_img.py](../../tests/boot/check_negative_img.py)) |
+| `payload-invalid-rejected-by-reader` (negative) | The repository's boot-image reader **exits nonzero** on `payload-invalid.img` and prints `magic b'INVALID!' != b'ANDROID!'` |
+| `payload-invalid-repro-identical` | Two clean builds give a byte-identical `payload-invalid.img` |
+| `payload-frozen` | `payload.bin` and `payload.img` have the SHA-256 values in the table above, so adding the packer option did not change the real image |
+| `unit-python` | The option is off by default; only the magic differs; the checker reports a second differing byte, an unchanged magic, a different bad magic, a changed length and swapped arguments |
 
 ## Sources
 
