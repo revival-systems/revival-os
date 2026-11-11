@@ -139,7 +139,7 @@ Sources: Revival Server issues [#120](https://github.com/revival-systems/revival
 
 - A deliberately invalid image (bad header) shows how the bootloader rejects images, and recovery is proven afterwards.
 - A payload that hangs forever is recovered by removing the battery.
-- A payload that triggers an exception before any handler exists shows its observable behaviour.
+- In QEMU, qemu-payload-fault-halts injects a data abort after the halt-only vectors are active, verifies halt_loop in ABT mode, and verifies that the previously painted candidate buffers remain intact. This is emulator evidence only. Deliberate on-device exception behaviour and reporting/reset are deferred to Phase 3a; Phase 2 requires no separate no-vector device image.
 - Each test is followed by a full Download-mode restore of the stock image to the written partition, with a boot check.
 
 **Physical verification:** Required. This milestone is defined on the hardware.
