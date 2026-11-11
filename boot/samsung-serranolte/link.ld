@@ -1,5 +1,5 @@
 /*
- * link.ld - Link map for the GT-I9195 Phase 2 proof-of-execution payload (v1).
+ * link.ld - Link map for the GT-I9195 Phase 2 proof-of-execution payload (v1.2).
  *
  * The stock bootloader loads the kernel slot of an Android boot image at
  * 0x80208000 (base 0x80200000 + kernel_offset 0x8000), per the boot-image
@@ -38,7 +38,7 @@ SECTIONS
 {
     .text : ALIGN(4)
     {
-        KEEP(*(.text.start))    /* _start + the zImage header, image base */
+        KEEP(*(.text.start))    /* _start: vectors + zImage header, image base */
         *(.text .text.*)
     } > RAM :text
 

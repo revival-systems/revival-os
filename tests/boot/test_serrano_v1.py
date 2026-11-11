@@ -1,13 +1,16 @@
 """Unit tests for the Phase 2 host oracle (tests/boot/serrano_v1.py).
 
 Pure host tests, discovered by `make test-unit` (unit-python). They check the
-encoding round-trips, the checksum matches the Phase 1 constant, the handoff
-invariants accept the expected words and reject tampering, and the two
-framebuffer regions do not overlap the image, its stack, ATAGS or each other.
+encoding round-trips, the word-row geometry (separate cells with gaps, inside
+the panel), the checksum matches the Phase 1 constant, the handoff invariants
+accept the expected words and reject tampering, the image-header check accepts
+the vector/zImage layout and rejects each deviation, and the two framebuffer
+regions do not overlap the image, its stack, ATAGS or each other.
 
 Run: python3 -I -m unittest discover -s tests -t . -p 'test_*.py'
 """
 
+import struct
 import unittest
 
 from tests.boot import serrano_v1 as o
@@ -39,7 +42,7 @@ class EncodingTests(unittest.TestCase):
         # RED fills FF 00 00 (red or blue on screen); GREEN fills 00 FF 00.
         red = o.generate_fb(o.FILL_RED, o.EXPECTED_WORDS)
         green = o.generate_fb(o.FILL_GREEN, o.EXPECTED_WORDS)
-        # A pixel well outside the 512x144 word-row band (word rows end at y=144).
+        # A pixel well below the word rows (the last row ends at y=296).
         self.assertEqual(o.fill_pixel_at(red, 300, 500), o.FILL_RED)
         self.assertEqual(o.fill_pixel_at(green, 300, 500), o.FILL_GREEN)
 
@@ -47,6 +50,156 @@ class EncodingTests(unittest.TestCase):
         buf = o.generate_fb(o.FILL_GREEN, o.EXPECTED_WORDS)
         # Top-left block of row 0 decodes without raising (pure b/w).
         self.assertEqual(len(o.decode_words(buf)), o.WORDS)
+
+
+class GeometryTests(unittest.TestCase):
+    """The word rows are separate cells with gaps, inside the 540x960 panel."""
+
+    ONES = [0xFFFF_FFFF] * o.WORDS
+
+    def test_rows_fit_the_panel_with_a_margin(self):
+        x_last, y_last = o.cell_origin(31, o.WORDS - 1)
+        self.assertEqual((x_last + o.CELL_W, y_last + o.CELL_H), (535, 296))
+        self.assertLessEqual(x_last + o.CELL_W, o.WIDTH)
+        self.assertLessEqual(y_last + o.CELL_H, o.HEIGHT)
+        self.assertGreater(o.MARGIN_X, 0)
+        self.assertGreater(o.MARGIN_Y, 0)
+        self.assertGreater(o.WIDTH - (x_last + o.CELL_W), 0)  # right margin
+
+    def test_cells_never_touch(self):
+        for row in range(o.WORDS):
+            for bit in range(31):
+                x_a, _ = o.cell_origin(bit, row)
+                x_b, _ = o.cell_origin(bit + 1, row)
+                gap = x_b - (x_a + o.CELL_W)
+                # A wider gap separates nibbles than separates bits.
+                want = 7 if bit % 4 == 3 else 4
+                self.assertEqual(gap, want, f"gap after bit {bit}")
+        _, y_a = o.cell_origin(0, 0)
+        _, y_b = o.cell_origin(0, 1)
+        self.assertEqual(y_b - (y_a + o.CELL_H), 8)  # rows do not touch either
+
+    def test_gaps_and_margins_keep_the_fill_colour(self):
+        buf = o.generate_fb(o.FILL_RED, self.ONES)
+        x0, y0 = o.cell_origin(0, 0)
+        y_mid = y0 + o.CELL_H // 2
+        self.assertEqual(o.fill_pixel_at(buf, x0, y_mid), o.WHITE)             # in a cell
+        self.assertEqual(o.fill_pixel_at(buf, x0 + o.CELL_W, y_mid), o.FILL_RED)  # bit gap
+        x4, _ = o.cell_origin(4, 0)
+        self.assertEqual(o.fill_pixel_at(buf, x4 - 1, y_mid), o.FILL_RED)      # nibble gap
+        self.assertEqual(o.fill_pixel_at(buf, 0, y_mid), o.FILL_RED)           # left margin
+        self.assertEqual(o.fill_pixel_at(buf, o.WIDTH - 1, y_mid), o.FILL_RED)  # right margin
+        self.assertEqual(o.fill_pixel_at(buf, x0, 0), o.FILL_RED)              # top margin
+        self.assertEqual(o.fill_pixel_at(buf, x0, y0 + o.CELL_H), o.FILL_RED)  # between rows
+
+    def test_a_run_of_equal_bits_stays_32_separate_cells(self):
+        # The v1.1 blocks touched, so 0xFFFFFFFF was one white bar. Count the
+        # white runs along a scan line through row 0: one per bit.
+        buf = o.generate_fb(o.FILL_GREEN, self.ONES)
+        _, y0 = o.cell_origin(0, 0)
+        line = [o.fill_pixel_at(buf, x, y0 + 1) for x in range(o.WIDTH)]
+        runs = sum(1 for x in range(o.WIDTH)
+                   if line[x] == o.WHITE and (x == 0 or line[x - 1] != o.WHITE))
+        self.assertEqual(runs, 32)
+
+    def test_decode_rejects_a_buffer_with_no_rows(self):
+        # A plain fill has no black/white cells; the decoder must not guess.
+        plain = bytes(o.FILL_GREY) * (o.WIDTH * o.HEIGHT)
+        with self.assertRaises(ValueError):
+            o.decode_words(plain)
+
+    def test_decode_rejects_a_short_dump(self):
+        buf = o.generate_fb(o.FILL_RED, self.ONES)
+        with self.assertRaises(ValueError):
+            o.decode_words(buf[:-1])
+
+    def test_decode_rejects_the_old_touching_block_layout(self):
+        # v1.1 drew 16x16 blocks from (0, 0). A dump in that layout must not
+        # decode as v1.2: the new cell centres land on it at the wrong bits.
+        words = [0x8000_0001] * o.WORDS
+        old = bytearray(bytes(o.FILL_RED) * (o.WIDTH * o.HEIGHT))
+        for row, w in enumerate(words):
+            for bit in range(32):
+                px = bytes(o.WHITE if (w >> (31 - bit)) & 1 else o.BLACK) * 16
+                for y in range(row * 16, row * 16 + 16):
+                    off = y * o.STRIDE + bit * 16 * o.BPP
+                    old[off:off + len(px)] = px
+        try:
+            decoded = o.decode_words(bytes(old))
+        except ValueError:
+            return  # rejected outright: also fine
+        self.assertNotEqual(decoded, words)
+
+
+class ImageHeaderTests(unittest.TestCase):
+    """check_image_header pins the reset branch, the seven halt-only vectors,
+    the zImage words and the halt loop."""
+
+    HALT = 0x34
+
+    @staticmethod
+    def _b(src: int, dst: int) -> bytes:
+        return struct.pack("<I", 0xEA00_0000 | (((dst - src - 8) // 4) & 0x00FF_FFFF))
+
+    def _image(self) -> bytearray:
+        img = bytearray()
+        img += self._b(0x00, 0x20)
+        for off in o.VECTOR_OFFSETS:
+            img += self._b(off, self.HALT)
+        img += self._b(0x20, 0x30)
+        img += struct.pack("<3I", o.ZIMAGE_MAGIC, 0, 0x3C)
+        img += struct.pack("<I", 0xE1A0_0000)        # 0x30: real_start (a nop)
+        img += struct.pack("<I", o.INSN_WFI)         # 0x34: halt_loop: wfi
+        img += self._b(0x38, self.HALT)              # 0x38: b halt_loop
+        self.assertEqual(len(img), 0x3C)
+        return img
+
+    def test_valid_header_passes(self):
+        o.check_image_header(bytes(self._image()), self.HALT)  # must not raise
+
+    def test_each_vector_must_branch_to_halt_loop(self):
+        for off in o.VECTOR_OFFSETS:
+            img = self._image()
+            img[off:off + 4] = self._b(off, 0x30)  # into real_start instead
+            with self.assertRaises(AssertionError, msg=f"vector {off:#x}"):
+                o.check_image_header(bytes(img), self.HALT)
+
+    def test_vector_that_is_not_a_branch_rejected(self):
+        img = self._image()
+        img[0x10:0x14] = struct.pack("<I", 0)  # v1.1 had zero padding here
+        with self.assertRaises(AssertionError):
+            o.check_image_header(bytes(img), self.HALT)
+
+    def test_reset_and_header_branches_pinned(self):
+        img = self._image()
+        img[0x00:0x04] = self._b(0x00, 0x30)  # v1.1: straight to real_start
+        with self.assertRaises(AssertionError):
+            o.check_image_header(bytes(img), self.HALT)
+        img = self._image()
+        img[0x20:0x24] = self._b(0x20, self.HALT)
+        with self.assertRaises(AssertionError):
+            o.check_image_header(bytes(img), self.HALT)
+
+    def test_zimage_words_pinned(self):
+        for off, value in ((0x24, 0x016F_2819), (0x28, 4), (0x2C, 0x40)):
+            img = self._image()
+            img[off:off + 4] = struct.pack("<I", value)
+            with self.assertRaises(AssertionError, msg=f"word {off:#x}"):
+                o.check_image_header(bytes(img), self.HALT)
+
+    def test_halt_loop_must_be_wfi_and_branch_to_self(self):
+        img = self._image()
+        img[0x34:0x38] = struct.pack("<I", 0xE1A0_0000)  # nop instead of wfi
+        with self.assertRaises(AssertionError):
+            o.check_image_header(bytes(img), self.HALT)
+        img = self._image()
+        img[0x38:0x3C] = self._b(0x38, 0x30)  # falls back into the payload
+        with self.assertRaises(AssertionError):
+            o.check_image_header(bytes(img), self.HALT)
+
+    def test_halt_offset_outside_the_image_rejected(self):
+        with self.assertRaises(AssertionError):
+            o.check_image_header(bytes(self._image()), 0x3C)
 
 
 class InvariantTests(unittest.TestCase):
@@ -79,6 +232,21 @@ class InvariantTests(unittest.TestCase):
         self.assertTrue(o.is_plausible_fb(words[8]))
         with self.assertRaises(AssertionError):
             o.assert_handoff_invariants(words)
+
+    def test_injected_mdp4_changes_only_the_ninth_word(self):
+        words = o.expected_words(0x8900_0000)
+        self.assertEqual(words[:8], o.EXPECTED_WORDS[:8])
+        self.assertEqual(words[8], 0x8900_0000)
+        self.assertEqual(o.expected_words(o.MDP4_QEMU), o.EXPECTED_WORDS)
+
+    def test_cpu_invariants_ignore_the_mdp4_word_but_nothing_else(self):
+        # The injected-value QEMU cases use the CPU-only invariants: a
+        # plausible MDP4 word is fine there, a wrong handoff word is not.
+        words = o.expected_words(0x8900_0000)
+        o.assert_cpu_handoff_invariants(words)  # must not raise
+        words[5] = 0x40208000  # wrong load address
+        with self.assertRaises(AssertionError):
+            o.assert_cpu_handoff_invariants(words)
 
 
 class PlausibilityTests(unittest.TestCase):

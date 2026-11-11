@@ -203,8 +203,9 @@ $(QEMU_OUT)/kernel-%.elf: $(FIXTURE)/kernel.rs $(QEMU_OUT)/kstart.o $(FIXTURE)/l
 
 # ---- Phase 2 GT-I9195 proof-of-execution payload (device image) -----------
 
-# The device entry stub (ARM asm): zImage header, handoff capture, mask IRQ/FIQ,
-# stack, zero .bss, call Rust, then a masked wfi halt. NO svc in the image.
+# The device entry stub (ARM asm): halt-only vectors + zImage header, handoff
+# capture, mask IRQ/FIQ, VBAR, stack, zero .bss, call Rust, then a masked wfi
+# halt. NO svc in the image.
 $(PAYLOAD_OUT)/kstart.o: $(PAYLOAD_DIR)/kstart.S | need-arm
 	@mkdir -p $(@D)
 	$(ARM_CC) $(ARM_ARCH) -g $(REPRO) -c $< -o $@
@@ -383,9 +384,9 @@ test-rust: $(KERNEL_ELFS) $(FIXTURE)/hosted_std.rs $(FIXTURE)/hosted_libc.rs tes
 	    --emit link -o $(RUSTNEG)/kernel-hosted-libc.elf $(FIXTURE)/hosted_libc.rs
 	@tests/build/check_image_integrity.sh $(QEMU_OUT)/kernel-heartbeat.elf $(RUSTNEG)
 
-test-payload: $(PAYLOAD_BIN) $(PAYLOAD_IMG) $(PAYLOAD_OUT)/kstart.o tests/boot/run_payload.py tests/boot/read_bootimg.py tests/boot/serrano_v1.py tests/boot/payload_hosted_libc.rs $(FIXTURE)/hosted_std.rs tests/build/check_image_integrity.sh | need-qemu need-arm need-rust ## Boot the Phase 2 payload in QEMU (paint both framebuffers), and check the handoff, the packer and reproducibility
+test-payload: $(PAYLOAD_BIN) $(PAYLOAD_IMG) $(PAYLOAD_OUT)/kstart.o tests/boot/run_payload.py tests/boot/read_bootimg.py tests/boot/serrano_v1.py tests/boot/payload_hosted_libc.rs $(FIXTURE)/hosted_std.rs tests/build/check_image_integrity.sh | need-qemu need-arm need-rust ## Boot the Phase 2 payload in QEMU (paint the framebuffers, inject MDP4 values and a fault), and check the handoff, the packer and reproducibility
 	@mkdir -p $(LOGS) $(PAYLOAD_OUT)/neg
-	@echo "# (a) run the exact kernel-slot bytes; both framebuffers must match the host oracle"
+	@echo "# (a) run the exact kernel-slot bytes; the framebuffers must match the host oracle, with the MDP4 value absent, injected, and faulting"
 	@halt=$$($(ARM_NM) $(PAYLOAD_ELF) | awk '$$3=="halt_loop"{print $$1}'); \
 	  test -n "$$halt" || { echo "FAIL qemu-payload: no halt_loop symbol in $(PAYLOAD_ELF)"; exit 1; }; \
 	  $(PYTHON) -m tests.boot.run_payload --payload $(PAYLOAD_BIN) --workdir $(PAYLOAD_OUT)/qemu --halt-addr 0x$$halt
