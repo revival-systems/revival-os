@@ -1,4 +1,4 @@
-//! payload.rs - GT-I9195 Phase 2 proof-of-execution payload (v1.2).
+//! payload.rs - GT-I9195 Phase 2 proof-of-execution payload (v1.3).
 //!
 //! `#![no_std]`, ARMv7-A (target `armv7a-none-eabi`, soft-float). DEVICE code:
 //! the Rust half of the smallest image that proves Revival OS code runs on the
@@ -9,7 +9,7 @@
 //! Memory (ADR 0001, owner's rule): native call stack + statically reserved
 //! data only. No heap, no allocator. No `svc`. No timer, no watchdog.
 //!
-//! v1.2 still LIGHTENS the PR #9 candidate spec (docs/phase-2/boot-payload-research.md,
+//! v1.3 still LIGHTENS the PR #9 candidate spec (docs/phase-2/boot-payload-research.md,
 //! "v1 payload decision"). It reads CPU registers (captured by kstart.S), one
 //! guarded word of RAM at *r2, and exactly ONE display-controller register (the
 //! MDP4 framebuffer address) which it reads LAST, after a result is already on
@@ -72,11 +72,17 @@ const MDP_DMA_P_BUF_ADDR: usize = 0x0519_0008;
 // this check but is not backed by RAM faults into the halt-only vectors.
 const DEV_RAM_LO: u64 = 0x8000_0000;
 const DEV_RAM_HI: u64 = 0x8000_0000 + 0x6000_0000; // 1.5 GiB -> 0xE000_0000
-const RESERVED: [(u64, u64); 6] = [
+//
+// The bootloader's framebuffer reservation [0x88300000, 0x88600000) is NOT in
+// this list. It is the one region where a framebuffer is expected, and the
+// buffer's start inside it is Samsung's choice (docs/phase-2 section 3): a
+// buffer starting at 0x8847BB00 or above is reached by neither candidate fill,
+// so rejecting the region (as v1.1 and v1.2 did) would leave the screen blank.
+// Only the exact candidate addresses are excluded (they are already painted).
+const RESERVED: [(u64, u64); 5] = [
     (0x8020_0000, 0x8020_8000), // ATAGS / tags page
     (0x8020_8000, 0x8120_8000), // this image + its 64 KiB stack (link.ld, 16 MiB)
     (0x8000_0000, 0x8020_0000), // SMEM (2 MiB)
-    (0x8830_0000, 0x8860_0000), // bootloader framebuffer reserved (3 MiB)
     (0x8F00_0000, 0x8F70_0000), // WCNSS (7 MiB)
     (0x8FB0_0000, 0x8FE0_0000), // modem rmtfs (3 MiB)
 ];
@@ -185,8 +191,9 @@ fn draw_row(base: usize, row: usize, value: u32) {
 
 /// Is `fb` a plausible real framebuffer to also paint? It must be word-aligned,
 /// hold the whole 1620x960 buffer inside device RAM, differ from both candidate
-/// addresses, and not overlap this image, its stack, ATAGS or any reserved
-/// region (gt-i9195.md). Pure arithmetic; it performs no memory access.
+/// addresses, and not overlap this image, its stack, ATAGS or any region in
+/// RESERVED (gt-i9195.md). It may lie in, or overlap, the bootloader's own
+/// framebuffer reservation. Pure arithmetic; it performs no memory access.
 fn is_plausible_fb(fb: u32) -> bool {
     if fb & 3 != 0 {
         return false;

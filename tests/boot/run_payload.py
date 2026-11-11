@@ -41,6 +41,38 @@ itself, not a Python mirror of it:
                              vector must catch it: PC rests in halt_loop, the
                              CPU is in ABT mode, and both candidates are still
                              byte-exact with 9 rows.
+  qemu-payload-third-in-reservation
+                             0x8847C000, inside the bootloader's framebuffer
+                             reservation but past the end of the GREEN fill:
+                             the third buffer is grey with all 9 rows,
+                             byte-exact, and both candidates are byte-exact.
+
+The plain `-device loader` entry leaves r0 = r1 = r2 = 0, so it never takes the
+path the phone takes (r2 pointing at the tags). Two cases enter through a
+five-instruction TEST-ONLY shim, loaded outside the image at 0x80100000, that
+sets r0-r3 and jumps to the payload; words are planted in RAM with
+`-device loader,addr=A,data=V,data-len=4`. Nothing is added to the image:
+
+  qemu-payload-device-handoff
+                             r0 = 0, r1 = 0x00000E8F (machine 3727),
+                             r2 = 0x80200100 with 0x00000005 stored there: the
+                             rows show those values and row 7 (*r2) is
+                             0x00000005, byte-exact, with a clean SVC halt.
+  qemu-payload-r2-guard-edges
+                             The edges of the *r2 guard, one run each:
+                             r2 = 0x80200000 and 0x80207FFC are read;
+                             0x80208000, 0x801FFFFC and 0x80200102 give the
+                             sentinel 0xFFFFFFFF.
+
+Two cases load the same bytes somewhere else, at 0x80A08000, and start there,
+to prove what kstart.S says about a relocated image:
+
+  qemu-payload-relocated     Both candidates byte-exact with the entry row =
+                             0x80A08000; clean halt in the relocated halt_loop.
+  qemu-payload-relocated-fault-halts
+                             With 0xBFF00000 injected the fault still ends in
+                             the relocated halt_loop in ABT mode (VBAR follows
+                             the run-time address).
 
 In every case that is not a fault the CPU must still be in SVC mode at the halt
 (with the vectors installed, a faulted run also ends in halt_loop; the mode
@@ -90,6 +122,26 @@ MDP_CANDIDATE = oracle.FB_RED
 MDP_RESERVED = 0x8F00_0000   # WCNSS
 MDP_UNALIGNED = 0x8900_0002
 MDP_FAULT = 0xBFF0_0000      # plausible on the device; crosses QEMU's RAM end
+MDP_IN_RESERVATION = 0x8847_C000  # in [0x88300000, 0x88600000), past the GREEN fill
+
+# Test-only entry shim: sets r0-r3 from the words after it and jumps to the
+# payload. Loaded outside the image, in RAM the payload never touches.
+SHIM_ADDR = 0x8010_0000
+SHIM_CODE = (
+    0xE59F_0010,  # ldr r0, [pc, #16]
+    0xE59F_1010,  # ldr r1, [pc, #16]
+    0xE59F_2010,  # ldr r2, [pc, #16]
+    0xE59F_3010,  # ldr r3, [pc, #16]
+    0xE59F_F010,  # ldr pc, [pc, #16]
+    0x0000_0000,  # padding, so the five loads reach the five words below
+)
+
+# The same image bytes loaded 8 MiB higher (still clear of both candidates and
+# of the stack, which stays at its link address).
+RELOC_ADDR = 0x80A0_8000
+
+# Words planted for the *r2 guard edges (arbitrary, distinct, not the sentinel).
+EDGE_WORD = 0xA5A5_0000
 
 
 class CaseFailure(Exception):
@@ -154,10 +206,24 @@ def write_flash_image(path: str, mdp: int) -> None:
         fh.write(struct.pack("<I", mdp))
 
 
+def write_shim(path: str, regs: tuple, entry: int) -> None:
+    """The test-only entry shim: five loads, then r0, r1, r2, r3 and the
+    address to jump to."""
+    r0, r1, r2, r3 = regs
+    with open(path, "wb") as fh:
+        fh.write(struct.pack("<11I", *SHIM_CODE, r0, r1, r2, r3, entry))
+
+
 def boot(qemu: str, payload: str, halt_addr: int, timeout: float,
-         flash: str | None, dumps: list) -> tuple:
+         flash: str | None, dumps: list, load_addr: int = LOAD_ADDR,
+         shim: str | None = None, plant: tuple = ()) -> tuple:
     """Run the payload until the PC rests in halt_loop, save each (address,
     size, path) in `dumps` with pmemsave, and return (PSR, SP) at the halt.
+
+    The payload is loaded at `load_addr`. Without `shim` the CPU starts there
+    (r0-r3 are 0). With `shim` (a file from write_shim) the CPU starts at the
+    shim instead, which sets r0-r3 and jumps to the payload. Each (address,
+    word) in `plant` is stored in RAM before the CPU starts.
 
     Raises CaseFailure if QEMU exits early or the PC does not reach halt_loop
     within `timeout` seconds (QEMU is then killed).
@@ -171,8 +237,14 @@ def boot(qemu: str, payload: str, halt_addr: int, timeout: float,
         qemu, "-M", "virt", "-cpu", "cortex-a15", "-m", "2048",
         "-nic", "none", "-display", "none", "-serial", "none",
         "-qmp", f"unix:{sockpath},server=on,wait=off", "-S",
-        "-device", f"loader,file={payload},addr={LOAD_ADDR:#x},cpu-num=0",
     ]
+    if shim is None:
+        cmd += ["-device", f"loader,file={payload},addr={load_addr:#x},cpu-num=0"]
+    else:
+        cmd += ["-device", f"loader,file={payload},addr={load_addr:#x}",
+                "-device", f"loader,file={shim},addr={SHIM_ADDR:#x},cpu-num=0"]
+    for addr, word in plant:
+        cmd += ["-device", f"loader,addr={addr:#x},data={word:#x},data-len=4"]
     if flash is not None:
         cmd += ["-drive", f"if=pflash,unit=1,format=raw,readonly=on,file={flash}"]
     proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
@@ -279,11 +351,18 @@ class Runner:
         self.qemu = qemu
         self.timeout = timeout
 
-    def run(self, tag: str, mdp: int | None, extra: tuple | None = None) -> tuple:
+    def run(self, tag: str, mdp: int | None, extra: tuple | None = None, *,
+            load_addr: int = LOAD_ADDR, regs: tuple | None = None,
+            plant: tuple = ()) -> tuple:
         """Boot once with the MDP4 register reading `mdp` (None: no flash
         image, the register reads 0). Dumps both candidates, plus the region
         `extra` = (address, size) if given. Returns (psr, sp, red, green,
-        extra) where the last three are dump paths (extra None if not asked)."""
+        extra) where the last three are dump paths (extra None if not asked).
+
+        `load_addr` loads the image somewhere other than its link address (the
+        halt_loop address polled moves with it). `regs` = (r0, r1, r2, r3)
+        enters through the test-only shim with those register values; `plant`
+        is a tuple of (address, word) stored in RAM first."""
         red = os.path.join(self.workdir, f"{tag}-red.dump")
         green = os.path.join(self.workdir, f"{tag}-green.dump")
         dumps = [(oracle.FB_RED, oracle.FB_BYTES, red),
@@ -300,9 +379,14 @@ class Runner:
         if mdp is not None:
             flash = os.path.join(self.workdir, f"{tag}-flash.img")
             write_flash_image(flash, mdp)
+        shim = None
+        if regs is not None:
+            shim = os.path.join(self.workdir, f"{tag}-shim.bin")
+            write_shim(shim, regs, load_addr)
         try:
-            psr, sp = boot(self.qemu, self.payload, self.halt_addr, self.timeout,
-                           flash, dumps)
+            psr, sp = boot(self.qemu, self.payload,
+                           self.halt_addr - LOAD_ADDR + load_addr, self.timeout,
+                           flash, dumps, load_addr, shim, plant)
         finally:
             if flash is not None and os.path.exists(flash):
                 os.remove(flash)
@@ -408,6 +492,103 @@ def case_fault(r: Runner) -> str:
             f"both candidates byte-identical with 9 rows")
 
 
+def case_third_in_reservation(r: Runner) -> str:
+    """An MDP4 value inside the bootloader's framebuffer reservation, past the
+    end of the GREEN fill: the one place a real framebuffer is expected that
+    neither candidate reaches. It must be painted (v1.2 refused it)."""
+    mdp = MDP_IN_RESERVATION
+    if not (0x8830_0000 <= mdp and mdp + oracle.FB_BYTES <= 0x8860_0000):
+        raise CaseFailure(f"test value {mdp:#x} is not inside the framebuffer reservation")
+    if mdp < oracle.FB_GREEN + oracle.FB_BYTES:
+        raise CaseFailure(f"test value {mdp:#x} overlaps the GREEN candidate fill")
+    psr, sp, red_dump, green_dump, third_dump = r.run("inres", mdp, (mdp, oracle.FB_BYTES))
+    _require_clean_halt(psr, sp, "painting a third buffer in the reservation should not fault")
+    words = oracle.expected_words(mdp)
+    _check_candidates(red_dump, green_dump, words)
+    _check_fb(third_dump, "third", oracle.FILL_GREY, words)
+    return (f"mdp4={mdp:#x} (inside the bootloader framebuffer reservation, past the GREEN "
+            f"fill) injected through flash: third buffer grey with all 9 rows, byte-identical "
+            f"to the oracle; both candidates byte-identical, row 9 = {mdp:#x}")
+
+
+def case_device_handoff(r: Runner) -> str:
+    """Enter the way section 2 expects the phone to: r0 = 0, r1 = the machine
+    number, r2 = the tags address, with a known word stored there. This is the
+    only run in which the in-range *r2 read happens with device-like values."""
+    r1, r2, stored = oracle.MACH_SERRANO, oracle.TAGS_ADDR, 0x0000_0005
+    psr, sp, red_dump, green_dump, _ = r.run(
+        "handoff", None, regs=(0, r1, r2, 0), plant=((r2, stored),))
+    _require_clean_halt(psr, sp, "a device-like handoff should not fault")
+    words = oracle.handoff_words(r0=0, r1=r1, r2=r2, word_at_r2=stored)
+    if words[6] != stored:
+        raise CaseFailure(f"the oracle does not expect *r2 to be read at {r2:#x}")
+    _check_candidates(red_dump, green_dump, words)
+    return (f"entered through the test shim with r0=0x0 r1={r1:#x} r2={r2:#x} and "
+            f"{stored:#010x} stored there: both candidates byte-identical; rows show "
+            f"r1={words[1]:#x} r2={words[2]:#x} *r2={words[6]:#010x}; halted in SVC mode")
+
+
+def case_r2_guard_edges(r: Runner) -> str:
+    """The edges of the *r2 guard [0x80200000, 0x80208000), word-aligned. Each
+    run plants distinct known words so a read that should not happen would
+    show up as that word instead of the sentinel."""
+    lo, hi = oracle.R2_READ_LO, oracle.R2_READ_HI
+    # (tag, r2, planted words, must the payload read *r2?)
+    edges = (
+        ("first", lo, ((lo, EDGE_WORD + 1),), True),
+        ("last", hi - 4, ((hi - 4, EDGE_WORD + 2),), True),
+        # hi is the image's own first word (a branch, not the sentinel).
+        ("above", hi, (), False),
+        ("below", lo - 4, ((lo - 4, EDGE_WORD + 3),), False),
+        ("unaligned", lo + 0x102, ((lo + 0x100, EDGE_WORD + 4), (lo + 0x104, EDGE_WORD + 5)),
+         False),
+    )
+    seen = []
+    for tag, r2, plant, read in edges:
+        if oracle.r2_is_read(r2) != read:
+            raise CaseFailure(f"the oracle's guard disagrees about r2={r2:#x}")
+        stored = dict(plant).get(r2)
+        psr, sp, red_dump, green_dump, _ = r.run(
+            f"edge-{tag}", None, regs=(0, oracle.MACH_SERRANO, r2, 0), plant=plant)
+        _require_clean_halt(psr, sp, f"r2={r2:#x} should not fault")
+        words = oracle.handoff_words(r0=0, r1=oracle.MACH_SERRANO, r2=r2, word_at_r2=stored)
+        try:
+            _check_candidates(red_dump, green_dump, words)
+        except CaseFailure as exc:
+            raise CaseFailure(f"r2={r2:#x}: {exc}") from exc
+        seen.append(f"{r2:#x} -> {words[6]:#010x}")
+    return ("*r2 row for each r2, byte-identical in both candidates: " + "; ".join(seen)
+            + " (the first two are read, the others give the sentinel)")
+
+
+def case_relocated(r: Runner) -> str:
+    """The same bytes loaded and started at another address: the entry capture
+    is position-independent and the entry row must show where it really ran."""
+    psr, sp, red_dump, green_dump, _ = r.run("reloc", None, load_addr=RELOC_ADDR)
+    _require_clean_halt(psr, sp, "a relocated image should paint and halt without a fault")
+    words = oracle.handoff_words(entry=RELOC_ADDR)
+    _check_candidates(red_dump, green_dump, words)
+    return (f"image loaded and started at {RELOC_ADDR:#x}: both candidates byte-identical, "
+            f"entry row = {words[5]:#x}; halted in the relocated halt_loop in SVC mode")
+
+
+def case_relocated_fault(r: Runner) -> str:
+    """A fault in the relocated image must reach the relocated vectors: VBAR is
+    set from the run-time address, not the link address."""
+    mdp = MDP_FAULT
+    in_ram = QEMU_RAM_END - mdp
+    psr, _sp, red_dump, green_dump, part = r.run(
+        "reloc-fault", mdp, (mdp, in_ram), load_addr=RELOC_ADDR)
+    _require_mode(psr, MODE_ABT, "the fault should be caught by the relocated vectors")
+    _check_candidates(red_dump, green_dump, oracle.handoff_words(entry=RELOC_ADDR, mdp=mdp))
+    got = _read(part, in_ram, "third (in-RAM part)")
+    if got.count(oracle.FILL_GREY[0]) != in_ram:
+        raise CaseFailure("third buffer is not grey up to the RAM end")
+    return (f"image at {RELOC_ADDR:#x}, mdp4={mdp:#x} injected: the grey fill faults at the "
+            f"RAM end; PC rests in the relocated halt_loop, CPU mode ABT (PSR {psr:#010x}); "
+            f"both candidates byte-identical, entry row = {RELOC_ADDR:#x}")
+
+
 CASES = (
     (NAME, case_zero),
     (f"{NAME}-third-buffer", case_third_buffer),
@@ -415,6 +596,11 @@ CASES = (
     (f"{NAME}-mdp-reserved", case_reserved),
     (f"{NAME}-mdp-unaligned", case_unaligned),
     (f"{NAME}-fault-halts", case_fault),
+    (f"{NAME}-third-in-reservation", case_third_in_reservation),
+    (f"{NAME}-device-handoff", case_device_handoff),
+    (f"{NAME}-r2-guard-edges", case_r2_guard_edges),
+    (f"{NAME}-relocated", case_relocated),
+    (f"{NAME}-relocated-fault-halts", case_relocated_fault),
 )
 
 

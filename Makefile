@@ -386,7 +386,7 @@ test-rust: $(KERNEL_ELFS) $(FIXTURE)/hosted_std.rs $(FIXTURE)/hosted_libc.rs tes
 
 test-payload: $(PAYLOAD_BIN) $(PAYLOAD_IMG) $(PAYLOAD_OUT)/kstart.o tests/boot/run_payload.py tests/boot/read_bootimg.py tests/boot/serrano_v1.py tests/boot/payload_hosted_libc.rs $(FIXTURE)/hosted_std.rs tests/build/check_image_integrity.sh | need-qemu need-arm need-rust ## Boot the Phase 2 payload in QEMU (paint the framebuffers, inject MDP4 values and a fault), and check the handoff, the packer and reproducibility
 	@mkdir -p $(LOGS) $(PAYLOAD_OUT)/neg
-	@echo "# (a) run the exact kernel-slot bytes; the framebuffers must match the host oracle, with the MDP4 value absent, injected, and faulting"
+	@echo "# (a) run the exact kernel-slot bytes; the framebuffers must match the host oracle, with the MDP4 value absent, injected, and faulting, a device-like handoff, and a relocated image"
 	@halt=$$($(ARM_NM) $(PAYLOAD_ELF) | awk '$$3=="halt_loop"{print $$1}'); \
 	  test -n "$$halt" || { echo "FAIL qemu-payload: no halt_loop symbol in $(PAYLOAD_ELF)"; exit 1; }; \
 	  $(PYTHON) -m tests.boot.run_payload --payload $(PAYLOAD_BIN) --workdir $(PAYLOAD_OUT)/qemu --halt-addr 0x$$halt

@@ -83,19 +83,31 @@ def checksum() -> int:
 # each must mean. r3 is captured by kstart.S but is not among the painted words.
 R2_OUT_OF_RANGE = 0xFFFF_FFFF
 ENTRY_ADDR = 0x80208000
+
+# The payload reads *r2 only inside the tags page and only word-aligned
+# (payload.rs R2_READ_LO/HI); anything else records R2_OUT_OF_RANGE.
+R2_READ_LO = 0x8020_0000
+R2_READ_HI = 0x8020_8000
+# What section 2 of the research expects the stock bootloader to hand over.
+MACH_SERRANO = 3727          # r1 = 0x00000E8F
+TAGS_ADDR = 0x8020_0100      # r2
 QEMU_CPSR = 0x4000_01D3   # SVC(0x13) + A(0x100) + I(0x80) + F(0x40) + Z(0x40000000)
 QEMU_SCTLR = 0x00C5_0078  # cortex-a15 reset; MMU bit (0) clear
 
 # Device DRAM and the reserved regions a discovered framebuffer must avoid
 # (gt-i9195.md memory map); must match payload.rs. All half-open [lo, hi).
 # DEV_RAM_HI is unverified on this unit (nominal 1.5 GiB above the DRAM base).
+#
+# The bootloader's framebuffer reservation [0x88300000, 0x88600000) is NOT in
+# RESERVED: it is the one region where a framebuffer is expected, and a buffer
+# starting at 0x8847BB00 or above inside it is reached by neither candidate
+# fill. Only the exact candidate addresses are excluded.
 DEV_RAM_LO = 0x8000_0000
 DEV_RAM_HI = 0x8000_0000 + 0x6000_0000  # 1.5 GiB -> 0xE000_0000
 RESERVED = [
     (0x8020_0000, 0x8020_8000),  # ATAGS / tags page
     (0x8020_8000, 0x8120_8000),  # the image + its 64 KiB stack (link.ld, 16 MiB)
     (0x8000_0000, 0x8020_0000),  # SMEM (2 MiB)
-    (0x8830_0000, 0x8860_0000),  # bootloader framebuffer reserved (3 MiB)
     (0x8F00_0000, 0x8F70_0000),  # WCNSS (7 MiB)
     (0x8FB0_0000, 0x8FE0_0000),  # modem rmtfs (3 MiB)
 ]
@@ -131,6 +143,25 @@ EXPECTED_WORDS = [
 def expected_words(mdp: int) -> list[int]:
     """The nine words expected under QEMU when the MDP4 register reads `mdp`."""
     return EXPECTED_WORDS[:8] + [mdp]
+
+
+def r2_is_read(r2: int) -> bool:
+    """Mirror of payload.rs's guard: does the payload dereference this r2?"""
+    return R2_READ_LO <= r2 < R2_READ_HI and r2 & 3 == 0
+
+
+def handoff_words(r0: int = 0, r1: int = 0, r2: int = 0, word_at_r2: int | None = None,
+                  entry: int = ENTRY_ADDR, mdp: int = MDP4_QEMU) -> list[int]:
+    """The nine words expected under QEMU for a given entry state: registers
+    r0-r2, the word stored at r2 (used only if the guard lets the payload read
+    it; otherwise the sentinel), the run-time entry address and the MDP4 value.
+    The defaults are the plain run, so handoff_words() == EXPECTED_WORDS."""
+    if r2_is_read(r2):
+        assert word_at_r2 is not None, f"r2 {r2:#x} is read; say what is stored there"
+        at_r2 = word_at_r2
+    else:
+        at_r2 = R2_OUT_OF_RANGE
+    return [r0, r1, r2, QEMU_CPSR, QEMU_SCTLR, entry, at_r2, checksum(), mdp]
 
 
 def assert_cpu_handoff_invariants(words: list[int]) -> None:

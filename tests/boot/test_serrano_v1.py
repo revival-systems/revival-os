@@ -249,6 +249,45 @@ class InvariantTests(unittest.TestCase):
             o.assert_cpu_handoff_invariants(words)
 
 
+class HandoffWordsTests(unittest.TestCase):
+    """handoff_words and r2_is_read mirror what the payload paints for a given
+    entry state; the device-like QEMU cases compare against them."""
+
+    def test_defaults_are_the_plain_run(self):
+        self.assertEqual(o.handoff_words(), o.EXPECTED_WORDS)
+
+    def test_r2_guard_edges(self):
+        self.assertTrue(o.r2_is_read(0x8020_0000))   # first word of the tags page
+        self.assertTrue(o.r2_is_read(0x8020_0100))   # the expected tags address
+        self.assertTrue(o.r2_is_read(0x8020_7FFC))   # last word of the tags page
+        self.assertFalse(o.r2_is_read(0x8020_8000))  # the image itself
+        self.assertFalse(o.r2_is_read(0x801F_FFFC))  # just below the page
+        self.assertFalse(o.r2_is_read(0x8020_0102))  # not word-aligned
+        self.assertFalse(o.r2_is_read(0))            # the plain QEMU entry
+
+    def test_device_like_handoff(self):
+        words = o.handoff_words(r0=0, r1=o.MACH_SERRANO, r2=o.TAGS_ADDR, word_at_r2=5)
+        self.assertEqual(words[:3], [0, 0x0000_0E8F, 0x8020_0100])
+        self.assertEqual(words[6], 5)
+        self.assertEqual(words[3:6] + words[7:], o.EXPECTED_WORDS[3:6] + o.EXPECTED_WORDS[7:])
+
+    def test_word_at_r2_is_ignored_when_the_guard_refuses(self):
+        words = o.handoff_words(r2=0x8020_8000, word_at_r2=0x1234_5678)
+        self.assertEqual(words[6], o.R2_OUT_OF_RANGE)
+
+    def test_a_read_needs_the_stored_word(self):
+        with self.assertRaises(AssertionError):
+            o.handoff_words(r2=o.TAGS_ADDR)  # read, but nothing said to be there
+
+    def test_relocated_entry_only_changes_the_entry_word(self):
+        words = o.handoff_words(entry=0x80A0_8000)
+        self.assertEqual(words[5], 0x80A0_8000)
+        self.assertEqual(words[:5] + words[6:], o.EXPECTED_WORDS[:5] + o.EXPECTED_WORDS[6:])
+        # A relocated entry is exactly what the plain-run invariant rejects.
+        with self.assertRaises(AssertionError):
+            o.assert_cpu_handoff_invariants(words)
+
+
 class PlausibilityTests(unittest.TestCase):
     """is_plausible_fb mirrors the payload's third-buffer gate."""
 
@@ -260,6 +299,27 @@ class PlausibilityTests(unittest.TestCase):
         # region: a plausible discovered framebuffer.
         self.assertTrue(o.is_plausible_fb(0x8800_0000))
         self.assertTrue(o.is_plausible_fb(0xA000_0000))
+
+    def test_accepts_the_bootloader_framebuffer_reservation(self):
+        # [0x88300000, 0x88600000) is where a framebuffer is expected. v1.1 and
+        # v1.2 rejected the whole region; a buffer starting past the end of the
+        # GREEN fill (0x8847BB00) would then never have been painted.
+        self.assertTrue(o.is_plausible_fb(0x8847_C000))  # past the GREEN fill
+        self.assertTrue(o.is_plausible_fb(0x8840_0000))  # overlapping the GREEN fill
+        self.assertNotIn((0x8830_0000, 0x8860_0000), o.RESERVED)
+
+    def test_candidate_addresses_stay_excluded(self):
+        # The exact candidates are already painted; they are still refused.
+        self.assertFalse(o.is_plausible_fb(0x8830_0000))
+        self.assertFalse(o.is_plausible_fb(0x8810_0000))
+
+    def test_every_other_reserved_region_is_still_rejected(self):
+        for lo, hi in ((0x8020_0000, 0x8020_8000), (0x8020_8000, 0x8120_8000),
+                       (0x8000_0000, 0x8020_0000), (0x8F00_0000, 0x8F70_0000),
+                       (0x8FB0_0000, 0x8FE0_0000)):
+            self.assertIn((lo, hi), o.RESERVED)
+            self.assertFalse(o.is_plausible_fb(lo), f"{lo:#x}")
+            self.assertFalse(o.is_plausible_fb(hi - 4), f"{hi - 4:#x}")
 
     def test_rejects_unaligned(self):
         self.assertFalse(o.is_plausible_fb(0x8800_0002))
