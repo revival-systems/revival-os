@@ -195,7 +195,7 @@ Research cannot close these. They are not guessed here.
 | 9 | A decision on the payload reading display-controller and timer registers, given that a read from an unclocked block can hang. | Research and orchestrator review; then hardware test |
 | 10 | The deliberately invalid image for the ROADMAP's negative test, and the recovery steps that follow it. **The image is now built and tested on the host** ([Trial kit](#trial-kit-host-only)); it is not approved for any write. The recovery steps that follow it are still open and belong in the write plan. | Implementer; owner approves in the write plan |
 | 11 | The five phone-only questions above, accepted in the write plan as open, with the expected observation and the recovery action for each outcome. | Hardware test |
-| 12 | An approved write-plan issue naming the phase, partition, image, SHA-256, method and emergency rescue procedure. | Owner and orchestrator |
+| 12 | An approved write-plan issue naming the phase, partition, image, SHA-256, method and emergency rescue procedure. A draft of its text is in [write-plan-draft.md](write-plan-draft.md); it approves nothing, and the issue is opened by the owner or the orchestrator. | Owner and orchestrator |
 
 Items 1–6 are the same gates Phase 0 and the ROADMAP already set. Items 7–12 are new from this research.
 
