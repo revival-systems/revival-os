@@ -2,6 +2,8 @@
 
 Each phase adds the smallest capability that can be observed and tested, on the real Samsung where hardware is involved. A phase is complete only when its pass criteria are met **and** recorded as evidence ([docs/TESTING.md](docs/TESTING.md#recording-evidence)), and the orchestrator has reviewed that evidence.
 
+**Owner's hardware intent:** The GT-I9195 is a dedicated Revival OS experimental target. Android and its personal data are not product requirements. Phase 0 uses the existing stock installation only to establish a one-time hardware and rescue baseline. From Phase 2 onward, **boot, reboot, and functional pass criteria measure Revival OS running on the device**, not successful return to Android. Recovery means regaining control of the device and another safe Revival OS test attempt; a verified stock image is an emergency rescue artifact, not the goal of the development cycle.
+
 The kernel is written in Rust and ARM Assembly ([ADR 0001](docs/decisions/0001-rust-and-arm-assembly.md)); the earlier Goose work is kept as a studied reference. Every increment follows the development cycle — **Build → Boot → Observe → Test → Reboot → Recover → Measure → Document** ([docs/DEVELOPMENT.md](docs/DEVELOPMENT.md#development-cycle)).
 
 Sources: Revival Server issues [#120](https://github.com/revival-systems/revival-server/issues/120) (phone-first decision and test strategy) and [#121](https://github.com/revival-systems/revival-server/issues/121) (milestone ladder and engineering requirements).
@@ -11,7 +13,7 @@ Sources: Revival Server issues [#120](https://github.com/revival-systems/revival
 1. **No hardware milestone is complete on a design or an emulator result.** Emulators prove code generation and architecture-level logic only.
 2. **Every phase that runs on the device records boot, reboot and recovery evidence**: the image hash, the device state before and after, the number of trials, and the recovery action taken.
 3. **No write to the device without an approved write plan.** The plan is a GitHub issue that names the exact partition, image, hash and recovery procedure, approved by the owner and the orchestrator. Bootloader-chain partitions are never written ([AGENTS.md](AGENTS.md#hardware-safety-contract)).
-4. **Android is not erased** until independent boot has been proved and the owner decides to. No phase below requires erasing it.
+4. **Android and user data are disposable.** The owner intends Revival OS to replace Android and does not require personal-data preservation. Do not erase or overwrite partitions merely to clear Android: remove obsolete Android components only when the current milestone needs it, a repeatable Revival OS boot and device rescue path have been demonstrated, and the exact changes have an approved write plan. Protected boot-firmware/device-identity partitions remain untouched.
 5. **Later-phase criteria are provisional.** They are refined in a reviewed pull request before the phase starts, using what earlier phases measured.
 6. **A failed phase is a result.** It is recorded with its evidence, and the next step is re-planned. It is never worked around silently.
 
@@ -19,8 +21,8 @@ Sources: Revival Server issues [#120](https://github.com/revival-systems/revival
 
 | Phase | Capability | Runs on | State |
 | --- | --- | --- | --- |
-| 0 | Hardware identity, stock boot/reboot, recovery paths | Device (read-only) | Research done; physical checks not started |
-| 1 | Rust + ARM Assembly freestanding foundation (ARMv7-A) | Host + emulator | Not started; Goose feasibility kept as reference |
+| 0 | One-time hardware identity and stock rescue baseline | Device (read-only) | Physical tests partly reported; evidence review and remaining checks pending |
+| 1 | Rust + ARM Assembly freestanding foundation (ARMv7-A) | Host + emulator | QEMU foundation implemented ([PR #5](https://github.com/revival-systems/revival-os/pull/5) merged); formal gate review pending; not yet run on the Samsung. Goose feasibility kept as reference |
 | 2 | First bare-metal boot with observable output | Device (first write) | Not started |
 | 3 | Exceptions, MMU, memory, interrupts, timer, watchdog | Device + emulator | Not started |
 | 4 | Buttons, display console, storage reads | Device | Not started |
@@ -36,7 +38,7 @@ Sources: Revival Server issues [#120](https://github.com/revival-systems/revival
 
 **Entry gate:** None. **No write to the device at any point in this phase.**
 
-**Capability:** A verified record of the exact device, its firmware versions, its partition names, and its boot, recovery and Download-mode paths, made using only stock software and read-only commands. Plus a verified restore source (the matching stock firmware) for later phases.
+**Capability:** A one-time, read-only baseline of the exact device, firmware versions, partition layout, and stock boot, recovery and Download-mode paths. The matching stock firmware is retained **only as an emergency rescue source** for later independent Revival OS boot experiments; preserving Android as the running operating system is not a milestone.
 
 **Observable test:** The [Phase 0 hardware verification checklist](docs/phase-0/hardware-verification-checklist.md), sections A to H.
 
@@ -61,11 +63,11 @@ Sources: Revival Server issues [#120](https://github.com/revival-systems/revival
 - Before USB debugging is authorized on the phone, `adb devices` shows `unauthorized`.
 - The Download-mode warning screen's cancel button restarts the phone normally.
 - Removing the battery while Download mode is idle (no transfer) leaves the next normal boot unaffected.
-- Leaving stock recovery without selecting anything leaves the user data intact.
+- Leaving stock recovery without selecting any destructive action leaves the phone able to boot the existing stock baseline; personal-file preservation is not a pass condition.
 
 **Physical verification:** Required for every step. All of it is on the owner's device.
 
-**Boot, reboot and recovery evidence:** The time from power-on to the lock screen for each cold boot, the reboot count, and photographs of the recovery and Download-mode screens. A final normal boot shows the same build and the same user data as before.
+**Boot, reboot and recovery evidence:** Phase 0 only. The time from power-on to the stock lock screen for each diagnostic cold boot, the reboot count, and photographs of recovery and Download mode. A final baseline boot shows the same firmware build. These are **stock hardware diagnostics**, not Revival OS boot results; verifying personal files is not required.
 
 **Next safe milestone:** Phase 1 (host and emulator only, no device writes). Phase 0's results feed the separate Phase 2 write-plan decision.
 
@@ -116,19 +118,19 @@ Sources: Revival Server issues [#120](https://github.com/revival-systems/revival
 - The owner has explicitly accepted that flashing a non-Samsung image is reported to trip the irreversible Knox warranty bit ([gt-i9195.md](docs/hardware/gt-i9195.md#bootloader-lock-and-knox)).
 - The orchestrator has approved the plan.
 
-**Capability:** The smallest boot image the stock bootloader accepts, whose payload (entry stub plus Rust-originated code) produces one observable effect and then halts or resets deterministically.
+**Capability:** The smallest device-accepted image containing our ARM entry code and Rust-originated code. Prove that *Revival OS code itself* executes on the Samsung and produces one minimal, verifiable sign of life, then halts or resets deterministically. A logo, full kernel, user interface, camera driver, or Android runtime is **not** required for this first increment. Establish normal power-on into Revival OS as a separate verified step if the initial test must use an alternate entry path.
 
 **Method options (chosen in the write-plan review, not here):**
 
-- **A. Payload in `recovery` only.** Android's `boot` partition stays untouched. The payload runs when the phone is started with the recovery key combination, and a normal power-on still boots Android. Each iteration costs one Download-mode flash of `recovery`.
+- **A. Initial probe through `recovery`.** If the safe entry route is via the recovery key combination, use it only as an initial independently executing Revival OS payload probe. This **does not** count as normal power-on boot of Revival OS. Review a separate move to a normal power-on route as the next small milestone; Android is not a required pass target.
 - **B. lk2nd as an intermediate bootloader.** [lk2nd](https://github.com/msm8916-mainline/lk2nd) lists the GT-I9195. It is installed once (to `boot` or `recovery`), then offers fastboot. With fastboot, `fastboot boot` runs each test payload from RAM with no further flash. This option adds a third-party component to the chain and needs its own review.
 
-**Observable test:** The payload fills the framebuffer that the stock bootloader appears to leave running (`0x88300000`, 540×960, 24-bit RGB, per a [community mainline device tree](https://github.com/msm8227-mainline/linux/blob/msm8227-6.19/arch/arm/boot/dts/qcom/qcom-msm8930-samsung-serranolte.dts); **unconfirmed on this device**) with a fixed pattern. It keeps it for 10 seconds, then resets or halts. If a 1.8 V UART cable through the micro-USB JIG mode is available and verified, a heartbeat line on the UART is an alternative or additional test. The entry register values are encoded into the pattern so that the handoff state can be read off a photograph.
+**Observable test:** Demonstrate that the Revival OS payload executes by the **smallest viable observable signal**, not necessarily a full program or logo. A fixed framebuffer pattern is one candidate: the community mainline device tree suggests `0x88300000`, 540×960, 24-bit RGB, but this is **unconfirmed on this device** ([source](https://github.com/msm8227-mainline/linux/blob/msm8227-6.19/arch/arm/boot/dts/qcom/qcom-msm8930-samsung-serranolte.dts)). A verified 1.8 V UART path is another candidate. Choose the signal only after confirming it is safe and actually distinguishes our code from Samsung's stock boot logo. Hold it for a measured interval, then halt or reset predictably.
 
 **Pass criteria:**
 
-- The pattern appears in 5 of 5 cold boots of the same image, whose hash is recorded.
-- After every trial, a normal power-on boots Android unchanged, 5 of 5.
+- The chosen **Revival OS** execution signal appears in 5 of 5 runs of the same hashed image, not merely the Samsung splash screen.
+- A normal-power-on-to-Revival-OS route is verified as its own 5 of 5 milestone. If only a recovery-key probe works, record the probe as evidence but keep the normal power-on milestone open. **Returning to Android is not a pass condition.**
 - Download mode stays reachable throughout.
 - The entry state is recorded: `r0`–`r2`, the CPU mode, and whether the MMU and caches are on.
 - The watchdog's behaviour while the payload runs is recorded (the device resets on its own or not, and after how long).
@@ -140,7 +142,7 @@ Sources: Revival Server issues [#120](https://github.com/revival-systems/revival
 - A deliberately invalid image (bad header) shows how the bootloader rejects images, and recovery is proven afterwards.
 - A payload that hangs forever is recovered by removing the battery.
 - A payload that triggers an exception before any handler exists shows its observable behaviour.
-- Each test is followed by a full Download-mode restore of the stock image to the written partition, with a boot check.
+- After each test, show that the payload can be restarted and Download mode or the approved rescue path remains accessible. Restore a verified stock image **only if required for recovery**, with the exact partition and operation covered by the write plan; do not routinely reinstall Android between Revival OS increments.
 
 **Physical verification:** Required. This milestone is defined on the hardware.
 
@@ -173,7 +175,7 @@ Sources: Revival Server issues [#120](https://github.com/revival-systems/revival
 
 **Physical verification:** Required for every sub-milestone. Emulator runs may precede the device test but never replace it.
 
-**Boot, reboot and recovery evidence:** The boot count per sub-milestone, the reset causes observed, and confirmation that Android and Download mode are unaffected.
+**Boot, reboot and recovery evidence:** The Revival OS boot count per sub-milestone, observed reset causes, continued access to the approved rescue path, and confirmation that protected firmware partitions remain unaffected. Android boot is not checked.
 
 **Next safe milestone:** Phase 4.
 
@@ -186,13 +188,13 @@ Sources: Revival Server issues [#120](https://github.com/revival-systems/revival
 **Capability:**
 
 - **4a.** Volume Up, Volume Down and Home are read through GPIO. The public sources give them as GPIO 50, 81 and 35, which is to be confirmed.
-- **4b.** A text console on the display.
+- **4b.** Display milestones in order: first a simple Revival OS logo or static splash, verified on hardware; then a basic text console, verified separately. No full interface is needed to complete the logo increment.
 - **4c.** Read-only eMMC access: the partition table and a partition's contents.
 - **4d.** microSD read, then write.
 
 **Observable test:** Button presses show on screen. The eMMC partition table is compared with Phase 0's PIT listing. File contents read from microSD are hashed on the device and compared with `sha256sum` of the same file on Ubuntu.
 
-**Pass criteria:** 100 of 100 presses of each button are registered with no phantom events. The partition table matches Phase 0. The eMMC `boot` partition read back hashes equal to the verified stock `boot.img`, padded to the partition size as documented. microSD read and write hashes match in 100 of 100 files.
+**Pass criteria:** 100 of 100 presses of each button are registered with no phantom events. The partition table matches Phase 0. A read of the selected, approved test boot partition matches the hash of the image **currently intended to run** there, padded to the partition size as documented; do not assume it still contains stock `boot.img`. microSD read and write hashes match in 100 of 100 files.
 
 **Fail criteria:** Any eMMC write outside the plan, mismatched reads, or button events lost or invented.
 
@@ -200,7 +202,7 @@ Sources: Revival Server issues [#120](https://github.com/revival-systems/revival
 
 **Physical verification:** Required.
 
-**Boot, reboot and recovery evidence:** Android still boots from the untouched `boot` partition (method A) or is restored (method B). Download mode is reachable. The partition hashes before and after the phase are recorded.
+**Boot, reboot and recovery evidence:** Revival OS repeats its verified boot path after each increment. Download mode or the approved rescue route remains reachable. Record partition hashes before and after the phase. No Android boot or restore is required except as an emergency rescue action.
 
 **Next safe milestone:** Phase 5.
 
@@ -280,7 +282,7 @@ Sources: Revival Server issues [#120](https://github.com/revival-systems/revival
 
 **Boot, reboot and recovery evidence:** Unattended start after power restoration, and update and rollback of the OS image (manual at this stage).
 
-**Next safe milestone:** Phase 8. Whether to remove Android from the phone becomes an owner decision from this point. It is not required.
+**Next safe milestone:** Phase 8. The owner has already designated this phone for Revival OS experiments and does not require Android or its data. Removing remaining obsolete Android partitions is a separate, narrowly scoped, reviewed write operation only when safe and useful; no phase requires erasing protected vendor firmware.
 
 ---
 

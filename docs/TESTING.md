@@ -95,7 +95,7 @@ These categories have **no target**, so nothing can pass by accident:
 
 ## Recording evidence
 
-A device result counts only when it is recorded. For every device session, record:
+A device result counts only when it is recorded. **Phase 0 records the stock Android/bootloader hardware baseline once. Phase 2 and later count only Revival OS code execution and Revival OS boot/reboot behavior as operating-system milestone evidence.** Restoring a stock image is an emergency rescue action, not routine success evidence; Android user data and personal-file retention are not required. For every device session, record:
 
 1. The date, who performed it, and the phase and checklist step IDs.
 2. The device: model from the label (B1) and from software (C5), with identifiers redacted, and the bootloader and build versions.
@@ -137,7 +137,7 @@ Writes to the device: none.
 | F5 PIT | read / failed | – | partition list attached |
 | F6 exit by battery removal | n/3 | 3 | |
 | G1–G3 stock firmware | verified / missing | – | build, MD5 match |
-| H1 final state unchanged | yes / no | – | |
+| H1 Phase 0 stock baseline unchanged | yes / no | – | firmware identity and Wi-Fi; no personal-data check |
 
 Decision: PASS / PASS WITH BLOCKERS (<list>) / FAIL.
 ```
