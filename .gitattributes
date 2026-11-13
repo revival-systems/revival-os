@@ -1,0 +1,2 @@
+firmware/GT-I9195/I9195XXSCQAN_I9195OXXCNK2/*.zip filter=lfs diff=lfs merge=lfs -text
+firmware/GT-I9195/I9195XXSCQAN_I9195OXXCNK2/*.img filter=lfs diff=lfs merge=lfs -text

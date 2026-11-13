@@ -2,7 +2,7 @@
 
 **Purpose:** confirm the exact phone, its firmware, and its boot, recovery and Download-mode paths, **without writing anything to the phone**. This is a **one-time stock-hardware baseline and rescue assessment**, not a recurring requirement to boot Android. From Phase 2 onward, boot and reboot milestones must exercise **Revival OS code**. The owner intends to remove Android and does not require preserving personal files. This is the observable test for [Phase 0](../../ROADMAP.md#phase-0--samsung-identification-boot-reboot-and-recovery). The research behind each step is in [gt-i9195.md](../hardware/gt-i9195.md).
 
-**Status:** In progress. The owner has reported partial hardware verification (including Heimdall detection, PIT read and a return to stock Android), but the redacted evidence summary and remaining checklist steps are not yet complete or reviewed. Do not mark Phase 0 passed based on these reports alone.
+**Status:** **Phase 0 closed for work tracking on 2026-11-13 — H3: PASS WITH BLOCKERS (historical documentation gaps); H4: owner-directed/orchestrator-reviewed closeout.** The [closeout decision](../evidence/phase-0/2026-11-13-closeout.md) distinguishes directly verified CSC/firmware/Heimdall work from the owner's report that earlier physical checks were performed. Some original test counts, photos and safety status details remain unavailable; they must not be invented or called failed merely because a log is missing. [Phase 1's separate host/emulator gate is reviewed PASS](../evidence/phase-1/2026-11-13-gate-review.md). **No Phase 2 write is authorized by this closeout.**
 
 **Time needed:** about 2–3 hours, plus downloading the stock firmware (section G).
 

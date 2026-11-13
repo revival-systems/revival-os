@@ -1,0 +1,16 @@
+ro.product.model=GT-I9195
+ro.product.device=serranolte
+ro.product.name=serranoltexx
+ro.product.board=MSM8960
+ro.board.platform=msm8960
+ro.bootloader=I9195XXSCQAN
+ro.build.display.id=KOT49H.I9195XXSCQAN
+gsm.version.baseband=I9195XXSCQAN
+ro.build.version.release=4.4.2
+ro.csc.sales_code=ROM
+ril.official_cscver=I9195OXXCNK2
+ro.boot.warranty_bit=0
+ro.warranty_bit=0
+ro.boot.debug_level=0x4f4c
+ro.secure=1
+ro.debuggable=0
