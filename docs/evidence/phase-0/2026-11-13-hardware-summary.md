@@ -1,8 +1,11 @@
 # Phase 0 consolidated hardware evidence: 2026-11-13
 
-**Decision: PASS WITH BLOCKERS for the observed subset; Phase 0 is not yet
-complete.** Physical trial records and owner confirmations listed below remain
-missing. Missing evidence is not a claim that a test failed or was never done.
+**Status: COMPLETE, owner-confirmed on 2026-11-13.** After the initial report,
+the owner clarified: "Phase zero is finished in phase one." This records the
+owner's completion confirmation alongside the completed Phase 1 review. It does
+not invent additional measurements, trial counts or photographs. Physical
+details marked NOT RECORDED below describe documentation gaps, not unfinished
+tests or instructions to repeat completed work.
 [Phase 1 is separately reviewed as complete](../phase-1/2026-11-13-gate-review.md);
 its host/emulator gate does not require Phase 0 to be closed.
 
@@ -33,7 +36,8 @@ execution.
 - **Owner-confirmed in this conversation:** the phone is connected by USB, is
   dedicated to Revival OS, and the owner accepted the USB-debugging RSA prompt.
   No explicit physical-label/battery-inspection or 3/3 trial results are present
-  in this conversation. A request for the earlier physical record is pending.
+  in this conversation. The owner's subsequent completion confirmation is now
+  recorded above; it supplies a completion status, not those detailed readings.
 - **Firmware provenance:** the [firmware rescue report](2026-11-13-firmware-rescue.md)
   and [LFS download instructions](../../../firmware/GT-I9195/README.md).
 
@@ -68,7 +72,7 @@ execution.
 | F6 battery-removal exit | Full 3/3 result NOT RECORDED | Earlier return to Android reported; exact exit action and counts absent |
 | G1–G4 rescue firmware | PASS for identity/acquisition/integrity | ROM / I9195OXXCNK2; matching Samsung package and both images retained and downloadable via LFS |
 | H1 final baseline | Same model/build/CSC observed | Wi-Fi reconnection not established; no new reboot or personal-data check |
-| H2–H4 summary / decision / review | This consolidated report | Physical baseline gate remains open; no Phase 2 authorization |
+| H2–H4 summary / decision / review | This consolidated report plus owner completion confirmation | Phase 0 owner-confirmed complete; no Phase 2 authorization |
 
 ## Actual device observations
 
@@ -150,15 +154,19 @@ firmware-storage exception; raw unit identifiers and the private PIT remain
 outside Git. Originals and complete private evidence remain under
 `Tools/Revival-Firmware/GT-I9195/` in the Windows Developer workspace.
 
-## What still prevents closing Phase 0
+## Documentation gaps and the owner's completion confirmation
 
-The owner's earlier physical evidence is needed for B1/B2, complete C2/C10/E1/F1/F6
+Detailed physical records remain unavailable here for B1/B2, complete C2/C10/E1/F1/F6
 trial counts and cold-boot times, the F2 status-screen transcription, C7/C8/C9
 baseline results, and the owner's overall confirmation that no unrecorded write
 occurred. Current Android operation, sensor names and battery service readings
 cannot establish those facts. Record existing evidence first; do not repeat
 physical operations merely to replace a missing report.
 
-No new failure requires abandoning the device. Phase 1 is complete on its own
-recorded gate; Phase 0 remains incomplete, and the Phase 2 entry gate stays
-closed. No agent action in this report is a write plan or approval.
+The owner's clarification supersedes this report's earlier inference that
+missing physical records meant Phase 0 was unfinished. Phase 0 is now recorded
+as owner-confirmed complete; Phase 1 is complete on its separately reviewed
+host/emulator evidence. Missing trial details remain explicitly undocumented.
+No new failure requires abandoning the device. Phase 2 remains not started and
+still requires its separate approved write plan; completion of the earlier
+phases does not authorize a device operation.
