@@ -1,6 +1,8 @@
 # Phase 1 working notes: the freestanding Rust + ARM Assembly foundation
 
-**Status: working in QEMU.** The smallest freestanding Rust + ARM Assembly
+**Status: Phase 1 gate reviewed PASS on 2026-11-13.** See the
+[criterion-by-criterion review and independent hosted verification](../evidence/phase-1/2026-11-13-gate-review.md).
+The smallest freestanding Rust + ARM Assembly
 kernel boots on the QEMU `virt` board (ARMv7-A), prints a deterministic
 heartbeat and checksum from Rust, and exits through the documented semihosting
 path. It is integrated into `make check` (36 PASS, 0 FAIL), with Phase 1 negative

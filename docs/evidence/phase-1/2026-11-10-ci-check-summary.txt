@@ -1,0 +1,42 @@
+Source: https://github.com/revival-systems/revival-os/actions/runs/42757111224/job/129633926627
+Commit: 3f1130a1a8ecc6796440402be572855a4990de97
+Historical CI result inspected 2026-11-13; not a new run.
+Only PASS/FAIL and documentation-summary lines are reproduced below.
+
+2026-11-10T04:40:59.3575138Z PASS lint-shellcheck (7 scripts)
+2026-11-10T04:40:59.4035512Z PASS lint-cppcheck (9 C files)
+2026-11-10T04:40:59.4479473Z PASS lint-python (9 files compile)
+2026-11-10T04:40:59.5070365Z check_docs: 19 Markdown file(s) OK
+2026-11-10T04:41:00.5206102Z PASS build-runtime-surface (calloc gs_idxfail gs_panic gs_rt_start_4d3da949e563)
+2026-11-10T04:41:00.7078551Z PASS build-link-map (5 images: only their own objects, no C library, no libgcc member that is not approved, every reference resolved)
+2026-11-10T04:41:00.8547819Z PASS build-link-map-rejects-c-library
+2026-11-10T04:41:01.0724398Z PASS build-link-map-rejects-unapproved-libgcc
+2026-11-10T04:41:01.1149166Z PASS build-link-map-rejects-weak-unresolved
+2026-11-10T04:41:01.1570573Z PASS build-link-map-rejects-ignored-unresolved
+2026-11-10T04:41:01.1992388Z PASS build-link-map-rejects-unexpected-object
+2026-11-10T04:41:01.2067589Z PASS build-elf-attributes (ARMv7-A, application profile, soft-float EABI)
+2026-11-10T04:41:01.2109596Z PASS build-no-system-calls (Goose-generated code)
+2026-11-10T04:41:01.2222798Z PASS build-hosted-code-is-rejected
+2026-11-10T04:41:02.1175777Z PASS unit-python
+2026-11-10T04:41:02.1235569Z PASS unit-host-checksum
+2026-11-10T04:41:02.1293536Z PASS unit-host-index
+2026-11-10T04:41:02.1350811Z PASS unit-host-index-out-of-range
+2026-11-10T04:41:02.2248488Z PASS unit-sanitized-checksum
+2026-11-10T04:41:02.2458179Z PASS unit-sanitized-index
+2026-11-10T04:41:02.3116308Z PASS qemu-checksum
+2026-11-10T04:41:02.3487718Z PASS qemu-index-out-of-range
+2026-11-10T04:41:05.3584260Z PASS qemu-hang-is-stopped
+2026-11-10T04:41:05.3961612Z PASS qemu-undefined-instruction
+2026-11-10T04:41:05.4368197Z PASS qemu-alloc-bounds
+2026-11-10T04:41:05.4758131Z PASS qemu-rust-heartbeat
+2026-11-10T04:41:05.5126070Z PASS qemu-rust-panic
+2026-11-10T04:41:05.5495320Z PASS qemu-rust-bounds
+2026-11-10T04:41:05.5545089Z PASS build-rust-symbols (no undefined symbols; Rust links its own core)
+2026-11-10T04:41:05.5593587Z PASS build-rust-one-svc (only the documented semihosting exit)
+2026-11-10T04:41:05.5669060Z PASS build-rust-elf-attributes (ARMv7-A, Application, soft-float EABI)
+2026-11-10T04:41:05.6151979Z PASS build-rust-rejects-std
+2026-11-10T04:41:05.6630554Z PASS build-rust-hosted-libc-compiles (valid no_std fixture; the link failure below is the libc symbol, not a compile error)
+2026-11-10T04:41:05.7235412Z PASS build-rust-rejects-libc
+2026-11-10T04:41:05.7568990Z PASS build-rust-corrupt-image-rejected (kernel-heartbeat.elf: a one-byte change is rejected by SHA-256)
+2026-11-10T04:41:05.7609298Z PASS build-rust-image-unchanged (kernel-heartbeat.elf unchanged: 7ac79ff8bde24a58f1afb0d0808eca0036d61f53dd4756daec67b3852f5d946d)
+2026-11-10T04:41:07.2242964Z PASS repro-identical (14 files byte-identical across two clean builds)
