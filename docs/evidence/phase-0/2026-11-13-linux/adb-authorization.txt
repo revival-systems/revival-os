@@ -1,0 +1,8 @@
+$ adb devices -l        # about 15:38 CET, before the RSA prompt was accepted on the phone
+List of devices attached
+<serial>               unauthorized usb:1-1 transport_id:1
+
+$ adb devices -l        # 15:43 CET, after the owner accepted the prompt
+List of devices attached
+<serial>               device usb:1-1 product:serranoltexx model:GT_I9195 device:serranolte transport_id:1
+

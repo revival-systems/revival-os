@@ -30,7 +30,7 @@ Inspected on 2026-11-08:
 | Steps | Install packages, `make install-toolchain`, `make doctor`, `make check` | The same entry points as local development |
 | Caches, artifacts | None | No storage cost. Each run downloads the pinned toolchains (about 170 MB) and verifies their SHA-256. |
 
-**It has not run yet.** Its first run is the first test of it on a hosted runner. The runner differs from the development machine (Ubuntu 24.04 with older gcc, Python, QEMU, shellcheck and cppcheck), and a difference may surface as a failure there. That is part of what independent verification is for.
+**Historical results verified on 2026-11-13:** the [2026-11-09 run](https://github.com/revival-systems/revival-os/actions/runs/42661958874) failed at `qemu-checksum`. After the default-NIC fix, the [2026-11-10 run](https://github.com/revival-systems/revival-os/actions/runs/42757111224) on `3f1130a` passed every step, including `make check` (36 PASS / 0 FAIL). The hosted runner used Ubuntu 24.04.5 and QEMU 8.2.2, distinct from the local Ubuntu/QEMU 10.2.1 environment. These historical results support the [Phase 1 gate review](evidence/phase-1/2026-11-13-gate-review.md); no new run was started to write that review.
 
 ## When to run it
 

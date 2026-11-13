@@ -1,0 +1,2 @@
+wlan0: administratively UP; NO-CARRIER; operational state DOWN; no IPv4 address
+No Wi-Fi association or ping test is proved by this snapshot. MAC addresses omitted.
