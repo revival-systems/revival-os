@@ -1,0 +1,6 @@
+$ lsusb | grep -i 04e8        # 2026-11-13 16:33:11 CET, phone on the Download-mode screen
+Bus 001 Device NNN: ID 04e8:685d Samsung Electronics Co., Ltd GT-I9100 Phone [Galaxy S II] (Download mode)
+
+$ heimdall detect; echo "exit=$?"
+Device detected
+exit=0
