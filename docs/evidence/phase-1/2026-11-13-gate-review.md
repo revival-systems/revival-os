@@ -80,9 +80,10 @@ drivers, MMU, heap, watchdog handling or native stack-overflow protection.
 Those capabilities remain outside this gate.
 
 The [complete hardware evidence record](../phase-0/2026-11-13-hardware-summary.md)
-belongs to Phase 0, which the owner subsequently confirmed complete. Some
-physical trial details remain undocumented; the report preserves that
-distinction. Phase 2 still requires a separate approved write plan.
+belongs to Phase 0. The owner reports that earlier physical checks were already
+performed; this session completed the two remaining technical tasks. Some
+physical trial details are unavailable here, and no explicit final owner
+sign-off is attributed. Phase 2 still requires a separate approved write plan.
 No new hosted workflow was started, no merge was made, and no
 device-write authorization was issued during this review.
 

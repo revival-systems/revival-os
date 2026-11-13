@@ -1,11 +1,16 @@
 # Phase 0 consolidated hardware evidence: 2026-11-13
 
-**Status: COMPLETE, owner-confirmed on 2026-11-13.** After the initial report,
-the owner clarified: "Phase zero is finished in phase one." This records the
-owner's completion confirmation alongside the completed Phase 1 review. It does
-not invent additional measurements, trial counts or photographs. Physical
-details marked NOT RECORDED below describe documentation gaps, not unfinished
-tests or instructions to repeat completed work.
+**Session result: the two assigned remaining Phase 0 tasks are complete.** The
+owner states that many physical checks, including camera checks, had already
+been performed and that these two tasks were the final outstanding work.
+Detailed earlier physical results are not all reproduced in this session.
+NOT RECORDED below means unavailable in this report, not necessarily untested.
+
+**Correction:** commit `ae15d63` incorrectly interpreted the owner's wording as
+an explicit final Phase 0 sign-off. The owner clarified that no such confirmation
+had yet been given. That attribution is withdrawn. This report supplies the
+completed technical work and evidence for the owner's/other agents' closeout
+review; it does not invent measurements or grant device-write authorization.
 [Phase 1 is separately reviewed as complete](../phase-1/2026-11-13-gate-review.md);
 its host/emulator gate does not require Phase 0 to be closed.
 
@@ -35,9 +40,10 @@ execution.
   of return to stock Android, but no method, timing or complete trial count.
 - **Owner-confirmed in this conversation:** the phone is connected by USB, is
   dedicated to Revival OS, and the owner accepted the USB-debugging RSA prompt.
-  No explicit physical-label/battery-inspection or 3/3 trial results are present
-  in this conversation. The owner's subsequent completion confirmation is now
-  recorded above; it supplies a completion status, not those detailed readings.
+  The owner also states that many physical checks, including camera checks,
+  were already completed and that only CSC identification and firmware retrieval
+  remained. Detailed physical-label/battery-inspection and 3/3 trial records are
+  not reproduced in this conversation. No explicit final sign-off is attributed.
 - **Firmware provenance:** the [firmware rescue report](2026-11-13-firmware-rescue.md)
   and [LFS download instructions](../../../firmware/GT-I9195/README.md).
 
@@ -57,7 +63,7 @@ execution.
 | C5 CPU / memory / partitions | PASS for read-only observations | Details and 28-entry comparison below |
 | C6 camera sensor identity | PASS for reported sysfs types | Rear S5K3H5XA; front S5K6A3YX; image capture not tested |
 | C7 Wi-Fi joined / 20 pings | NOT VERIFIED | Current wlan0 has NO-CARRIER, state DOWN, no IPv4 address; band and ping results absent |
-| C8 rear/front photos and videos | Four baseline captures NOT RECORDED | No personal media inspected or copied |
+| C8 rear/front photos and videos | Owner reports earlier camera physical checks completed | Specific four-capture details not reproduced here; no personal media inspected or copied |
 | C9 buttons / display / battery | Service readings recorded; physical tests NOT RECORDED | Need full button/touch/display-condition results |
 | C10 ADB reboot | 3/3 result NOT RECORDED | No reboot command run in this conversation |
 | C11 Android USB | PASS: 04e8:6860 | Windows enumeration; MTP and ADB present |
@@ -72,7 +78,7 @@ execution.
 | F6 battery-removal exit | Full 3/3 result NOT RECORDED | Earlier return to Android reported; exact exit action and counts absent |
 | G1–G4 rescue firmware | PASS for identity/acquisition/integrity | ROM / I9195OXXCNK2; matching Samsung package and both images retained and downloadable via LFS |
 | H1 final baseline | Same model/build/CSC observed | Wi-Fi reconnection not established; no new reboot or personal-data check |
-| H2–H4 summary / decision / review | This consolidated report plus owner completion confirmation | Phase 0 owner-confirmed complete; no Phase 2 authorization |
+| H2–H4 summary / decision / review | This report supplies session evidence for closeout review | Two remaining technical tasks complete; no explicit final owner sign-off or Phase 2 authorization |
 
 ## Actual device observations
 
@@ -154,7 +160,7 @@ firmware-storage exception; raw unit identifiers and the private PIT remain
 outside Git. Originals and complete private evidence remain under
 `Tools/Revival-Firmware/GT-I9195/` in the Windows Developer workspace.
 
-## Documentation gaps and the owner's completion confirmation
+## Earlier physical work and closeout review
 
 Detailed physical records remain unavailable here for B1/B2, complete C2/C10/E1/F1/F6
 trial counts and cold-boot times, the F2 status-screen transcription, C7/C8/C9
@@ -163,10 +169,11 @@ occurred. Current Android operation, sensor names and battery service readings
 cannot establish those facts. Record existing evidence first; do not repeat
 physical operations merely to replace a missing report.
 
-The owner's clarification supersedes this report's earlier inference that
-missing physical records meant Phase 0 was unfinished. Phase 0 is now recorded
-as owner-confirmed complete; Phase 1 is complete on its separately reviewed
-host/emulator evidence. Missing trial details remain explicitly undocumented.
+The owner's clarification distinguishes work already performed from records
+available in this session. The two technical tasks assigned here are complete;
+earlier physical work is owner-reported. Do not infer failed or unfinished
+physical tests solely from missing trial details, and do not infer an explicit
+final owner sign-off. Phase 1 has separate reviewed host/emulator evidence.
 No new failure requires abandoning the device. Phase 2 remains not started and
 still requires its separate approved write plan; completion of the earlier
 phases does not authorize a device operation.
