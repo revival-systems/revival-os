@@ -1,0 +1,1 @@
+Linux version 3.4.0-3173303 (dpi@SWHD7512) (gcc version 4.7 (GCC) ) #1 SMP PREEMPT Thu Jan 19 20:53:45 KST 2017
