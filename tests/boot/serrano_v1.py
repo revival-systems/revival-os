@@ -113,17 +113,36 @@ RESERVED = [
 ]
 
 
+# What each RESERVED entry is, in the same order, for fb_rejection's reason.
+RESERVED_NAMES = ("the tags page", "the image and its stack", "SMEM", "WCNSS",
+                  "modem rmtfs")
+assert len(RESERVED_NAMES) == len(RESERVED)
+
+
+def fb_rejection(fb: int) -> str | None:
+    """Mirror of payload.rs is_plausible_fb, with the reason: why the payload
+    would NOT paint a third (grey) framebuffer at this discovered address, or
+    None if it would. The checks run in the payload's order, so the reason is
+    the first one the payload hits. This is the only statement of the rule on
+    the host; is_plausible_fb() is its yes/no form."""
+    if fb & 3:
+        return "not word-aligned"
+    lo, hi = fb, fb + FB_BYTES
+    if lo < DEV_RAM_LO or hi > DEV_RAM_HI:
+        return (f"the buffer [{lo:#010x}, {hi:#010x}) is not wholly inside device "
+                f"RAM [{DEV_RAM_LO:#010x}, {DEV_RAM_HI:#010x})")
+    if fb in (FB_RED, FB_GREEN):
+        return "a candidate address, already painted"
+    for (rlo, rhi), name in zip(RESERVED, RESERVED_NAMES):
+        if lo < rhi and rlo < hi:
+            return f"the buffer would overlap {name} [{rlo:#010x}, {rhi:#010x})"
+    return None
+
+
 def is_plausible_fb(fb: int) -> bool:
     """Mirror of payload.rs is_plausible_fb: would the payload also paint a
     third (grey) framebuffer at this discovered address?"""
-    if fb & 3:
-        return False
-    lo, hi = fb, fb + FB_BYTES
-    if lo < DEV_RAM_LO or hi > DEV_RAM_HI:
-        return False
-    if fb in (FB_RED, FB_GREEN):
-        return False
-    return not any(lo < rhi and rlo < hi for rlo, rhi in RESERVED)
+    return fb_rejection(fb) is None
 
 
 # Order matches payload.rs: r0, r1, r2, cpsr, sctlr, entry, *r2, checksum, MDP4.
@@ -220,6 +239,14 @@ def generate_fb(fill_px: tuple, words: list[int]) -> bytes:
     """The exact FB_BYTES the payload paints: solid fill, then 9 word rows of
     32 separate cells each (the fill colour stays visible between cells)."""
     assert len(words) == WORDS
+    return generate_fb_rows(fill_px, words)
+
+
+def generate_fb_rows(fill_px: tuple, words: list[int]) -> bytes:
+    """generate_fb for the first len(words) rows only; the rows below them stay
+    the fill colour. Eight words give the picture the payload leaves when the
+    display-register read never returns (rows 1-8 are drawn before that read)."""
+    assert len(words) <= WORDS
     buf = bytearray(bytes(fill_px) * (WIDTH * HEIGHT))
     for row, w in enumerate(words):
         for bit in range(32):
@@ -228,12 +255,14 @@ def generate_fb(fill_px: tuple, words: list[int]) -> bytes:
     return bytes(buf)
 
 
-def decode_words(buf: bytes) -> list[int]:
-    """Read the nine words back from a framebuffer dump (cell centres)."""
+def decode_words(buf: bytes, rows: int = WORDS) -> list[int]:
+    """Read the nine words back from a framebuffer dump (cell centres), or only
+    the first `rows` of them."""
     if len(buf) < FB_BYTES:
         raise ValueError(f"dump is {len(buf)} bytes, need {FB_BYTES}")
+    assert 0 <= rows <= WORDS
     out = []
-    for row in range(WORDS):
+    for row in range(rows):
         v = 0
         for bit in range(32):
             x0, y0 = cell_origin(bit, row)

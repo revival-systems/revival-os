@@ -12,9 +12,13 @@ layout matches AOSP mkbootimg header version 0 (as used by lk2nd); the image id
 is the SHA-1 that mkbootimg computes over the kernel, ramdisk and second images
 with their sizes. tests/boot/read_bootimg.py re-parses the output independently.
 
+`--invalid-magic` (off by default) builds the Phase 2 NEGATIVE-TEST image: the
+same bytes with the 8-byte magic `INVALID!` in place of `ANDROID!`, and nothing
+else changed (ROADMAP Phase 2, "a deliberately invalid image (bad header)").
+
 This produces an image; it does NOT flash anything. No device is contacted.
 
-Usage: pack_bootimg.py --kernel PAYLOAD.bin --output PAYLOAD.img
+Usage: pack_bootimg.py --kernel PAYLOAD.bin --output PAYLOAD.img [--invalid-magic]
 """
 
 from __future__ import annotations
@@ -25,6 +29,9 @@ import struct
 import sys
 
 MAGIC = b"ANDROID!"
+# The negative-test magic: same length, so every other byte keeps its offset.
+INVALID_MAGIC = b"INVALID!"
+assert len(INVALID_MAGIC) == len(MAGIC)
 BOOT_NAME_SIZE = 16
 BOOT_ARGS_SIZE = 512
 BOOT_EXTRA_ARGS_SIZE = 1024
@@ -71,11 +78,17 @@ def _image_id(kernel: bytes, ramdisk: bytes, second: bytes) -> bytes:
 
 
 def build_bootimg(kernel: bytes, ramdisk: bytes = DEFAULT_RAMDISK,
-                  page_size: int = PAGE_SIZE) -> bytes:
-    """Return the complete boot image (header + kernel + ramdisk + trailer)."""
+                  page_size: int = PAGE_SIZE, invalid_magic: bool = False) -> bytes:
+    """Return the complete boot image (header + kernel + ramdisk + trailer).
+
+    `invalid_magic` selects the negative-test image: bytes 0-7 are `INVALID!`
+    instead of `ANDROID!`. Every other byte, the image id included, is the same
+    as in the valid image, so the kernel slot still holds the real payload.
+    """
     second = b""
+    magic = INVALID_MAGIC if invalid_magic else MAGIC
     header = bytearray()
-    header += struct.pack(f"<{len(MAGIC)}s", MAGIC)
+    header += struct.pack(f"<{len(magic)}s", magic)
     header += struct.pack("<I", len(kernel))
     header += struct.pack("<I", BASE + KERNEL_OFFSET)
     header += struct.pack("<I", len(ramdisk))
@@ -107,6 +120,9 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--kernel", required=True, help="flat payload binary")
     parser.add_argument("--output", required=True, help="boot image to write")
     parser.add_argument("--page-size", type=int, default=PAGE_SIZE)
+    parser.add_argument("--invalid-magic", action="store_true",
+                        help="NEGATIVE-TEST image: write the magic 'INVALID!' "
+                             "in place of 'ANDROID!' and change nothing else")
     args = parser.parse_args(argv)
 
     with open(args.kernel, "rb") as fh:
@@ -115,11 +131,15 @@ def main(argv: list[str]) -> int:
         print("pack_bootimg: kernel is empty", file=sys.stderr)
         return 1
 
-    image = build_bootimg(kernel, page_size=args.page_size)
+    image = build_bootimg(kernel, page_size=args.page_size,
+                          invalid_magic=args.invalid_magic)
     with open(args.output, "wb") as fh:
         fh.write(image)
     print(f"pack_bootimg: wrote {args.output} ({len(image)} bytes, "
           f"kernel {len(kernel)} bytes, page {args.page_size})")
+    if args.invalid_magic:
+        print(f"pack_bootimg: NEGATIVE-TEST IMAGE: magic {INVALID_MAGIC.decode()!r}, "
+              "built to be rejected. It is not the payload image.")
     return 0
 
 

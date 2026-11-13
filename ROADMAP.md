@@ -141,7 +141,7 @@ Sources: Revival Server issues [#120](https://github.com/revival-systems/revival
 
 - A deliberately invalid image (bad header) shows how the bootloader rejects images, and recovery is proven afterwards.
 - A payload that hangs forever is recovered by removing the battery.
-- A payload that triggers an exception before any handler exists shows its observable behaviour.
+- In QEMU, qemu-payload-fault-halts injects a data abort after the halt-only vectors are active, verifies halt_loop in ABT mode, and verifies that the previously painted candidate buffers remain intact. This is emulator evidence only. Deliberate on-device exception behaviour and reporting/reset are deferred to Phase 3a; Phase 2 requires no separate no-vector device image.
 - After each test, show that the payload can be restarted and Download mode or the approved rescue path remains accessible. Restore a verified stock image **only if required for recovery**, with the exact partition and operation covered by the write plan; do not routinely reinstall Android between Revival OS increments.
 
 **Physical verification:** Required. This milestone is defined on the hardware.

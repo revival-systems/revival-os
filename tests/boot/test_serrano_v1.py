@@ -339,6 +339,58 @@ class PlausibilityTests(unittest.TestCase):
         # An address just below WCNSS whose buffer would run into it.
         self.assertFalse(o.is_plausible_fb(0x8EF0_0000))
 
+    def test_rejection_gives_the_first_reason_the_payload_hits(self):
+        # fb_rejection is the rule itself; is_plausible_fb is its yes/no form.
+        self.assertIsNone(o.fb_rejection(0x8800_0000))
+        self.assertIsNone(o.fb_rejection(0x8847_C000))
+        self.assertEqual(o.fb_rejection(0x8900_0002), "not word-aligned")
+        self.assertEqual(o.fb_rejection(0x8810_0002), "not word-aligned")  # before "candidate"
+        self.assertIn("not wholly inside device RAM", o.fb_rejection(0))
+        self.assertIn("not wholly inside device RAM", o.fb_rejection(0xDFFF_0000))
+        self.assertEqual(o.fb_rejection(o.FB_RED), "a candidate address, already painted")
+        self.assertEqual(o.fb_rejection(o.FB_GREEN), "a candidate address, already painted")
+        for fb, name in ((0x8020_0000, "the tags page"),
+                         (0x8020_8000, "the image and its stack"),
+                         (0x8000_0000, "SMEM"), (0x8F00_0000, "WCNSS"),
+                         (0x8EF0_0000, "WCNSS"), (0x8FB0_0000, "modem rmtfs")):
+            self.assertIn(f"overlap {name} [", o.fb_rejection(fb), f"{fb:#x}")
+
+    def test_every_reserved_region_has_a_name(self):
+        self.assertEqual(len(o.RESERVED_NAMES), len(o.RESERVED))
+        self.assertEqual(len(set(o.RESERVED_NAMES)), len(o.RESERVED))
+
+
+class PartialRowsTests(unittest.TestCase):
+    """generate_fb_rows and decode_words(rows=...) describe a picture with
+    fewer than nine rows; the nine-row functions are unchanged."""
+
+    def test_nine_rows_is_generate_fb(self):
+        self.assertEqual(o.generate_fb_rows(o.FILL_RED, o.EXPECTED_WORDS),
+                         o.generate_fb(o.FILL_RED, o.EXPECTED_WORDS))
+
+    def test_generate_fb_still_needs_nine_words(self):
+        with self.assertRaises(AssertionError):
+            o.generate_fb(o.FILL_RED, o.EXPECTED_WORDS[:8])
+        with self.assertRaises(AssertionError):
+            o.generate_fb_rows(o.FILL_RED, o.EXPECTED_WORDS + [0])
+
+    def test_eight_rows_leave_the_ninth_as_fill(self):
+        eight = o.EXPECTED_WORDS[:8]
+        buf = o.generate_fb_rows(o.FILL_GREEN, eight)
+        self.assertEqual(o.decode_words(buf, rows=8), eight)
+        with self.assertRaises(ValueError):
+            o.decode_words(buf)  # row 9 is not cells
+        nine = o.generate_fb(o.FILL_GREEN, o.EXPECTED_WORDS)
+        _, y9 = o.cell_origin(0, 8)
+        self.assertEqual(buf[:y9 * o.STRIDE], nine[:y9 * o.STRIDE])  # rows 1-8 identical
+        self.assertEqual(buf[y9 * o.STRIDE:],
+                         bytes(o.FILL_GREEN) * (o.WIDTH * (o.HEIGHT - y9)))
+
+    def test_decode_default_is_still_nine_rows(self):
+        buf = o.generate_fb(o.FILL_RED, o.EXPECTED_WORDS)
+        self.assertEqual(o.decode_words(buf), o.decode_words(buf, rows=9))
+        self.assertEqual(o.decode_words(buf, rows=3), o.EXPECTED_WORDS[:3])
+
 
 class LayoutTests(unittest.TestCase):
     # Addresses the payload writes (docs/phase-2/boot-payload-research.md).

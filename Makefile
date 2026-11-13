@@ -96,13 +96,23 @@ PAYLOAD_OUT  := $(OUT)/boot-serrano
 PAYLOAD_ELF  := $(PAYLOAD_OUT)/payload.elf
 PAYLOAD_BIN  := $(PAYLOAD_OUT)/payload.bin
 PAYLOAD_IMG  := $(PAYLOAD_OUT)/payload.img
+# The Phase 2 NEGATIVE-TEST image (ROADMAP Phase 2, "a deliberately invalid
+# image (bad header)"): payload.img with the magic "INVALID!" and nothing else
+# changed. Built by `make payload-invalid` and by test-payload, never by
+# `build` or `payload`, so those print the real image's hashes only.
+PAYLOAD_INVALID_IMG := $(PAYLOAD_OUT)/payload-invalid.img
+# The payload is FROZEN at the reviewed v1.3 bytes (PR #10, commit be485e2).
+# test-payload fails if either hash changes; a new payload needs a new review,
+# and these two lines change in that same reviewed pull request.
+PAYLOAD_BIN_SHA256 := 8ee519ae31a9d005f72e14e21ff5c0b7baadefbec225083013820d5700616a2b
+PAYLOAD_IMG_SHA256 := bde09074c1e7f48ac04be318bba9905228fc26ad077e94ab9ded5dc00bb1ce02
 RUST_PAYLOAD_LINK := $(RUST_LINK_BASE) -C link-arg=-Wl,-T,$(PAYLOAD_DIR)/link.ld
 
 SHELL_SCRIPTS := $(wildcard tools/*.sh tests/*.sh tests/*/*.sh)
 PY_FILES      := $(wildcard tests/*.py tests/*/*.py tools/*.py)
 OWN_C         := $(wildcard $(FIXTURE)/*.c tests/host/*.c tests/build/link-negative/*.c)
 
-.PHONY: help doctor install-toolchain build payload test test-build test-unit test-qemu \
+.PHONY: help doctor install-toolchain build payload payload-invalid test test-build test-unit test-qemu \
         test-rust test-payload test-repro lint check-docs check clean qemu-run qemu-debug \
         need-goose need-arm need-qemu need-rust
 
@@ -226,6 +236,16 @@ $(PAYLOAD_IMG): $(PAYLOAD_BIN) tools/pack_bootimg.py
 	$(PYTHON) -I tools/pack_bootimg.py --kernel $< --output $@
 
 payload: $(PAYLOAD_BIN) $(PAYLOAD_IMG) ## Build the Phase 2 payload (.bin kernel slot + .img boot image)
+
+# The negative-test image: the same payload.bin, packed with the magic
+# "INVALID!". The kernel slot stays the real payload on purpose (docs/phase-2,
+# "Trial kit"). Not flashed by any target.
+$(PAYLOAD_INVALID_IMG): $(PAYLOAD_BIN) tools/pack_bootimg.py
+	$(PYTHON) -I tools/pack_bootimg.py --kernel $< --output $@ --invalid-magic
+
+payload-invalid: $(PAYLOAD_INVALID_IMG) ## Build the Phase 2 NEGATIVE-TEST image (magic "INVALID!", built to be rejected; not the payload image)
+	@echo 'NEGATIVE-TEST IMAGE, NOT THE PAYLOAD: payload-invalid.img has the magic "INVALID!" and is built to be rejected.'
+	@echo "INVALID-MAGIC-NEGATIVE-TEST sha256 $$(sha256sum < $(PAYLOAD_INVALID_IMG) | cut -d' ' -f1)  payload-invalid.img  ($$(stat -c %s $(PAYLOAD_INVALID_IMG)) bytes)"
 
 build: $(PROBE_ELFS) $(PROBE_BINS) $(ALLOC_ELF) $(KERNEL_ELFS) $(PAYLOAD_BIN) $(PAYLOAD_IMG) ## Build every artifact that exists today (the ARMv7-A probe, allocator, Rust kernel and Phase 2 payload images)
 	@cd $(QEMU_OUT) && sha256sum probe-*.elf probe-*.bin alloc.elf kernel-*.elf
@@ -384,7 +404,7 @@ test-rust: $(KERNEL_ELFS) $(FIXTURE)/hosted_std.rs $(FIXTURE)/hosted_libc.rs tes
 	    --emit link -o $(RUSTNEG)/kernel-hosted-libc.elf $(FIXTURE)/hosted_libc.rs
 	@tests/build/check_image_integrity.sh $(QEMU_OUT)/kernel-heartbeat.elf $(RUSTNEG)
 
-test-payload: $(PAYLOAD_BIN) $(PAYLOAD_IMG) $(PAYLOAD_OUT)/kstart.o tests/boot/run_payload.py tests/boot/read_bootimg.py tests/boot/serrano_v1.py tests/boot/payload_hosted_libc.rs $(FIXTURE)/hosted_std.rs tests/build/check_image_integrity.sh | need-qemu need-arm need-rust ## Boot the Phase 2 payload in QEMU (paint the framebuffers, inject MDP4 values and a fault), and check the handoff, the packer and reproducibility
+test-payload: $(PAYLOAD_BIN) $(PAYLOAD_IMG) $(PAYLOAD_INVALID_IMG) $(PAYLOAD_OUT)/kstart.o tests/boot/run_payload.py tests/boot/read_bootimg.py tests/boot/check_negative_img.py tests/boot/serrano_v1.py tests/boot/payload_hosted_libc.rs $(FIXTURE)/hosted_std.rs tests/build/check_image_integrity.sh | need-qemu need-arm need-rust ## Boot the Phase 2 payload in QEMU (paint the framebuffers, inject MDP4 values and a fault), and check the handoff, the packer, the negative-test image, the frozen hashes and reproducibility
 	@mkdir -p $(LOGS) $(PAYLOAD_OUT)/neg
 	@echo "# (a) run the exact kernel-slot bytes; the framebuffers must match the host oracle, with the MDP4 value absent, injected, and faulting, a device-like handoff, and a relocated image"
 	@halt=$$($(ARM_NM) $(PAYLOAD_ELF) | awk '$$3=="halt_loop"{print $$1}'); \
@@ -416,12 +436,25 @@ test-payload: $(PAYLOAD_BIN) $(PAYLOAD_IMG) $(PAYLOAD_OUT)/kstart.o tests/boot/r
 	    $(PYTHON) -m tests.boot.read_bootimg $(PAYLOAD_IMG)
 	@echo "# (d) reproducibility: two clean builds give byte-identical .bin and .img"
 	@rm -rf $(OUT)/payload-repro-a $(OUT)/payload-repro-b
-	@$(MAKE) --no-print-directory -s BUILD=$(OUT)/payload-repro-a payload >/dev/null
-	@$(MAKE) --no-print-directory -s BUILD=$(OUT)/payload-repro-b payload >/dev/null
+	@$(MAKE) --no-print-directory -s BUILD=$(OUT)/payload-repro-a payload payload-invalid >/dev/null
+	@$(MAKE) --no-print-directory -s BUILD=$(OUT)/payload-repro-b payload payload-invalid >/dev/null
 	@if cmp -s $(OUT)/payload-repro-a/boot-serrano/payload.bin $(OUT)/payload-repro-b/boot-serrano/payload.bin \
 	    && cmp -s $(OUT)/payload-repro-a/boot-serrano/payload.img $(OUT)/payload-repro-b/boot-serrano/payload.img; then \
 	  echo "PASS payload-repro-identical (payload.bin and payload.img byte-identical across two clean builds)"; \
 	else echo "FAIL payload-repro-identical"; exit 1; fi
+	@if cmp -s $(OUT)/payload-repro-a/boot-serrano/payload-invalid.img $(OUT)/payload-repro-b/boot-serrano/payload-invalid.img; then \
+	  echo "PASS payload-invalid-repro-identical (payload-invalid.img byte-identical across two clean builds)"; \
+	else echo "FAIL payload-invalid-repro-identical"; exit 1; fi
+	@echo "# (e) negative-test image: payload.img with the magic INVALID! and nothing else changed"
+	@$(EXPECT) payload-invalid-magic-only 0 "OK" $(LOGS)/payload-invalid-check.log -- \
+	    $(PYTHON) -m tests.boot.check_negative_img $(PAYLOAD_IMG) $(PAYLOAD_INVALID_IMG)
+	@$(EXPECT) payload-invalid-rejected-by-reader nonzero "magic b'INVALID!' != b'ANDROID!'" \
+	    $(LOGS)/payload-invalid-read.log -- $(PYTHON) -m tests.boot.read_bootimg $(PAYLOAD_INVALID_IMG)
+	@echo "# (f) frozen payload: payload.bin and payload.img are the reviewed v1.3 bytes"
+	@bin=$$(sha256sum < $(PAYLOAD_BIN) | cut -d' ' -f1); img=$$(sha256sum < $(PAYLOAD_IMG) | cut -d' ' -f1); \
+	  if [ "$$bin" = "$(PAYLOAD_BIN_SHA256)" ] && [ "$$img" = "$(PAYLOAD_IMG_SHA256)" ]; then \
+	    echo "PASS payload-frozen (payload.bin $$bin, payload.img $$img: the reviewed v1.3 bytes)"; \
+	  else echo "FAIL payload-frozen: payload.bin $$bin (want $(PAYLOAD_BIN_SHA256)), payload.img $$img (want $(PAYLOAD_IMG_SHA256)); the payload is frozen, a change needs a new review"; exit 1; fi
 
 test-repro: ## Build twice from scratch in separate directories and require identical outputs
 	@rm -rf $(OUT)/repro-a $(OUT)/repro-b

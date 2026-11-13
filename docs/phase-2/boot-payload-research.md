@@ -190,10 +190,10 @@ Research cannot close these. They are not guessed here.
 | 4 | Download mode shown reliable, Heimdall detection, and the PIT listing `BOOT` and `RECOVERY` with sizes (F1, F4, F5). | Hardware test, by the owner |
 | 5 | Verified stock `boot` and `recovery` images for the **installed** build, with checksums, held outside the repository (G1–G3). Without them a written partition cannot be restored. | Owner obtains; research identifies the matching package |
 | 6 | The owner's explicit acceptance that a non-Samsung image is reported to set the Knox warranty bit permanently. | Owner |
-| 7 | The method: option A (`recovery`) or option B (lk2nd), and the single partition to be written. For option B, the partition, the allowed lk2nd commands, and a review of lk2nd as a third-party component. | Owner and orchestrator |
+| 7 | The method: option A (`recovery`) or option B (lk2nd), and the single partition to be written. For option B, the partition, the allowed lk2nd commands, and a review of lk2nd as a third-party component. **Decided 2026-11-11 (decision B, [PR #10 comment](https://github.com/revival-systems/revival-os/pull/10#issuecomment-6792632937)): method A for first-write planning, with the payload written only to `RECOVERY`.** The first probe then runs directly under the stock bootloader, with no lk2nd in the handoff being measured. It proves recovery-key execution only; a normal power-on boot of Revival OS is a later increment, and method B stays a separately reviewed later option for RAM-boot iteration. This is a planning decision, not approval of a write: the write plan (item 12) is still required. | Owner and orchestrator |
 | 8 | The payload itself: a reviewed pull request with the entry code, the packer, host tests, a reproducible build and a recorded SHA-256. None of it exists. | Implementer, then orchestrator review |
 | 9 | A decision on the payload reading display-controller and timer registers, given that a read from an unclocked block can hang. | Research and orchestrator review; then hardware test |
-| 10 | The deliberately invalid image for the ROADMAP's negative test, and the recovery steps that follow it. | Implementer; owner approves in the write plan |
+| 10 | The deliberately invalid image for the ROADMAP's negative test, and the recovery steps that follow it. **The image is now built and tested on the host** ([Trial kit](#trial-kit-host-only)); it is not approved for any write. The recovery steps that follow it are still open and belong in the write plan. | Implementer; owner approves in the write plan |
 | 11 | The five phone-only questions above, accepted in the write plan as open, with the expected observation and the recovery action for each outcome. | Hardware test |
 | 12 | An approved write-plan issue naming the phase, partition, image, SHA-256, method and emergency rescue procedure. | Owner and orchestrator |
 
@@ -219,7 +219,7 @@ In v1.1 the compiled code did not follow this order: it read `*r2` before the fi
 - A fault taken before the `VBAR` write (the first ten instructions: the two header branches, the entry capture and the interrupt mask) is not caught.
 - On the phone a halted fault and a normal halt look the same unless the picture is incomplete; only the emulator can read the CPU mode.
 
-**For the orchestrator: ROADMAP Phase 2 negative test.** [ROADMAP.md](../../ROADMAP.md) Phase 2 lists "A payload that triggers an exception before any handler exists shows its observable behaviour". With these vectors this payload has no state in which "no handler exists" once `VBAR` is set, ten instructions after entry, so that test now needs either a separate no-vector variant of the image or a change of wording (for example, to "an exception is caught by the halt-only vector and the picture painted so far stays on screen"). ROADMAP.md is not edited here; the decision is the orchestrator's.
+**ROADMAP Phase 2 negative test: decided (decision A).** [ROADMAP.md](../../ROADMAP.md) Phase 2 used to list "A payload that triggers an exception before any handler exists shows its observable behaviour". With these vectors this payload has no state in which "no handler exists" once `VBAR` is set, ten instructions after entry, so that test needed either a separate no-vector variant of the image or a change of wording. The orchestrator decided on 2026-11-11 ([PR #10 comment](https://github.com/revival-systems/revival-os/pull/10#issuecomment-6792632937), decision A): `qemu-payload-fault-halts` is accepted as the Phase 2 exception-path test, scoped to QEMU after the halt-only vectors are active; deliberate on-device exception behaviour, reporting and reset are deferred to Phase 3a; and no separate no-vector phone image is built for Phase 2. The ROADMAP bullet now carries the orchestrator's wording verbatim. This changes the planned scope of Phase 2; it does not turn emulator evidence into a phone result. The two limits above still stand: the instructions before `VBAR` is set, and a handoff with `SCTLR.V` = 1, are outside what the test demonstrates.
 
 **Stack alignment (v1.2).** `kstart.S` pushes eight words (`r4`–`r11`) instead of seven, so `sp` is 8-byte aligned at the call into Rust, as the AAPCS requires. The handoff array is still the first seven words; the eighth is padding.
 
@@ -261,7 +261,7 @@ In every run without a fault the CPU must still be in SVC mode at the halt, sinc
 
 Two more cases check what `kstart.S` claims about an image the bootloader loads somewhere else: the same bytes are loaded and started at `0x80A08000`. Both candidates must be byte-exact with the entry row = `0x80A08000` and a clean halt in the relocated `halt_loop`; and with `0xBFF00000` injected, the fault must still end in the relocated `halt_loop` in ABT mode, which shows `VBAR` follows the run-time address. (The stack and the empty `.bss` stay at their link addresses, which are RAM in both the emulator and the device memory map; the image has no `.rodata` or `.data` and makes no other absolute reference to itself.)
 
-**Reading the picture on trial day.** Eight rows with no ninth row mean the display-register read hung or faulted: rows 1–8 are drawn before the read, and row 9 only after it returns. The fault half was checked by the reviewer on a copy with one instruction patched so the read hits an unmapped address: it halts in ABT mode with eight rows drawn and row 9 left as fill colour. There is no repository test for that.
+**Reading the picture on trial day.** Eight rows with no ninth row mean the display-register read hung or faulted: rows 1–8 are drawn before the read, and row 9 only after it returns. The fault half was checked by the reviewer on a copy with one instruction patched so the read hits an unmapped address: it halts in ABT mode with eight rows drawn and row 9 left as fill colour. There is no repository test for that. The [row-reading tool](#row-reading-tool) takes the eight rows and states this case.
 
 **Word rows readable from a photograph (v1.2).** In v1.1 the 16×16 blocks touched, so a run of equal bits merged into one bar that cannot be counted from a photo. Each bit is now a separate cell, 12 px wide and 24 px tall, with the framebuffer's fill colour showing between cells: 4 px between bits, 7 px between nibbles, 8 px between rows, and a margin from the screen edge. Bit `b` (0 = most significant) of row `r` starts at `x = 6 + 16·b + 3·⌊b/4⌋`, `y = 16 + 32·r`. The last cell ends at x = 535 and y = 296, inside 540×960 (checked at compile time in `payload.rs`). White is 1 and black is 0, as before. The host oracle and decoder use the same geometry; this is the only v1.2 change that alters the expected framebuffer bytes.
 
@@ -277,6 +277,74 @@ Two more cases check what `kstart.S` claims about an image the bootloader loads 
 | Third buffer (only if plausible) | a discovered MDP4 address, 1,555,200 B | gated by the plausibility rule above, so by construction aligned, inside the nominal RAM range (upper bound unverified, above), not at either candidate address, and clear of the image/stack, the tags page, SMEM, WCNSS and rmtfs; it may lie in the bootloader's framebuffer reservation and may overlap a candidate fill (v1.3); painted in QEMU only by the injected-value runs |
 
 The MDP4 read at `0x05190008` is a register **read**, not a write. The two candidate framebuffers do not overlap each other (`0x8827BB00` < `0x88300000`). None of these ranges is a bootloader-chain, `efs`, `persist` or `modem` partition; they are DRAM only. QEMU `-m 2048` (RAM `0x40000000`–`0xC0000000`) spans the image and both candidates, which is why the emulator test exercises the real addresses. The only system-control (CP15) register the payload writes is `VBAR`; it writes no memory outside the framebuffers and its own stack.
+
+## Trial kit (host only)
+
+Host-side preparation for the first trial. **Nothing here contacts a device, and nothing here is approved for a write**; every write still needs the approved write plan (blocker 12). The payload is frozen at the reviewed v1.3 bytes: `make check` (test `payload-frozen`) fails if the SHA-256 of `payload.bin` or `payload.img` changes.
+
+| File (in `build/boot-serrano/`) | Size | SHA-256 |
+| --- | --- | --- |
+| `payload.bin` (frozen) | 1,636 bytes | `8ee519ae31a9d005f72e14e21ff5c0b7baadefbec225083013820d5700616a2b` |
+| `payload.img` (frozen) | 6,160 bytes | `bde09074c1e7f48ac04be318bba9905228fc26ad077e94ab9ded5dc00bb1ce02` |
+| `payload-invalid.img` (negative test) | 6,160 bytes | `34dc91c64811346a3766e71044c2260340fadec0a0ea327e4126a1ef7a584d7b` |
+
+### Negative-test image (blocker 10)
+
+ROADMAP Phase 2 asks for "a deliberately invalid image (bad header)" to show how the bootloader rejects images. `make payload-invalid` builds `build/boot-serrano/payload-invalid.img` from the same `payload.bin`, using the packer's `--invalid-magic` option, which is off by default. It prints the SHA-256 on a line that starts `INVALID-MAGIC-NEGATIVE-TEST`, so the hash cannot be taken for the payload's. `make build` and `make payload` do not build it and do not print it.
+
+**One field is wrong, and only one.** The 8-byte magic at offset 0 reads `INVALID!` in place of `ANDROID!`. Every other byte is the same as in `payload.img`: the load addresses, the page size, the image id, the 1-byte ramdisk and the trailer. Four byte values actually differ (offsets 0, 2, 3 and 4), because `INVALID!` and `ANDROID!` share the letters at the other four positions.
+
+**The kernel slot still holds the real payload, on purpose.** Whether Samsung's `aboot` checks the magic at all is Unknown (section 1). The trial then answers the question either way:
+
+| What the phone does with `payload-invalid.img` | What it means |
+| --- | --- |
+| It refuses to start the image | The bootloader checks the magic. What it shows and does next is the ROADMAP's record of how it rejects an image. |
+| The normal picture appears (fill colour and word rows) | The bootloader does not check the magic. That is a result too, and the payload ran from an image with a bad header. |
+
+With a harmless or empty kernel slot the second outcome would show nothing, and could not be told apart from a hang. What the bootloader shows when it refuses an image, and the state it leaves the phone in, are still Unknown (section 1, "Behaviour on a failed check"). The recovery steps for each outcome are for the write plan, not for this document.
+
+Tests, all under `make check`:
+
+| Test | Pass when |
+| --- | --- |
+| `payload-invalid-magic-only` | `payload-invalid.img` has the same length as `payload.img`, starts with `INVALID!`, and is identical from offset 8 on; the reader accepts `payload.img` and rejects `payload-invalid.img` for the magic alone ([check_negative_img.py](../../tests/boot/check_negative_img.py)) |
+| `payload-invalid-rejected-by-reader` (negative) | The repository's boot-image reader **exits nonzero** on `payload-invalid.img` and prints `magic b'INVALID!' != b'ANDROID!'` |
+| `payload-invalid-repro-identical` | Two clean builds give a byte-identical `payload-invalid.img` |
+| `payload-frozen` | `payload.bin` and `payload.img` have the SHA-256 values in the table above, so adding the packer option did not change the real image |
+| `unit-python` | The option is off by default; only the magic differs; the checker reports a second differing byte, an unchanged magic, a different bad magic, a changed length and swapped arguments |
+
+### Row-reading tool
+
+[tools/read_rows.py](../../tools/read_rows.py) turns the rows typed from a photograph into the Phase 2 record. It runs on the host, uses only the Python standard library and contacts no device. It decodes what was typed, so its output is not hardware evidence by itself: the photograph is ([TESTING.md](../TESTING.md#recording-evidence)).
+
+```sh
+python3 tools/read_rows.py --fill blue 00000000 00000E8F 80200100 00000093 00C50078 80208000 00000005 22BECBA4 88100000
+```
+
+The input is the fill colour seen (`red`, `blue`, `green` or `grey`) and the rows from the top, each as eight hex digits: nine rows, or eight if the ninth is missing. A shorter word is refused, because a row is 32 cells and a short word is a dropped digit. The command above is the handoff section 2 expects, on a blue screen. Its CPSR and SCTLR words are examples that satisfy section 2 (SVC, IRQ masked, MMU and caches off); the other bits of those two registers are not predicted.
+
+| Part of the record | What it says |
+| --- | --- |
+| First line | Whether row 8 equals `0x22BECBA4`, the checksum the Rust code computes. The payload can paint no other value there, so a mismatch means the rows were misread, and the record says so before anything else. A match vouches for row 8 only. |
+| Rows as typed | Each row as 32 cells in groups of four (`#` white, `.` black), to compare with the photograph by eye. |
+| `r0`, `r1`, `r2` | Against the expected handoff: 0, machine number 3727, and an address inside the tags page `[0x80200000, 0x80208000)`. |
+| CPSR | The mode, the I, F and A masks, the Thumb bit and the endianness, as the bootloader left them. |
+| SCTLR | MMU (M), data cache (C), instruction cache (I), alignment check (A) and high vectors (V). With V set, `VBAR` is ignored and the halt-only vectors were inert. |
+| Entry address | The link address `0x80208000`, or relocated and by how much. |
+| `*r2` | The sentinel `0xFFFFFFFF`, an ATAG_CORE header, the device-tree magic, or something else. |
+| MDP4 word | A candidate address, a third buffer the payload painted grey, or rejected with the reason. The rule is the oracle's ([serrano_v1.py](../../tests/boot/serrano_v1.py), `fb_rejection`); the tool holds no copy of it or of its constants. |
+| Fill colour | Which buffer is on screen and what it shows about the byte order: red or blue is `0x88100000` (red means byte 0 is red, blue means byte 0 is blue), green is `0x88300000`, grey is the MDP4 address. Green and grey do not show the order. |
+| Row count | Nine rows: the display-register read returned. Eight rows: it hung or faulted. |
+
+The record ends with a list of the fields that differ from the expected handoff. Inputs that contradict each other are listed separately as "cannot be right as typed": a grey screen whose ninth row is not an address the payload paints, or a `*r2` row that is not the sentinel when `r2` is an address the payload never reads. The exit status is 0 when the rows decode, 1 when the checksum row is wrong or the inputs contradict each other, and 2 for a usage error.
+
+**What `*r2` holds.** The payload records the first word at `r2`. An ATAGS list starts with the ATAG_CORE header, whose first word is its size in words (5, or 2 for an empty core tag); the tag number `0x54410001` is the second word, which the payload does not record. A device tree starts with the bytes `d0 0d fe ed`, which a little-endian read returns as `0xEDFE0DD0`. The tool recognises those values, not the ones in the candidate specification's table above, which names the tag number and the magic as they are usually written.
+
+**The expected screen.** Each run also writes the screen for that colour and those rows as a 540×960 PNG, so the owner can see what to look for: by default `build/boot-serrano/expected-screen-<colour>-<n>rows.png`, or the path given with `--png`; `--no-png` writes none. The fill is drawn as it is seen, and an eight-row input leaves the ninth row unpainted. The PNG is never committed: a path inside the repository but outside `build/` is refused.
+
+Limits: the tool knows only the four fills the payload paints, assuming the panel's order is red-green-blue or the reverse. Any other screen, or one with fewer than eight rows, is recorded as seen, not decoded.
+
+Tests (`unit-python`, [test_read_rows.py](../../tests/boot/test_read_rows.py)): each decoded field; the plain QEMU words; the section-2 expected device words on red, blue and green; one changed field at a time; a misread checksum row, said first, with exit status 1; an eight-row input; the contradictory inputs; and the command line's refusals. The PNG is read back by a small reader in the test and decoded by the oracle to the same words, for every fill and for an eight-row picture.
 
 ## Sources
 
