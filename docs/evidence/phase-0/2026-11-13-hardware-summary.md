@@ -1,5 +1,7 @@
 # Phase 0 consolidated hardware evidence: 2026-11-13
 
+**Later closeout (2026-11-13):** The owner subsequently instructed ChatGPT to close Phase 0 on GitHub as finished. The orchestrator recorded **PASS WITH BLOCKERS (historical documentation gaps)** and closed Phase 0 work tracking in the [separate closeout decision](2026-11-13-closeout.md). This addendum supersedes only the earlier statement that final owner acceptance had not yet been given; historical observations below remain unchanged. It is not a claim that missing 3/3 records or photographs were recovered, and does not authorize a device write.
+
 **Session result: the two assigned remaining Phase 0 tasks are complete.** The
 owner states that many physical checks, including camera checks, had already
 been performed and that these two tasks were the final outstanding work.

@@ -21,7 +21,7 @@ Sources: Revival Server issues [#120](https://github.com/revival-systems/revival
 
 | Phase | Capability | Runs on | State |
 | --- | --- | --- | --- |
-| 0 | One-time hardware identity and stock rescue baseline | Device (read-only) | **Two remaining technical tasks complete:** [CSC, firmware and hardware evidence](docs/evidence/phase-0/2026-11-13-hardware-summary.md). Earlier physical checks owner-reported as performed; detailed records partly unavailable here; final closeout review not attributed as explicit owner sign-off |
+| 0 | One-time hardware identity and stock rescue baseline | Device (read-only) | **CLOSED — PASS WITH BLOCKERS (historical evidence gaps)** by owner direction and orchestrator review, 2026-11-13. CSC, stock images and PIT independently verified; earlier physical checks owner-reported, not all trial logs preserved. [Phase 0 closeout](docs/evidence/phase-0/2026-11-13-closeout.md). No Phase 2 write approved. |
 | 1 | Rust + ARM Assembly freestanding foundation (ARMv7-A) | Host + emulator | **PASS:** [formal gate review](docs/evidence/phase-1/2026-11-13-gate-review.md), including 20/20 local heartbeat runs and successful independent hosted verification; no Samsung execution claimed. Goose feasibility kept as reference |
 | 2 | First bare-metal boot with observable output | Device (first write) | Not started |
 | 3 | Exceptions, MMU, memory, interrupts, timer, watchdog | Device + emulator | Not started |
