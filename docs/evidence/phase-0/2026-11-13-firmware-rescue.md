@@ -81,8 +81,13 @@ No independent Samsung signing-chain verification or rescue boot was performed.
 
 ## Images and locations
 
-Storage is outside Git under `Tools\Revival-Firmware\GT-I9195\`, relative to the
-Windows Developer workspace. Paths below are relative to that root.
+Original storage is under `Tools\Revival-Firmware\GT-I9195\`, outside Git,
+relative to the Windows Developer workspace. Paths below are relative to that
+root. The owner subsequently explicitly requested a GitHub copy of the firmware.
+The complete decrypted ZIP and the two images are therefore also stored with
+Git LFS under `firmware/GT-I9195/` in this internal repository, as a specific
+exception to the firmware-storage rule. See the
+[download instructions](../../../firmware/GT-I9195/README.md).
 
 | Image path | Bytes | SHA-256 |
 | --- | --- | --- |
@@ -118,7 +123,10 @@ Existing Heimdall evidence was read only and not overwritten.
 Prepared on `agent/windows/phase0-firmware-evidence` from locally available
 `origin/main`, following [AGENTS.md](../../../AGENTS.md) and the
 [document-review workflow](../../DEVELOPMENT.md#workflow). The owner subsequently
-authorized pushing this report on its task branch for review by other agents.
+authorized pushing this report and then explicitly requested uploading the
+firmware on the same task branch for review by other agents. Only the verified
+ZIP and two original rescue images are uploaded; raw device evidence remains
+outside Git. Copied firmware SHA-256 values match the verified local originals.
 No PR, merge or CI run is part of that request. Documentation validation passed:
 `python -I tests/docs/check_docs.py` (21 Markdown files) and `git diff --check`.
 `make check` was attempted before pushing but could not start: Windows has no
