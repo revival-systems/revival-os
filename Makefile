@@ -91,17 +91,23 @@ RUSTNEG        := $(OUT)/rust-negative
 # Emulator-only task experiment (ADR 0003): stackful tasks, a cooperative
 # context switch and a guard word per stack, next to the Phase 1 fixture.
 # QEMU fixture, not OS code. One image per case. TASKS_CFG_<case> gives the
-# case, the task-table capacity, the bytes per stack and the yields per task;
-# tasks.rs reads them with env!(). tests/qemu/measure_tasks.sh builds more
-# cases through the same rule.
-TASKS_LD           := $(FIXTURE)/tasks.ld
-TASKS_CASES        := many-1k many-10k full overflow return
-TASKS_ELFS         := $(TASKS_CASES:%=$(QEMU_OUT)/tasks-%.elf)
-TASKS_CFG_many-1k  := many 1000 512 100
-TASKS_CFG_many-10k := many 10000 256 10
-TASKS_CFG_full     := full 64 256 3
-TASKS_CFG_overflow := overflow 4 512 4
-TASKS_CFG_return   := return 64 256 1
+# case, the task-table capacity, the bytes per stack, the yields per task (or
+# steps per job) and, for the job cases, the jobs; tasks.rs reads them with
+# env!(). The job cases (the second experiment, run-to-completion jobs on a
+# bounded queue) run every job on one runner task. tests/qemu/measure_tasks.sh
+# builds more cases through the same rule.
+TASKS_LD                := $(FIXTURE)/tasks.ld
+TASKS_CASES             := many-1k many-10k full overflow return jobs-1k jobs-100k jobs-full jobs-overflow
+TASKS_ELFS              := $(TASKS_CASES:%=$(QEMU_OUT)/tasks-%.elf)
+TASKS_CFG_many-1k       := many 1000 512 100
+TASKS_CFG_many-10k      := many 10000 256 10
+TASKS_CFG_full          := full 64 256 3
+TASKS_CFG_overflow      := overflow 4 512 4
+TASKS_CFG_return        := return 64 256 1
+TASKS_CFG_jobs-1k       := jobs_many 4 512 100 1000
+TASKS_CFG_jobs-100k     := jobs_many 4 512 10 100000
+TASKS_CFG_jobs-full     := jobs_full 4 512 3 64
+TASKS_CFG_jobs-overflow := jobs_overflow 4 512 1 3
 
 # Phase 2 GT-I9195 proof-of-execution payload (the device image, boot/ layer per
 # ARCHITECTURE.md). Built here and tested only in QEMU; never flashed.
@@ -235,17 +241,22 @@ $(QEMU_OUT)/switch.o: $(FIXTURE)/switch.S | need-arm
 # rustc drives the link as for the Phase 1 kernel, with tasks.ld and an arena
 # of (capacity + 1) stack slots, the lowest one an unused moat. kstart.S
 # (Phase 1) supplies the entry, the vectors and the semihosting exit. The
-# "many" cases get their expected order checksum from the Python oracle.
+# "many" cases get their expected order checksum from the Python oracle; the
+# job cases also get --cfg tmodel_jobs and RT_JOBS.
 $(QEMU_OUT)/tasks-%.elf: $(FIXTURE)/tasks.rs $(QEMU_OUT)/kstart.o $(QEMU_OUT)/switch.o $(TASKS_LD) tests/qemu/tasks_oracle.py | need-rust need-arm
 	@mkdir -p $(@D)
 	@test -n "$(TASKS_CFG_$*)" || { echo "no TASKS_CFG_$* for $@"; exit 1; }
 	set -- $(TASKS_CFG_$*); \
-	expect=0x0; if [ "$$1" = many ]; then expect=$$($(PYTHON) -I tests/qemu/tasks_oracle.py $$2 $$4); fi; \
-	RT_TASKS=$$2 RT_STACK=$$3 RT_YIELDS=$$4 RT_EXPECT=$$expect \
+	jobs=$${5:-0}; model=; case "$$1" in jobs_*) model='--cfg tmodel_jobs';; esac; \
+	expect=0x0; case "$$1" in \
+	  many) expect=$$($(PYTHON) -I tests/qemu/tasks_oracle.py $$2 $$4);; \
+	  jobs_many) expect=$$($(PYTHON) -I tests/qemu/tasks_oracle.py $$jobs $$4);; \
+	esac; \
+	RT_TASKS=$$2 RT_STACK=$$3 RT_YIELDS=$$4 RT_JOBS=$$jobs RT_EXPECT=$$expect \
 	$(RUSTC) $(RUST_FLAGS) $(RUST_LINK_BASE) -C link-arg=-Wl,-T,$(TASKS_LD) \
 	    -C link-arg=-Wl,--defsym=__task_arena_size=$$(( ($$2 + 1) * $$3 )) \
 	    -C link-arg=$(QEMU_OUT)/kstart.o -C link-arg=$(QEMU_OUT)/switch.o \
-	    --cfg tcase_$$1 --emit link -o $@ $(FIXTURE)/tasks.rs
+	    --cfg tcase_$$1 $$model --emit link -o $@ $(FIXTURE)/tasks.rs
 
 # ---- Phase 2 GT-I9195 proof-of-execution payload (device image) -----------
 
@@ -440,7 +451,7 @@ test-rust: $(KERNEL_ELFS) $(FIXTURE)/hosted_std.rs $(FIXTURE)/hosted_libc.rs tes
 	    --emit link -o $(RUSTNEG)/kernel-hosted-libc.elf $(FIXTURE)/hosted_libc.rs
 	@tests/build/check_image_integrity.sh $(QEMU_OUT)/kernel-heartbeat.elf $(RUSTNEG)
 
-test-tasks: $(TASKS_ELFS) | need-qemu need-arm ## Run the emulator-only task experiment (ADR 0003): 1,000 and 10,000 tasks, a full table, a stack overrun, tasks that return
+test-tasks: $(TASKS_ELFS) | need-qemu need-arm ## Run the emulator-only task experiment (ADR 0003): 1,000 and 10,000 tasks, a full table, a stack overrun, tasks that return; 1,000 and 100,000 run-to-completion jobs, a full queue, a job that overruns the runner's stack
 	@mkdir -p $(LOGS)
 	@tests/qemu/run.sh qemu-tasks-1000 $(QEMU_OUT)/tasks-many-1k.elf $(LOGS)/tasks-many-1k.log 0 \
 	    "tasks: PASS many (1000 tasks x 100 yields)"
@@ -452,6 +463,14 @@ test-tasks: $(TASKS_ELFS) | need-qemu need-arm ## Run the emulator-only task exp
 	    "tasks: FAULT stack overflow in task 1: guard word"
 	@tests/qemu/run.sh qemu-tasks-return $(QEMU_OUT)/tasks-return.elf $(LOGS)/tasks-return.log 0 \
 	    "tasks: PASS return (wave 1: 64 tasks returned and 64 slots reclaimed; spawn from a running task refused; wave 2: 64 tasks in the same slots returned)"
+	@tests/qemu/run.sh qemu-jobs-1000 $(QEMU_OUT)/tasks-jobs-1k.elf $(LOGS)/tasks-jobs-1k.log 0 \
+	    "tasks: PASS jobs many (1000 jobs x 100 steps)"
+	@tests/qemu/run.sh qemu-jobs-100000 $(QEMU_OUT)/tasks-jobs-100k.elf $(LOGS)/tasks-jobs-100k.log 0 \
+	    "tasks: PASS jobs many (100000 jobs x 10 steps)"
+	@tests/qemu/run.sh qemu-jobs-queue-full $(QEMU_OUT)/tasks-jobs-full.elf $(LOGS)/tasks-jobs-full.log 0 \
+	    "tasks: PASS jobs full (job 65 of 64 refused; the 64 jobs then ran 192 steps"
+	@tests/qemu/run.sh qemu-jobs-stack-overrun $(QEMU_OUT)/tasks-jobs-overflow.elf $(LOGS)/tasks-jobs-overflow.log 1 \
+	    "tasks: FAULT found after the overrunning job's step, before the next job ran"
 	@u=$$($(ARM_NM) -u $(QEMU_OUT)/tasks-many-1k.elf | wc -l | tr -d ' '); \
 	  if [ "$$u" = 0 ]; then echo "PASS build-tasks-symbols (no undefined symbols; Rust links its own core)"; \
 	  else echo "FAIL build-tasks-symbols: $$u undefined"; $(ARM_NM) -u $(QEMU_OUT)/tasks-many-1k.elf; exit 1; fi

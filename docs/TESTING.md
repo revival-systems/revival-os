@@ -59,7 +59,7 @@ Emulator and device tests are separate on purpose. No device milestone is marked
 
 ### `make test-tasks`
 
-The emulator-only task experiment ([ADR 0003](decisions/0003-task-model.md)): stackful tasks with a cooperative context switch, a fixed task table and one stack slot per task, each slot with a guard word that every switch checks. One image per case; each run is bounded by the QEMU time limit. It claims nothing for the phone.
+The emulator-only task experiment ([ADR 0003](decisions/0003-task-model.md)): stackful tasks with a cooperative context switch, a fixed task table and one stack slot per task, each slot with a guard word that every switch checks; and, as a second model, run-to-completion jobs on a bounded queue, all run by one runner task on one stack. One image per case; each run is bounded by the QEMU time limit. It claims nothing for the phone.
 
 | Test | Pass when |
 | --- | --- |
@@ -68,6 +68,10 @@ The emulator-only task experiment ([ADR 0003](decisions/0003-task-model.md)): st
 | `qemu-tasks-table-full` (negative) | With all 64 slots in use, spawn 65 **is refused** ("table full"), and the 64 tasks then run to the expected total |
 | `qemu-tasks-stack-overrun` (negative) | A task that writes past the bottom of its stack slot **is reported** at its next switch ("FAULT stack overflow in task 1: guard word"), no task is resumed, and QEMU exits 1 |
 | `qemu-tasks-return` | 64 tasks whose entry functions return are ended and their slots reclaimed: a second wave of 64 runs in the same slots. A spawn tried from inside a running task **is refused** |
+| `qemu-jobs-1000` | 1,000 jobs of 100 steps each, all run to completion one step at a time by one runner task, end with exactly 100,000 steps and the same order checksum as 1,000 tasks; the queue is empty and the runner has ended |
+| `qemu-jobs-100000` | The same for 100,000 jobs of 10 steps each |
+| `qemu-jobs-queue-full` (negative) | With all 64 queue entries in use, job 65 **is refused** ("queue full"), and the 64 jobs then run to the expected total |
+| `qemu-jobs-stack-overrun` (negative) | A job whose step overruns the runner's stack **is reported** right after that step, before the next job runs, and QEMU exits 1 |
 | `build-tasks-symbols` | The task image has no undefined symbols |
 | `build-tasks-one-svc` | The task image has exactly one system-call instruction, the semihosting exit: the context switch makes none |
 

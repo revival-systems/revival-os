@@ -27,12 +27,20 @@
 //! (no task is resumed after that). The MMU guard pages of ROADMAP 3b are the
 //! real protection; ADR 0003 records what they cost.
 //!
+//! The second experiment, run-to-completion jobs on a bounded queue, is in the
+//! same file: one runner task runs every job to completion on its own stack,
+//! so a queued job costs a queue entry and no stack of its own.
+//!
 //! Configuration, set by the Makefile per image and read with `env!`:
 //!   RT_TASKS   task-table capacity
 //!   RT_STACK   bytes per stack slot (a multiple of 8, at least 128)
-//!   RT_YIELDS  iterations per worker task; each iteration ends with a yield
-//!   RT_EXPECT  order checksum from tests/qemu/tasks_oracle.py (case "many")
-//! and one case cfg: tcase_many, tcase_full, tcase_overflow or tcase_return.
+//!   RT_YIELDS  iterations per worker task (each ends with a yield), or steps
+//!              per job
+//!   RT_JOBS    queue capacity and jobs queued (job cases)
+//!   RT_EXPECT  order checksum from tests/qemu/tasks_oracle.py (the "many"
+//!              cases)
+//! and one case cfg: tcase_many, tcase_full, tcase_overflow, tcase_return,
+//! or, with tmodel_jobs, tcase_jobs_many, tcase_jobs_full, tcase_jobs_overflow.
 //! The context switch is the only assembly (switch.S); kstart.S (Phase 1)
 //! supplies the entry, the vectors and the semihosting exit.
 
@@ -61,7 +69,7 @@ const fn parse_dec(s: &str) -> usize {
 }
 
 /// A 32-bit `0x...` number from the build (lower-case), checked at compile time.
-#[cfg(tcase_many)]
+#[cfg(any(tcase_many, tcase_jobs_many))]
 const fn parse_hex(s: &str) -> u32 {
     let b = s.as_bytes();
     assert!(b.len() > 2 && b.len() <= 10 && b[0] == b'0' && b[1] == b'x', "expected 0x and 1 to 8 hex digits");
@@ -83,14 +91,18 @@ const MAX_TASKS: usize = parse_dec(env!("RT_TASKS"));
 const STACK_BYTES: usize = parse_dec(env!("RT_STACK"));
 #[cfg(not(tcase_return))]
 const YIELDS: u32 = parse_dec(env!("RT_YIELDS")) as u32;
-#[cfg(tcase_many)]
+#[cfg(any(tcase_many, tcase_jobs_many))]
 const EXPECT_ORDER: u32 = parse_hex(env!("RT_EXPECT"));
+#[cfg(tmodel_jobs)]
+const MAX_JOBS: usize = parse_dec(env!("RT_JOBS"));
 
 const _: () = assert!(MAX_TASKS >= 4 && MAX_TASKS < NONE as usize, "RT_TASKS out of range");
 const _: () = assert!(STACK_BYTES % 8 == 0 && STACK_BYTES >= 128, "RT_STACK must be a multiple of 8, at least 128");
 const _: () = assert!((MAX_TASKS + 1).checked_mul(STACK_BYTES).is_some(), "arena size overflows");
 #[cfg(not(tcase_return))]
 const _: () = assert!((MAX_TASKS as u64) * (YIELDS as u64) < u32::MAX as u64, "iteration total overflows");
+#[cfg(tmodel_jobs)]
+const _: () = assert!(MAX_JOBS >= 1 && (MAX_JOBS as u64) * (YIELDS as u64) < u32::MAX as u64, "RT_JOBS out of range");
 
 // ---- QEMU virt hardware and the assembly this file uses -------------------
 
@@ -464,7 +476,7 @@ fn high_water(slot: u32) -> usize {
     top - a
 }
 
-#[cfg_attr(tcase_overflow, allow(dead_code))] // unused only in the overflow image
+#[cfg_attr(any(tcase_overflow, tmodel_jobs), allow(dead_code))] // unused in the overflow and job images
 fn max_high_water(slots: usize) -> usize {
     let mut max = 0;
     let mut i = 0;
@@ -479,7 +491,7 @@ fn max_high_water(slots: usize) -> usize {
 }
 
 /// Free slots, counted along the free list (bounded, in case it is corrupt).
-#[cfg_attr(tcase_overflow, allow(dead_code))] // unused only in the overflow image
+#[cfg_attr(any(tcase_overflow, tcase_jobs_overflow), allow(dead_code))] // unused in the two overflow images
 fn free_count() -> usize {
     // SAFETY: see Global.
     unsafe {
@@ -519,7 +531,7 @@ fn report_fault() {
     puts("; found at a switch, no task resumed\n");
 }
 
-#[cfg_attr(tcase_overflow, allow(dead_code))] // unused only in the overflow image
+#[cfg_attr(any(tcase_overflow, tmodel_jobs), allow(dead_code))] // unused in the overflow and job images
 fn report_cost(slots: usize) {
     puts("tasks: cost per task: ");
     put_dec(core::mem::size_of::<Tcb>());
@@ -554,7 +566,7 @@ struct Stats {
     total: u32,
     /// Order checksum: depends on which task ran each iteration, in order
     /// (an FNV-1a style step: xor, then multiply by an odd constant).
-    #[cfg(tcase_many)]
+    #[cfg(any(tcase_many, tmodel_jobs))]
     order: u32,
     /// Case "return": the spawn attempted from a running task was refused.
     #[cfg(tcase_return)]
@@ -563,7 +575,7 @@ struct Stats {
 
 static STATS: Global<Stats> = Global::new(Stats {
     total: 0,
-    #[cfg(tcase_many)]
+    #[cfg(any(tcase_many, tmodel_jobs))]
     order: 0x1234_5678,
     #[cfg(tcase_return)]
     probe_refused: false,
@@ -571,7 +583,7 @@ static STATS: Global<Stats> = Global::new(Stats {
 
 /// One iteration of bookkeeping, then a yield. tests/qemu/tasks_oracle.py
 /// computes the same order checksum for N tasks run round robin.
-#[cfg(not(tcase_return))]
+#[cfg(any(tcase_many, tcase_full, tcase_overflow))]
 extern "C" fn worker(arg: usize) {
     #[cfg_attr(not(tcase_many), allow(unused_variables))]
     let id = arg as u32;
@@ -591,7 +603,7 @@ extern "C" fn worker(arg: usize) {
     }
 }
 
-#[cfg(not(tcase_return))]
+#[cfg(any(tcase_many, tcase_full, tcase_overflow))]
 #[cfg_attr(tcase_overflow, allow(dead_code))] // unused only in the overflow image
 fn spawn_workers(n: usize) -> bool {
     let mut i = 0;
@@ -717,7 +729,7 @@ fn case() -> i32 {
 
 /// Writes STACK_BYTES bytes of locals: more than the slot has left, so the
 /// writes run over the guard word into the slot below.
-#[cfg(tcase_overflow)]
+#[cfg(any(tcase_overflow, tcase_jobs_overflow))]
 #[inline(never)]
 fn smash_stack() {
     let mut buf = [0u32; STACK_BYTES / 4];
@@ -873,6 +885,298 @@ fn case() -> i32 {
         putc(b'\n');
         1
     }
+}
+
+// ---- the second experiment: run-to-completion jobs on a bounded queue -------
+
+/// One queued job: the step to run and its state. A step returns true to run
+/// again (the job is queued again at the tail) or false when the job is done.
+/// `None` only in free queue entries.
+#[cfg(tmodel_jobs)]
+#[derive(Clone, Copy)]
+struct Job {
+    step: Option<fn(u32, u32) -> bool>,
+    id: u32,
+    iter: u32,
+}
+
+/// A ring buffer of MAX_JOBS jobs (`.bss`): a queued job costs one entry.
+#[cfg(tmodel_jobs)]
+struct Queue {
+    jobs: [Job; MAX_JOBS],
+    head: usize,
+    len: usize,
+}
+
+#[cfg(tmodel_jobs)]
+static QUEUE: Global<Queue> =
+    Global::new(Queue { jobs: [Job { step: None, id: 0, iter: 0 }; MAX_JOBS], head: 0, len: 0 });
+
+/// Queues a job at the tail; a full queue refuses it.
+#[cfg(tmodel_jobs)]
+fn push(job: Job) -> Result<(), ()> {
+    // SAFETY: see Global.
+    unsafe {
+        let q = QUEUE.ptr();
+        if (*q).len == MAX_JOBS {
+            return Err(());
+        }
+        let mut tail = (*q).head + (*q).len;
+        if tail >= MAX_JOBS {
+            tail -= MAX_JOBS;
+        }
+        (*q).jobs[tail] = job;
+        (*q).len += 1;
+        Ok(())
+    }
+}
+
+/// Takes the job at the head, if any.
+#[cfg(tmodel_jobs)]
+fn pop() -> Option<Job> {
+    // SAFETY: see Global.
+    unsafe {
+        let q = QUEUE.ptr();
+        if (*q).len == 0 {
+            return None;
+        }
+        let job = (*q).jobs[(*q).head];
+        (*q).head += 1;
+        if (*q).head == MAX_JOBS {
+            (*q).head = 0;
+        }
+        (*q).len -= 1;
+        Some(job)
+    }
+}
+
+#[cfg(tmodel_jobs)]
+fn queued() -> usize {
+    // SAFETY: see Global.
+    unsafe { (*QUEUE.ptr()).len }
+}
+
+/// The job runner: one task, one stack, every job. Runs each step to
+/// completion, then yields (it is the only task here, so the yield checks its
+/// stack and returns: a job that overran the stack is reported from the
+/// scheduler's stack), then queues the job again at the tail if it is not done.
+#[cfg(tmodel_jobs)]
+extern "C" fn job_runner(_arg: usize) {
+    while let Some(job) = pop() {
+        let Some(step) = job.step else {
+            puts("tasks: FAIL a queued job has no step\n");
+            // SAFETY: semihosting exit.
+            unsafe { rt_exit(1) }
+        };
+        let again = step(job.id, job.iter);
+        yield_now();
+        // pop() freed an entry, so this push cannot be refused.
+        if again && push(Job { step: job.step, id: job.id, iter: job.iter + 1 }).is_err() {
+            puts("tasks: FAIL a job could not be queued again\n");
+            // SAFETY: semihosting exit.
+            unsafe { rt_exit(1) }
+        }
+    }
+}
+
+/// One step of job `id`: the same bookkeeping as one iteration of a worker
+/// task, so the order checksum of N jobs equals that of N tasks.
+#[cfg(tmodel_jobs)]
+fn count_step(id: u32, iter: u32) -> bool {
+    // SAFETY: see Global.
+    unsafe {
+        let st = STATS.ptr();
+        (*st).total += 1;
+        (*st).order = ((*st).order ^ id.wrapping_mul(0x9e37_79b9).wrapping_add(iter)).wrapping_mul(0x0100_0193);
+    }
+    iter + 1 < YIELDS
+}
+
+/// Queues `n` jobs of `step`, ids 0..n.
+#[cfg(any(tcase_jobs_many, tcase_jobs_full))]
+fn queue_jobs(n: usize, step: fn(u32, u32) -> bool) -> bool {
+    let mut i = 0;
+    while i < n {
+        if push(Job { step: Some(step), id: i as u32, iter: 0 }).is_err() {
+            puts("tasks: FAIL queueing job ");
+            put_dec(i);
+            puts(": queue full\n");
+            return false;
+        }
+        i += 1;
+    }
+    true
+}
+
+/// Spawns the one runner task.
+#[cfg(tmodel_jobs)]
+fn spawn_runner() -> bool {
+    if let Err(e) = spawn(job_runner, 0) {
+        puts("tasks: FAIL spawn of the runner refused: ");
+        puts(e.name());
+        putc(b'\n');
+        return false;
+    }
+    true
+}
+
+#[cfg(tmodel_jobs)]
+fn jobs_header(case: &str) {
+    header(case);
+    puts("tasks: jobs ");
+    put_dec(MAX_JOBS);
+    puts(", queue ");
+    put_dec(core::mem::size_of::<[Job; MAX_JOBS]>());
+    puts(" bytes\n");
+}
+
+#[cfg(tmodel_jobs)]
+fn report_job_cost() {
+    puts("tasks: cost per queued job: ");
+    put_dec(core::mem::size_of::<Job>());
+    puts(" bytes; one runner task for all of them: ");
+    put_dec(core::mem::size_of::<Tcb>() + STACK_BYTES);
+    puts(" bytes; deepest runner stack use ");
+    put_dec(high_water(0));
+    puts(" bytes\n");
+}
+
+/// MAX_JOBS jobs of YIELDS steps each, run to completion one step at a time
+/// in FIFO order: the totals and the order must be exactly the expected ones.
+#[cfg(tcase_jobs_many)]
+fn case() -> i32 {
+    jobs_header("jobs many");
+    if !queue_jobs(MAX_JOBS, count_step) || !spawn_runner() {
+        return 1;
+    }
+    if !run() {
+        report_fault();
+        return 1;
+    }
+    // SAFETY: scheduler context after run().
+    let (total, order, ended) = unsafe { ((*STATS.ptr()).total, (*STATS.ptr()).order, (*SCHED.ptr()).ended) };
+    let want = MAX_JOBS as u32 * YIELDS;
+    puts("tasks: total ");
+    put_dec(total as usize);
+    puts(" (want ");
+    put_dec(want as usize);
+    puts("), order ");
+    put_hex(order);
+    puts(" (want ");
+    put_hex(EXPECT_ORDER);
+    puts("), jobs left ");
+    put_dec(queued());
+    putc(b'\n');
+    report_job_cost();
+    if total == want && order == EXPECT_ORDER && queued() == 0 && ended == 1 && free_count() == MAX_TASKS {
+        puts("tasks: PASS jobs many (");
+        put_dec(MAX_JOBS);
+        puts(" jobs x ");
+        put_dec(YIELDS as usize);
+        puts(" steps)\n");
+        0
+    } else {
+        puts("tasks: FAIL jobs many\n");
+        1
+    }
+}
+
+/// A full queue refuses one more job, and the refusal changes nothing: the
+/// queued jobs run to the expected total.
+#[cfg(tcase_jobs_full)]
+fn case() -> i32 {
+    jobs_header("jobs full");
+    if !queue_jobs(MAX_JOBS, count_step) || !spawn_runner() {
+        return 1;
+    }
+    if push(Job { step: Some(count_step), id: MAX_JOBS as u32, iter: 0 }).is_ok() {
+        puts("tasks: FAIL a job beyond the queue's capacity was accepted\n");
+        return 1;
+    }
+    puts("tasks: job ");
+    put_dec(MAX_JOBS + 1);
+    puts(" refused: queue full (");
+    put_dec(MAX_JOBS);
+    puts(" of ");
+    put_dec(MAX_JOBS);
+    puts(")\n");
+    if !run() {
+        report_fault();
+        return 1;
+    }
+    // SAFETY: scheduler context after run().
+    let (total, order) = unsafe { ((*STATS.ptr()).total, (*STATS.ptr()).order) };
+    let want = MAX_JOBS as u32 * YIELDS;
+    report_job_cost();
+    if total == want && queued() == 0 && free_count() == MAX_TASKS {
+        puts("tasks: PASS jobs full (job ");
+        put_dec(MAX_JOBS + 1);
+        puts(" of ");
+        put_dec(MAX_JOBS);
+        puts(" refused; the ");
+        put_dec(MAX_JOBS);
+        puts(" jobs then ran ");
+        put_dec(total as usize);
+        puts(" steps, order ");
+        put_hex(order);
+        puts(")\n");
+        0
+    } else {
+        puts("tasks: FAIL jobs full: total ");
+        put_dec(total as usize);
+        puts(", want ");
+        put_dec(want as usize);
+        putc(b'\n');
+        1
+    }
+}
+
+/// A job step that overruns the runner's stack.
+#[cfg(tcase_jobs_overflow)]
+fn smash_step(_id: u32, _iter: u32) -> bool {
+    smash_stack();
+    false
+}
+
+/// Job 1 of 3 overruns the runner's stack; the check after its step must
+/// report it.
+#[cfg(tcase_jobs_overflow)]
+fn case() -> i32 {
+    jobs_header("jobs overflow");
+    let queued_ok = push(Job { step: Some(count_step), id: 0, iter: 0 }).is_ok()
+        && push(Job { step: Some(smash_step), id: 1, iter: 0 }).is_ok()
+        && push(Job { step: Some(count_step), id: 2, iter: 0 }).is_ok();
+    if !queued_ok {
+        puts("tasks: FAIL queueing\n");
+        return 1;
+    }
+    if !spawn_runner() {
+        return 1;
+    }
+    if run() {
+        puts("tasks: FAIL jobs overflow: the run ended without a fault\n");
+        return 1;
+    }
+    report_fault();
+    // SAFETY: scheduler context after run().
+    let (total, order) = unsafe { ((*STATS.ptr()).total, (*STATS.ptr()).order) };
+    puts("tasks: steps run before the fault: ");
+    put_dec(total as usize);
+    puts(", order ");
+    put_hex(order);
+    puts(", jobs left ");
+    put_dec(queued());
+    putc(b'\n');
+    report_job_cost();
+    // The runner checks its stack after every step, so the fault must come
+    // after job 1's step and before job 2's: one step ran (job 0's), and job 2
+    // is still queued. A check only at the runner's exit would let job 2 run.
+    // SAFETY: scheduler context after run().
+    let f = unsafe { (*SCHED.ptr()).fault };
+    if f.kind == FaultKind::GuardWord && f.task == 0 && total == 1 && queued() == 1 {
+        puts("tasks: FAULT found after the overrunning job's step, before the next job ran\n");
+    }
+    1
 }
 
 // ---- entry, exceptions, panic ---------------------------------------------
