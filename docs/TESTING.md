@@ -10,7 +10,7 @@ Every test runs locally with `make` and prints one `PASS <name>` or `FAIL <name>
 | Static analysis | Host | `make lint` | No |
 | Build validation | Host (ARM cross build) | `make test-build` | No |
 | Unit | Host (x86-64 Linux) | `make test-unit` | No |
-| Emulator | QEMU `virt`, ARMv7-A | `make test-qemu` | **No.** QEMU is not the Samsung. |
+| Emulator | QEMU `virt`, ARMv7-A | `make test-qemu`, `make test-tasks` | **No.** QEMU is not the Samsung. |
 | Reproducibility | Host | `make test-repro` | No |
 | Device | The GT-I9195 | none: manual procedures with recorded evidence | Yes, when recorded as below |
 
@@ -56,6 +56,29 @@ Emulator and device tests are separate on purpose. No device milestone is marked
 | `qemu-hang-is-stopped` (negative) | A program that never exits is **stopped by the time limit**. This proves a hang cannot pass. |
 | `qemu-undefined-instruction` (negative) | An undefined instruction is reported by the exception vectors ("unexpected exception, vector 1") and QEMU exits 1 |
 | `qemu-alloc-bounds` | All 28 boundary cases of the stub's allocator pass on the 32-bit target, and QEMU exits 0. Requests are **refused** (NULL) when `count * size` overflows `size_t`, when rounding the size up to 8 would wrap, or when the size is larger than what is left of the 64 KiB arena. Blocks are 8-byte aligned and rounded up to 8. A zero-size request gets a block of its own. The arena fills exactly, and then refuses every request |
+
+### `make test-tasks`
+
+The emulator-only task experiment ([ADR 0003](decisions/0003-task-model.md)): stackful tasks with a cooperative context switch, a fixed task table and one stack slot per task, each slot with a guard word that every switch checks; and, as a second model, run-to-completion jobs on a bounded queue, all run by one runner task on one stack. One image per case; each run is bounded by the QEMU time limit. It claims nothing for the phone.
+
+| Test | Pass when |
+| --- | --- |
+| `qemu-tasks-1000` | 1,000 tasks, 100 yields each, end with exactly 100,000 iterations and the order checksum that `tests/qemu/tasks_oracle.py` computes for strict round robin; every task ended and every slot is free again |
+| `qemu-tasks-10000` | The same for 10,000 tasks with 10 yields each and 256-byte stacks |
+| `qemu-tasks-table-full` (negative) | With all 64 slots in use, spawn 65 **is refused** ("table full"), and the 64 tasks then run to the expected total |
+| `qemu-tasks-stack-overrun` (negative) | A task that writes past the bottom of its stack slot **is reported** by the guard-word check at its next yield: task 1, after exactly 3 iterations, with no task resumed; QEMU exits 1 |
+| `qemu-tasks-stack-pointer` (negative) | A task that yields from inside a frame too deep to leave room for a switch, without writing past its slot, **is reported** by the stack-pointer check at that yield, to the same standard |
+| `qemu-tasks-overrun-at-exit` (negative) | A task that overruns its slot and then returns without yielding **is reported** by the check at its exit, to the same standard |
+| `qemu-tasks-return` | 64 tasks whose entry functions return are ended and their slots reclaimed: a second wave of 64 runs in the same slots. A spawn tried from inside a running task **is refused** |
+| `qemu-tasks-registers` | 64 tasks, each holding eight values, its seed and its counter across 50 yields (more live values than there are free callee-saved registers), find every value unchanged after every switch |
+| `qemu-jobs-1000` | 1,000 jobs of 100 steps each, all run to completion one step at a time by one runner task, end with exactly 100,000 steps and the same order checksum as 1,000 tasks; the queue is empty and the runner has ended |
+| `qemu-jobs-100000` | The same for 100,000 jobs of 10 steps each |
+| `qemu-jobs-queue-full` (negative) | With all 64 queue entries in use, job 65 **is refused** ("queue full"), and the 64 jobs then run to the expected total and in the expected order, so a refusal that overwrote a queued job fails it |
+| `qemu-jobs-stack-overrun` (negative) | A job whose step overruns the runner's stack **is reported** right after that step, before the next job runs, and QEMU exits 1 |
+| `build-tasks-symbols` | Every symbol that the entry stub and the switch reference, weak ones included, is defined in the task image, and none is undefined. A weak reference that the linker quietly resolves to 0 fails it |
+| `build-tasks-one-svc` | The task image has exactly one system-call instruction, the semihosting exit: the context switch makes none |
+
+`make measure-tasks` prints the experiment's measurements (task counts up to QEMU's RAM, instructions per switch, code bytes, job counts and instructions per job step). It is not a test and is not part of `make check`.
 
 ### `make test-repro`
 
