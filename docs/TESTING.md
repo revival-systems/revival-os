@@ -66,16 +66,18 @@ The emulator-only task experiment ([ADR 0003](decisions/0003-task-model.md)): st
 | `qemu-tasks-1000` | 1,000 tasks, 100 yields each, end with exactly 100,000 iterations and the order checksum that `tests/qemu/tasks_oracle.py` computes for strict round robin; every task ended and every slot is free again |
 | `qemu-tasks-10000` | The same for 10,000 tasks with 10 yields each and 256-byte stacks |
 | `qemu-tasks-table-full` (negative) | With all 64 slots in use, spawn 65 **is refused** ("table full"), and the 64 tasks then run to the expected total |
-| `qemu-tasks-stack-overrun` (negative) | A task that writes past the bottom of its stack slot **is reported** at its next switch ("FAULT stack overflow in task 1: guard word"), no task is resumed, and QEMU exits 1 |
+| `qemu-tasks-stack-overrun` (negative) | A task that writes past the bottom of its stack slot **is reported** by the guard-word check at its next yield: task 1, after exactly 3 iterations, with no task resumed; QEMU exits 1 |
+| `qemu-tasks-stack-pointer` (negative) | A task that yields from inside a frame too deep to leave room for a switch, without writing past its slot, **is reported** by the stack-pointer check at that yield, to the same standard |
+| `qemu-tasks-overrun-at-exit` (negative) | A task that overruns its slot and then returns without yielding **is reported** by the check at its exit, to the same standard |
 | `qemu-tasks-return` | 64 tasks whose entry functions return are ended and their slots reclaimed: a second wave of 64 runs in the same slots. A spawn tried from inside a running task **is refused** |
 | `qemu-jobs-1000` | 1,000 jobs of 100 steps each, all run to completion one step at a time by one runner task, end with exactly 100,000 steps and the same order checksum as 1,000 tasks; the queue is empty and the runner has ended |
 | `qemu-jobs-100000` | The same for 100,000 jobs of 10 steps each |
 | `qemu-jobs-queue-full` (negative) | With all 64 queue entries in use, job 65 **is refused** ("queue full"), and the 64 jobs then run to the expected total |
 | `qemu-jobs-stack-overrun` (negative) | A job whose step overruns the runner's stack **is reported** right after that step, before the next job runs, and QEMU exits 1 |
-| `build-tasks-symbols` | The task image has no undefined symbols |
+| `build-tasks-symbols` | Every symbol that the entry stub and the switch reference, weak ones included, is defined in the task image, and none is undefined. A weak reference that the linker quietly resolves to 0 fails it |
 | `build-tasks-one-svc` | The task image has exactly one system-call instruction, the semihosting exit: the context switch makes none |
 
-`make measure-tasks` prints the experiment's measurements (task counts up to QEMU's RAM, instructions per switch, code bytes). It is not a test and is not part of `make check`.
+`make measure-tasks` prints the experiment's measurements (task counts up to QEMU's RAM, instructions per switch, code bytes, job counts and instructions per job step). It is not a test and is not part of `make check`.
 
 ### `make test-repro`
 
