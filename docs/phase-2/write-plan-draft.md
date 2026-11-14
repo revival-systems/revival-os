@@ -1,11 +1,18 @@
-# Phase 2 write plan, method A (`RECOVERY` only): DRAFT v3.2
+# Phase 2 write plan, method A (`RECOVERY` only): v4, final text
 
-**This is a draft. It approves nothing.**
+**This is the plan the write-plan issue names.** The issue is titled "Phase 2 write plan: method A, RECOVERY only (GT-I9195)", and it names this file by commit and SHA-256. The file name still says "draft" so that existing links hold.
 
-- **No command in this document may be run** until an approved write-plan issue exists ([AGENTS.md](../../AGENTS.md#hardware-safety-contract), rule 1).
-- **The issue is opened by the implementer when the reviewer's task says so.** This file is the proposed text of that issue. The reviewer reviews it, and **the owner approves the finished plan**.
-- Every `heimdall flash` line below is a proposal. Until the issue is approved, the only commands allowed on the phone are the read-only ones in the [Phase 0 checklist](../phase-0/hardware-verification-checklist.md#rules-for-this-checklist) (rule 5).
-- Written 2026-11-11 from the repository's documents and public sources, revised the same day (v2), and revised on 2026-11-14 (v3) with the recorded Phase 0 facts and the decisions below. v3.1, the same day, marks the reviewer's confirmed wordings as decided and adds the two-minute wait at the lock screen. **No device was touched and no flash command was run to write it.** v3.2, the same evening, records E-16 and E-17: the read-only PIT read from the write host, which is a command the [Phase 0 checklist](../phase-0/hardware-verification-checklist.md#allowed) allows. No flash command was run.
+- **No command that contacts the phone may be run** until the issue carries both approvals: the reviewer's and the owner's (E-5; [AGENTS.md](../../AGENTS.md#hardware-safety-contract), rule 1). Until then, the only commands allowed on the phone are the read-only ones in the [Phase 0 checklist](../phase-0/hardware-verification-checklist.md#rules-for-this-checklist) (rule 5).
+- **The host-only block of section 3 contacts nothing and may be rehearsed.**
+- **The issue's form.** This file is longer than a GitHub issue body can hold (65,536 characters).
+  - The issue quotes **sections 1, 2, 9 and 10** in the same words as this file.
+  - Sections 3 to 8, 11 and 12, and the rest of this file, are read from this file at the commit E-11 names.
+  - Everything this plan tells the owner to read "from the issue" or compare "against the issue" is in those quoted sections: the commands and hashes (section 1), and the boxes, the commit and its `make check` count (section 2, E-11).
+  - The owner's statement (E-4) and both approvals (E-5, E-10) are in the issue only.
+- **History.** Written 2026-11-11 from the repository's documents and public sources, and revised the same day (v2). Revised on 2026-11-14 (v3) with the recorded Phase 0 facts and the decisions below. **No device was touched and no flash command was run to write it.**
+  - v3.1, the same day, marks the reviewer's confirmed wordings as decided and adds the two-minute wait at the lock screen.
+  - v3.2, the same evening, records E-16 and E-17: the read-only PIT read from the write host, which is a command the [Phase 0 checklist](../phase-0/hardware-verification-checklist.md#allowed) allows. No flash command was run.
+  - v4, the same evening, is the final text. It records E-3, E-4 and the rule 4 amendment (E-15), names how E-11 is closed, sets the issue's form, and sets step D5's expected screen from E-17. No other procedure step changes.
 
 **Phase:** 2, first bare-metal boot ([ROADMAP.md](../../ROADMAP.md#phase-2--first-bare-metal-boot)). **Method:** A, decided by the former orchestrator on 2026-11-11 ([PR #10 comment](https://github.com/revival-systems/revival-os/pull/10#issuecomment-6792632937), decision B). **Partition:** `RECOVERY`, and no other.
 
@@ -53,6 +60,11 @@ The 2026-11-11 decisions were recorded by the former orchestrator in the [PR #12
 | The 30-minute bound of the transfer-failure procedure (F-5) | Reviewer decision, 2026-11-14 (v3 review) | Section 4 |
 | The 10-second key hold that defines the key-release event (T2) | Reviewer decision, 2026-11-14 (v3 review) | Section 4 |
 | Two minutes at the lock screen before powering off, so the restore can finish (S2, A1) | Reviewer decision, 2026-11-14 (v3 review) | Section 4 |
+| E-4: the owner's statement of 2026-11-14 19:33:33 CET is accepted as the owner's acceptance; it answers the three points of section 10 | Reviewer decision, 2026-11-14 (final-plan task) | Sections 2 (E-4), 10 |
+| Rule 4 is amended with the text the 2026-11-11 decisions proposed (item 2), with "reviewer" for "orchestrator", in the pull request that makes this plan final; it is effective when that pull request is merged. This replaces "E-15 stays open" of decision (u) | Reviewer decision, 2026-11-14 (final-plan task) | Sections 2 (E-15), 10 |
+| The issue quotes sections 1, 2, 9 and 10 and names this file by commit and SHA-256; the rest is read from the file at the commit E-11 names | Reviewer decision, 2026-11-14 (final-plan task) | Header, section 2 |
+| E-11 is the merge commit of that pull request on `main`, named in the issue with its `make check` count | Reviewer decision, 2026-11-14 (final-plan task) | Sections 2 (E-11), 3 |
+| Step D5 expects the Download-mode screen, as E-17 recorded | Reviewer decision, 2026-11-14 (final-plan task) | Section 4 |
 
 ## Two facts that change the procedure
 
@@ -158,15 +170,18 @@ Every box is ticked in the issue, with its evidence, before the first write. A b
   Evidence: [Phase 0 addendum, decision](../evidence/phase-0/2026-11-13-linux-retest.md#decision): PASS, owner-directed, 2026-11-13, merged in PR #14. Images: [firmware evidence](../evidence/phase-0/2026-11-13-firmware-rescue.md) and [re-verification](../evidence/phase-0/2026-11-13-linux-retest.md#firmware-re-verified-on-ubuntu). Download mode: F1 and F6 3 of 3 (owner-confirmed), F4 `Device detected` on this host (measured) ([checklist results](../evidence/phase-0/2026-11-13-linux-retest.md#checklist-results)). **Rescue execution remains untested.**
 - [x] **E-2. Phase 1 has passed, within its host/QEMU scope.**
   Evidence: the former orchestrator's acceptance ([2026-11-11 decisions](https://github.com/revival-systems/revival-os/pull/12#issuecomment-6796999441), item 6), copied here: Phase 1 PASSED within its host/QEMU scope, on the merged Rust foundation PR #5 at `3f1130a1a8ecc6796440402be572855a4990de97`, its [successful manual CI run](https://github.com/revival-systems/revival-os/actions/runs/42757111224) (the former orchestrator verified that its `make check` step succeeded and that its exact head is an ancestor of the reviewed trial-kit head), and the working notes in [`docs/phase-1/rust-foundation.md`](../phase-1/rust-foundation.md). The full local suite passed 61 PASS / 0 FAIL on the trial-kit tree, and the heartbeat ran 20 of 20: every run exited 0 and contained both the heartbeat and checksum `0x22becba4`; heartbeat SHA-256 `7ac79ff8bde24a58f1afb0d0808eca0036d61f53dd4756daec67b3852f5d946d`. Recorded in the [Phase 1 gate review](../evidence/phase-1/2026-11-13-gate-review.md#gate-by-gate-result). No new hosted CI run was started for it. **It is not Phase 0 or Samsung evidence.** The issue adds the final source revision (E-11).
-- [ ] **E-3. A write-plan issue names the method, partition, image hash and recovery steps.**
-  Closed by: the implementer opens it when the reviewer's task says so.
-  Evidence: the issue itself, made from this draft with every Open entry closed or explicitly accepted.
-- [ ] **E-4. The owner has explicitly accepted that flashing a non-Samsung image is reported to trip the irreversible Knox warranty bit.**
+- [x] **E-3. A write-plan issue names the method, partition, image hash and recovery steps.**
+  Closed by: the implementer, who opened it on the reviewer's task of 2026-11-14 (evening).
+  Evidence: the issue titled "Phase 2 write plan: method A, RECOVERY only (GT-I9195)". It quotes sections 1, 2, 9 and 10 of this file and names the file by commit and SHA-256. Its first line says it is not approved until it carries both approvals (E-5).
+- [x] **E-4. The owner has explicitly accepted that flashing a non-Samsung image is reported to trip the irreversible Knox warranty bit.**
   Closed by: the owner.
   Evidence: **the owner's own statement, in the owner's words, quoted in the issue with its date** (section 10). Every agent posts through the owner's GitHub account, so a comment alone is not proof of who wrote it (reviewer decision, 2026-11-14).
+  - The owner gave it on 2026-11-14 at 19:33:33 CET, by typing it into the implementer's session on the write host.
+  - The reviewer accepted it the same day as the owner's acceptance.
+  - It is quoted in the issue with its date. The statement itself stays out of this file.
 - [ ] **E-5. The reviewer has approved the plan, and the owner has approved the finished plan.**
   Closed by: the reviewer, then the owner.
-  Evidence: both approvals quoted in the issue, after E-4.
+  Evidence: both approvals, recorded in the issue after E-4.
 
 ### Open blockers from the research
 
@@ -181,19 +196,19 @@ The numbers are those of the research's [list](boot-payload-research.md#blockers
   Evidence: F1 and F6 owner-confirmed 3 of 3; F4 measured on this host ([output](../evidence/phase-0/2026-11-13-linux/download-mode-usb-detect.txt)); F5 from the Windows PIT read ([partition map](../evidence/phase-0/2026-11-13-readonly/partition-map.md)). The PIT read from the write host is E-17.
 - [x] **E-9 (blocker 5). Verified stock `boot` and `recovery` images for the installed build are held in a private copy outside the repository (G1–G4).** By the owner's exception they are also in Git LFS ([AGENTS.md](../../AGENTS.md#hardware-safety-contract), rule 7).
   Evidence: `boot.img`, 7,754,000 bytes, SHA-256 `6918d25bfa63bd977279c3b064b74a5905f35a3d633173019f063c37e028cfe0`, and `recovery.img`, 8,935,696 bytes, SHA-256 `0e3095596253b713cf89da85a0293ad78651253c41805b90d397899dfa6b79c6`, checked again on this host from the private copy ([re-verification](../evidence/phase-0/2026-11-13-linux-retest.md#firmware-re-verified-on-ubuntu)). Signing-chain verification was not done. **Rescue execution (W4) remains untested.**
-- [ ] **Blocker 6. The owner's Knox acceptance.** The same condition as E-4.
+- [x] **Blocker 6. The owner's Knox acceptance.** The same condition as E-4.
 - [ ] **E-10 (blocker 11). The five phone-only questions are accepted as open, with the expected observation and the recovery action for each outcome.**
   Closed by: the reviewer, then the owner.
-  Evidence: their approval of sections 6, 7, 8 and 9 of the issue.
+  Evidence: their approval of sections 6, 7, 8 and 9 of this plan at the commit E-11 names, recorded in the issue.
 - [ ] **Blocker 12. The approved write-plan issue.** The same condition as E-3 and E-5.
 
 Blockers 7 to 10 are not open: 7 is decided (method A), 8 and 9 are the reviewed payload, and 10's image is built; its recovery steps are sections 4 and 9 of this plan.
 
 ### Conditions this draft adds
 
-- [ ] **E-11. The issue names the commit on `main` to build from.** PRs #10, #11 and #14 are merged.
-  Closed by: the reviewer, once this plan is final.
-  Evidence: the commit SHA in the issue. `make check` on it prints `PASS payload-frozen` with the hashes in section 1.
+- [ ] **E-11. The issue names the commit on `main` to build from, and the number of PASS lines `make check` prints on it.** PRs #10, #11 and #14 are merged.
+  Closed by: the reviewer's next task, which merges the pull request that makes this plan final. The commit is that pull request's merge commit on `main`.
+  Evidence: the commit SHA and the PASS count, named in the issue. `make check` on that commit prints that many PASS lines, no FAIL line, and `PASS payload-frozen` with the hashes in section 1.
 - [x] **E-12. The recovery keys reach stock recovery 3 of 3 (E1), and the battery exit from Download mode works 3 of 3 (F6).**
   Evidence: owner-confirmed 3 of 3 each, with the stock recovery menu photographed ([stock recovery](../evidence/phase-0/2026-11-13-linux-retest.md#stock-recovery-e1), [checklist results](../evidence/phase-0/2026-11-13-linux-retest.md#checklist-results)).
 - [x] **E-13. The recovery-restore check has been run and recorded.**
@@ -201,7 +216,7 @@ Blockers 7 to 10 are not open: 7 is decided (method A), 8 and 9 are the reviewed
 - [x] **E-14. The order of the two images and the maximum number of writes are decided.**
   Evidence: order (b), invalid image first; at most four host writes ([2026-11-11 decisions](https://github.com/revival-systems/revival-os/pull/12#issuecomment-6796999441), items 1 and 3).
 - [ ] **E-15. Rule 4 is amended by a reviewed change.**
-  Closed by: a later reviewed change to [AGENTS.md](../../AGENTS.md#hardware-safety-contract) rule 4, made **after** the owner's statement for E-4. **It is not made in this pull request.** Until it is effective, rule 4's current wording binds ([2026-11-11 decisions](https://github.com/revival-systems/revival-os/pull/12#issuecomment-6796999441), item 2; reviewer decision, 2026-11-14).
+  Closed by: the pull request that makes this plan final. It amends [AGENTS.md](../../AGENTS.md#hardware-safety-contract) rule 4 **after** the owner's statement for E-4, and the amendment is **effective when the reviewer's next task merges it**. Until then, rule 4's former wording binds ([2026-11-11 decisions](https://github.com/revival-systems/revival-os/pull/12#issuecomment-6796999441), item 2; reviewer decisions, 2026-11-14). Section 10 quotes the amended rule.
 - [x] **E-16. The write host is the Ubuntu development host used for the 2026-11-13 Phase 0 re-test, with the cable and USB port used for E-17, and `heimdall version` prints `v2.1.0`.** Whether Heimdall needs `sudo` for USB access is recorded in E-17; the writes use the same form.
   Closed by: the owner.
   Evidence: [write-host PIT read](../evidence/phase-2/2026-11-14-write-host-pit-read.md#host-cable-and-port-e-16), 2026-11-14. The host is the one of the 2026-11-13 re-test. The cable is the same as on 2026-11-13, in the left front USB port (owner-confirmed). `heimdall version` prints `v2.1.0`, and `make doctor` exits 0 (measured). Heimdall needs no `sudo`, so the writes run without it.
@@ -250,7 +265,7 @@ sha256sum build/boot-serrano/payload.img build/boot-serrano/payload-invalid.img
 sha256sum ~/revival-firmware/gt-i9195/I9195XXSCQAN_I9195OXXCNK2/recovery.img
 ```
 
-- At the reviewed commit `make check` prints 61 PASS lines and no FAIL line.
+- At the commit the issue names (E-11), `make check` prints the number of PASS lines the issue names for that commit, and no FAIL line.
 - The three `sha256sum` lines must equal the three values in section 1, compared character by character against the issue, not against this draft.
 - Nothing is rebuilt between this check and the write. If `make` is run again for any reason, the check is run again.
 
@@ -285,7 +300,7 @@ For W1 and W2, and for W3 or W4 if their condition applies.
 | D2 | Photograph the status lines at the top left and transcribe them. Before W1 this is the "before" photograph (section 10). | Before W1: exactly the lines recorded in F2 (section 10). Before a later write: record what is shown. | Before W1, a line differs from F2. At any write, a reactivation-lock line appears that reads on. |
 | D3 | Connect the cable. Run `lsusb \| grep -i 04e8`, then `heimdall detect`. | `04e8:685d` and `Device detected`, as recorded on this host ([output](../evidence/phase-0/2026-11-13-linux/download-mode-usb-detect.txt)). | No device, a different ID, or any error. |
 | D4 | Read the proposed command for this write aloud from the **issue**, compare the file name and the partition name with section 1, then run it. Do not touch the phone, the cable or the battery while it runs. | The session lines recorded by E-17 on this host, including any `WARNING` lines seen there; then the upload messages for this one partition, `Uploading RECOVERY` and `RECOVERY upload successful`; then `Ending session...`, with no `Rebooting device...` line after it. Save the complete output. | Any line starts `ERROR`; Heimdall asks any question or names any other partition; it exits with a non-zero status or without the line `RECOVERY upload successful`; or it is still running once its output has stopped (a 6,160-byte write normally takes seconds). In each case **do not press Ctrl-C and do not touch the phone: follow the transfer-failure procedure below**, which waits up to 10 minutes from the command's start. Never repeat the command. |
-| D5 | Wait until the shell prompt has returned. Wait 10 more seconds without touching the phone or the cable, then photograph the phone's screen. | What E-17's photograph showed after `--no-reboot`. | The phone restarts by itself. If Android then appears: "If Android starts", A1–A2, then stop and report. Run no trial and no S2 until the owner and the reviewer have answered. |
+| D5 | Wait until the shell prompt has returned. Wait 10 more seconds without touching the phone or the cable, then photograph the phone's screen. | The phone stays on the Download-mode screen, as E-17 recorded after `--no-reboot` on this host ([write-host PIT read](../evidence/phase-2/2026-11-14-write-host-pit-read.md#steps-e-17)). | The phone restarts by itself. If Android then appears: "If Android starts", A1–A2, then stop and report. Run no trial and no S2 until the owner and the reviewer have answered. |
 | D6 | Only after the photograph: unplug the cable, remove the battery and wait 10 seconds. | The screen goes dark. | — |
 
 The upload and end-of-session messages named in D4 are the original project's (Source: [`FlashAction.cpp:255-260`](https://github.com/Benjamin-Dobell/Heimdall/blob/3997d5cc607e6c603c6e7c0d07e42e9868c62af2/heimdall/source/FlashAction.cpp#L255-L260), `BridgeManager.cpp:560` and `:586`); E-17 recorded the installed 2.1.0's session lines on this host, with no `WARNING` line ([write-host PIT read](../evidence/phase-2/2026-11-14-write-host-pit-read.md#heimdall-210-session-lines-on-this-host)). The upload lines are not part of a PIT read, so for 2.1.0 their wording stays an Inference. A line that is none of the expected ones and does not start `ERROR` is recorded and reported; the write is not repeated because of it.
@@ -521,7 +536,11 @@ No reactivation-lock line is shown. D2 before W1 must show exactly these lines.
 
 The transcriptions go into the evidence (section 11). A changed line is a result to record, not a reason to stop, unless it reports a lock that was not there before, such as a reactivation lock that reads on.
 
-**Rule 4.** Rule 4 forbids bootloader unlocking and Knox or security-setting changes. This plan makes no such change on purpose: it unlocks nothing, sets nothing, and uses no exploit. Even so, rule 4's current wording binds until a reviewed amendment is effective ([2026-11-11 decisions](https://github.com/revival-systems/revival-os/pull/12#issuecomment-6796999441), item 2). That amendment is a later reviewed change, made after the owner's statement for E-4, and **is not made in this pull request** (E-15).
+**Rule 4.** The pull request that makes this plan final amends [AGENTS.md](../../AGENTS.md#hardware-safety-contract) rule 4, after the owner's statement for E-4 (E-15). The amendment is **effective when the reviewer's next task merges it**, and until then the former wording binds ([2026-11-11 decisions](https://github.com/revival-systems/revival-os/pull/12#issuecomment-6796999441), item 2). The amended rule reads:
+
+> 4. **No bootloader unlocking, Knox configuration or security-setting changes,** and no exploits or rooting. **One exception,** on the owner's GT-I9195 only: the automatic, irreversible change of the Knox warranty bit that a `RECOVERY` image write, or the attempted boot of that image, may cause. It applies only under a write plan approved by the owner and the reviewer under rule 1, which names the exact images and quotes the owner's explicit acceptance of this consequence (given on 2026-11-14). It permits no direct write to a fuse or to Knox, no disabling of a protection, no write to any other partition, and nothing else these rules forbid.
+
+This plan makes no Knox or security-setting change on purpose: it unlocks nothing, sets nothing, and uses no exploit. A change of the warranty bit caused by W1–W4, or by an attempted boot of their image, is the exception's case.
 
 ## 11. Evidence
 
@@ -575,16 +594,18 @@ Also: the reboot counts; the status-line transcriptions (section 10); the rescue
 
 ## Unknown and open
 
-Everything this draft leaves open, in one place.
+Everything this plan leaves open, in one place.
 
 | Item | Status | Resolved by |
 | --- | --- | --- |
 | PIT read from the write host; what the phone shows after `--no-reboot` there; Heimdall 2.1.0's exact session lines | Recorded, 2026-11-14 | E-17 ([write-host PIT read](../evidence/phase-2/2026-11-14-write-host-pit-read.md)) |
 | Heimdall 2.1.0's wording of the upload lines of a flash | Inference | The first write (D4) |
-| The write-plan issue; the owner's Knox statement; both approvals | Open | E-3, E-4, E-5 |
-| Rule 4 amendment | Open | E-15, a later reviewed change |
-| The commit on `main` to build from | Open | E-11 |
-| The five phone-only questions accepted as open | Open | E-10 |
+| The write-plan issue | Opened 2026-11-14; not approved | E-3 |
+| The owner's Knox statement | Given 2026-11-14 19:33:33 CET; accepted by the reviewer; quoted in the issue | E-4 |
+| Both approvals | Open | E-5, recorded in the issue |
+| Rule 4 amendment | Made in the pull request that makes this plan final; effective when the reviewer's next task merges it | E-15 |
+| The commit on `main` to build from, and its PASS count | Open: the merge commit of that pull request | E-11, named in the issue |
+| The five phone-only questions accepted as open | Open | E-10, recorded in the issue |
 | The write host, cable and port | Recorded, 2026-11-14 | E-16 ([write-host PIT read](../evidence/phase-2/2026-11-14-write-host-pit-read.md#host-cable-and-port-e-16)) |
 | Does this phone's Android actually rewrite `RECOVERY`? | Assumed yes (E-13) | The rescue check (S2) |
 | Rescue by W4 | Untested | Only if section 9 requires it |
