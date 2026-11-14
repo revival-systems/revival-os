@@ -33,24 +33,34 @@
 //! same file: one runner task runs every job to completion on its own stack,
 //! so a queued job costs a queue entry and no stack of its own.
 //!
+//! The third, stackless tasks, is here too: Rust `async` with `core` only, no
+//! heap and no allocator. Each task is a compiler-built state machine in a
+//! slot of a fixed pool that the linker reserves (tasks.ld), and one executor,
+//! itself a single stackful task, polls the slots round robin on its stack.
+//!
 //! Configuration, set by the Makefile per image and read with `env!`:
 //!   RT_TASKS   task-table capacity
 //!   RT_STACK   bytes per stack slot (a multiple of 8, at least 128)
 //!   RT_YIELDS  iterations per worker task (each ends with a yield), or steps
-//!              per job
-//!   RT_JOBS    queue capacity and jobs queued (job cases)
-//!   RT_EXPECT  order checksum from tests/qemu/tasks_oracle.py (the "many"
-//!              cases)
+//!              per job, or awaits per stackless task
+//!   RT_JOBS    queue capacity and jobs queued (job cases), or pool capacity
+//!              and stackless tasks spawned (async cases)
+//!   RT_SLOT    bytes per pool slot (async cases)
+//!   RT_EXPECT  order checksum from tests/qemu/tasks_oracle.py (case many,
+//!              and the many and full cases of the job and async models)
 //! and one case cfg: tcase_many, tcase_full, tcase_return, tcase_registers; with
 //! tgroup_overflow, tcase_overflow, tcase_overflow_sp, tcase_overflow_exit or
 //! tcase_overflow_moat;
-//! or, with tmodel_jobs, tcase_jobs_many, tcase_jobs_full, tcase_jobs_overflow.
+//! or, with tmodel_jobs, tcase_jobs_many, tcase_jobs_full, tcase_jobs_overflow;
+//! or, with tmodel_async, tcase_async_many, tcase_async_full,
+//! tcase_async_overflow, tcase_async_holder.
 //!
-//! Calling contract: spawn and run only from the scheduler context (spawn
-//! refuses a running task with SpawnError::FromTask); yield_now only from a
-//! running task, and task_exited only through task_trampoline. The test cases
-//! keep to this; yield_now and run do not check it themselves, so the code
-//! that builds on this experiment (ROADMAP 3g) must, as spawn does.
+//! Calling contract: spawn, async_spawn and run only from the scheduler
+//! context (spawn and async_spawn refuse a running task with
+//! SpawnError::FromTask); yield_now only from a running task, and task_exited
+//! only through task_trampoline. The test cases keep to this; yield_now and
+//! run do not check it themselves, so the code that builds on this experiment
+//! (ROADMAP 3g) must, as spawn does.
 //! The context switch and the stack checks are the only assembly (switch.S,
 //! which says why); kstart.S (Phase 1) supplies the entry, the vectors and the
 //! semihosting exit.
@@ -59,8 +69,14 @@
 #![no_main]
 
 use core::cell::UnsafeCell;
+#[cfg(tmodel_async)]
+use core::future::Future;
 use core::panic::PanicInfo;
+#[cfg(tmodel_async)]
+use core::pin::Pin;
 use core::ptr::{read_volatile, write_volatile};
+#[cfg(tmodel_async)]
+use core::task::{Context, Poll, Waker};
 
 // ---- configuration --------------------------------------------------------
 
@@ -79,7 +95,7 @@ const fn parse_dec(s: &str) -> usize {
 }
 
 /// A 32-bit `0x...` number from the build (lower-case), checked at compile time.
-#[cfg(any(tcase_many, tcase_jobs_many, tcase_jobs_full))]
+#[cfg(any(tcase_many, tcase_jobs_many, tcase_jobs_full, tcase_async_many, tcase_async_full))]
 const fn parse_hex(s: &str) -> u32 {
     let b = s.as_bytes();
     assert!(b.len() > 2 && b.len() <= 10 && b[0] == b'0' && b[1] == b'x', "expected 0x and 1 to 8 hex digits");
@@ -101,10 +117,14 @@ const MAX_TASKS: usize = parse_dec(env!("RT_TASKS"));
 const STACK_BYTES: usize = parse_dec(env!("RT_STACK"));
 #[cfg(not(tcase_return))]
 const YIELDS: u32 = parse_dec(env!("RT_YIELDS")) as u32;
-#[cfg(any(tcase_many, tcase_jobs_many, tcase_jobs_full))]
+#[cfg(any(tcase_many, tcase_jobs_many, tcase_jobs_full, tcase_async_many, tcase_async_full))]
 const EXPECT_ORDER: u32 = parse_hex(env!("RT_EXPECT"));
 #[cfg(tmodel_jobs)]
 const MAX_JOBS: usize = parse_dec(env!("RT_JOBS"));
+#[cfg(tmodel_async)]
+const POOL_TASKS: usize = parse_dec(env!("RT_JOBS"));
+#[cfg(tmodel_async)]
+const SLOT_BYTES: usize = parse_dec(env!("RT_SLOT"));
 
 const _: () = assert!(MAX_TASKS >= 4 && MAX_TASKS < NONE as usize, "RT_TASKS out of range");
 const _: () = assert!(STACK_BYTES % 8 == 0 && STACK_BYTES >= 128, "RT_STACK must be a multiple of 8, at least 128");
@@ -113,6 +133,16 @@ const _: () = assert!((MAX_TASKS + 1).checked_mul(STACK_BYTES).is_some(), "arena
 const _: () = assert!((MAX_TASKS as u64) * (YIELDS as u64) < u32::MAX as u64, "iteration total overflows");
 #[cfg(tmodel_jobs)]
 const _: () = assert!(MAX_JOBS >= 1 && (MAX_JOBS as u64) * (YIELDS as u64) < u32::MAX as u64, "RT_JOBS out of range");
+#[cfg(tmodel_async)]
+const _: () = assert!(
+    POOL_TASKS >= 1
+        && POOL_TASKS < NONE as usize
+        && POOL_TASKS.checked_mul(SLOT_BYTES).is_some()
+        && (POOL_TASKS as u64) * (YIELDS as u64) < u32::MAX as u64,
+    "RT_JOBS out of range for the pool"
+);
+#[cfg(tmodel_async)]
+const _: () = assert!(SLOT_BYTES % 4 == 0 && SLOT_BYTES >= 8, "RT_SLOT must be a multiple of 4, at least 8");
 
 // ---- QEMU virt hardware and the assembly this file uses -------------------
 
@@ -328,6 +358,9 @@ static TASK_CHECK: Global<TaskCheck> = Global::new(TaskCheck {
 enum SpawnError {
     TableFull,
     FromTask,
+    /// Async cases: every slot of the pool holds a task.
+    #[cfg(tmodel_async)]
+    PoolFull,
 }
 
 impl SpawnError {
@@ -336,6 +369,8 @@ impl SpawnError {
         match self {
             SpawnError::TableFull => "table full",
             SpawnError::FromTask => "spawn from a running task",
+            #[cfg(tmodel_async)]
+            SpawnError::PoolFull => "pool full",
         }
     }
 }
@@ -508,7 +543,7 @@ pub extern "C" fn task_exited() -> ! {
 
 /// Bytes of a slot written since its spawn (painted words overwritten),
 /// counted down from the top. Valid until the slot is spawned again.
-#[cfg_attr(tgroup_overflow, allow(dead_code))] // unused only in the overflow images
+#[cfg_attr(tgroup_overflow, allow(dead_code))] // unused only in the stackful overflow images
 fn high_water(slot: u32) -> usize {
     let base = slot_base(slot);
     let top = base + STACK_BYTES;
@@ -520,7 +555,7 @@ fn high_water(slot: u32) -> usize {
     top - a
 }
 
-#[cfg_attr(any(tgroup_overflow, tmodel_jobs), allow(dead_code))] // unused in the overflow and job images
+#[cfg_attr(any(tgroup_overflow, tmodel_jobs, tmodel_async), allow(dead_code))] // unused in the overflow, job and async images
 fn max_high_water(slots: usize) -> usize {
     let mut max = 0;
     let mut i = 0;
@@ -535,7 +570,7 @@ fn max_high_water(slots: usize) -> usize {
 }
 
 /// Free slots, counted along the free list (bounded, in case it is corrupt).
-#[cfg_attr(any(tgroup_overflow, tcase_jobs_overflow), allow(dead_code))] // unused in the overflow images
+#[cfg_attr(any(tgroup_overflow, tcase_jobs_overflow, tcase_async_overflow), allow(dead_code))] // unused in the overflow images
 fn free_count() -> usize {
     // SAFETY: see Global.
     unsafe {
@@ -575,7 +610,7 @@ fn report_fault() {
     puts("; found at a switch, no task resumed\n");
 }
 
-#[cfg_attr(any(tgroup_overflow, tmodel_jobs), allow(dead_code))] // unused in the overflow and job images
+#[cfg_attr(any(tgroup_overflow, tmodel_jobs, tmodel_async), allow(dead_code))] // unused in the overflow, job and async images
 fn report_cost(slots: usize) {
     puts("tasks: cost per task: ");
     put_dec(core::mem::size_of::<Tcb>());
@@ -610,18 +645,19 @@ struct Stats {
     total: u32,
     /// Order checksum: depends on which task ran each iteration, in order
     /// (an FNV-1a style step: xor, then multiply by an odd constant).
-    #[cfg(any(tcase_many, tmodel_jobs))]
+    #[cfg(any(tcase_many, tmodel_jobs, tmodel_async))]
     order: u32,
-    /// Case "return": the spawn attempted from a running task was refused.
-    #[cfg(tcase_return)]
+    /// Cases "return" and "async full": the spawn attempted from a running
+    /// task was refused.
+    #[cfg(any(tcase_return, tcase_async_full))]
     probe_refused: bool,
 }
 
 static STATS: Global<Stats> = Global::new(Stats {
     total: 0,
-    #[cfg(any(tcase_many, tmodel_jobs))]
+    #[cfg(any(tcase_many, tmodel_jobs, tmodel_async))]
     order: 0x1234_5678,
-    #[cfg(tcase_return)]
+    #[cfg(any(tcase_return, tcase_async_full))]
     probe_refused: false,
 });
 
@@ -772,7 +808,7 @@ fn case() -> i32 {
 
 /// Writes STACK_BYTES bytes of locals: more than the slot has left, so the
 /// writes run over the guard word into the slot below.
-#[cfg(any(tcase_overflow, tcase_overflow_exit, tcase_jobs_overflow))]
+#[cfg(any(tcase_overflow, tcase_overflow_exit, tcase_jobs_overflow, tcase_async_overflow))]
 #[inline(never)]
 fn smash_stack() {
     let mut buf = [0u32; STACK_BYTES / 4];
@@ -1424,6 +1460,600 @@ fn case() -> i32 {
     1
 }
 
+// ---- the third experiment: stackless tasks (Rust async, no heap) ------------
+//
+// A stackless task is the state machine the compiler builds for an async
+// block: what the task holds across each await, and which await it is at. It
+// needs no stack of its own: every poll runs on the executor's stack and
+// returns at the next await.
+//
+// The pool. Stable Rust cannot name an async block's type, so a typed static
+// array of tasks cannot be declared (that needs `impl Trait` in a type alias,
+// an unstable feature). The pool is therefore raw memory that the linker
+// reserves the way it reserves the task arena (tasks.ld, `.async_pool`):
+// RT_JOBS slots of RT_SLOT bytes. Each slot is a 4-byte header, the slot's
+// poll function or None when the slot is free, and the task's state machine
+// after it. A free slot keeps the next free slot's index in its first state
+// word. async_spawn checks at compile time that a task's state machine fits a
+// slot, and each case checks that RT_SLOT is exactly the header plus its
+// largest state machine, so a slot is what one task costs and no more.
+//
+// The executor is one stackful task (slot 0 of the arena). It polls every
+// live slot in slot order, round robin, until every task is done, and yields
+// after each poll: it is the only task, so the yield switches nowhere and only
+// runs the stack checks of switch.S, and a poll that overran the executor's
+// stack is reported before the next poll, as a job step is.
+//
+// Limits: a task that is not ready is polled again in the next round (the
+// waker does nothing, so there is no wait without polling); the pool's slots
+// are all one size, the largest state machine's; a state machine may need at
+// most 4-byte alignment; a task is spawned only from the scheduler context
+// (before run(); a task's own spawn is refused); and a slot is pinned in place
+// because nothing ever copies one.
+
+/// The type-erased poll of one slot: polls the state machine stored at the
+/// pointer once, and drops it in place when it is done (poll_slot::<F>).
+#[cfg(tmodel_async)]
+type PollFn = unsafe fn(*mut u8, &mut Context<'_>) -> Poll<()>;
+
+/// Bytes of a slot's header: Option<fn> is one word (None is the null pointer).
+#[cfg(tmodel_async)]
+const SLOT_HEADER: usize = core::mem::size_of::<Option<PollFn>>();
+
+#[cfg(tmodel_async)]
+const _: () = assert!(SLOT_HEADER == 4, "a slot header is one word");
+
+#[cfg(tmodel_async)]
+extern "C" {
+    /// tasks.ld: the pool, reserved, not zeroed (pool_init clears every header).
+    static __async_pool_start: u8;
+    static __async_pool_end: u8;
+}
+
+/// The address of a pool slot's header; its state machine follows it.
+#[cfg(tmodel_async)]
+fn slot_addr(slot: u32) -> usize {
+    &raw const __async_pool_start as usize + slot as usize * SLOT_BYTES
+}
+
+/// The pool the linker reserved must be exactly the size this image expects.
+#[cfg(tmodel_async)]
+fn pool_ok() -> bool {
+    let start = &raw const __async_pool_start as usize;
+    let end = &raw const __async_pool_end as usize;
+    end - start == POOL_TASKS * SLOT_BYTES && start % 8 == 0
+}
+
+/// The executor's shared state; nothing in it grows with the number of tasks.
+#[cfg(tmodel_async)]
+struct Exec {
+    /// Head of the free-slot list.
+    free: u32,
+    /// Tasks spawned and not yet done.
+    live: u32,
+}
+
+#[cfg(tmodel_async)]
+static EXEC: Global<Exec> = Global::new(Exec { free: NONE, live: 0 });
+
+/// Marks every slot free and puts it on the free list, in order (slot 0 first).
+#[cfg(tmodel_async)]
+#[inline(never)] // a symbol of its own, so its size is measurable (ADR 0003)
+fn pool_init() {
+    // SAFETY: scheduler context, before any task exists; every address is
+    // inside the pool that pool_ok() checked.
+    unsafe {
+        let mut i = 0usize;
+        while i < POOL_TASKS {
+            let a = slot_addr(i as u32);
+            write_volatile(a as *mut Option<PollFn>, None);
+            write_volatile((a + SLOT_HEADER) as *mut u32, if i + 1 < POOL_TASKS { (i + 1) as u32 } else { NONE });
+            i += 1;
+        }
+        (*EXEC.ptr()).free = 0;
+    }
+}
+
+/// Polls the task of type F whose state machine is at `p`, once; drops it in
+/// place when it is done.
+///
+/// # Safety
+/// `p` holds an F that async_spawn wrote and that has not been dropped. The F
+/// never moves (the pool is static memory and nothing copies a slot), so
+/// pinning it in place is sound.
+#[cfg(tmodel_async)]
+unsafe fn poll_slot<F: Future<Output = ()>>(p: *mut u8, cx: &mut Context<'_>) -> Poll<()> {
+    // SAFETY: the function's contract.
+    let fut = unsafe { Pin::new_unchecked(&mut *(p as *mut F)) };
+    if fut.poll(cx).is_pending() {
+        return Poll::Pending;
+    }
+    // SAFETY: the function's contract; the executor frees the slot after this.
+    unsafe { core::ptr::drop_in_place(p as *mut F) };
+    Poll::Ready(())
+}
+
+/// Puts the task `fut` in a free slot. Only the scheduler context may spawn
+/// (before run()); a full pool refuses the task.
+#[cfg(tmodel_async)]
+#[inline(never)] // a symbol of its own, so its size is measurable (ADR 0003)
+fn async_spawn<F: Future<Output = ()>>(fut: F) -> Result<u32, SpawnError> {
+    const {
+        assert!(SLOT_HEADER + core::mem::size_of::<F>() <= SLOT_BYTES, "the task's state machine does not fit a pool slot (RT_SLOT)");
+        assert!(core::mem::align_of::<F>() <= SLOT_HEADER, "the task's state machine needs more than the slot's 4-byte alignment");
+    }
+    // SAFETY: see Global; every index on the free list is below POOL_TASKS.
+    unsafe {
+        let e = EXEC.ptr();
+        if (*SCHED.ptr()).current != NONE {
+            return Err(SpawnError::FromTask);
+        }
+        let slot = (*e).free;
+        if slot == NONE {
+            return Err(SpawnError::PoolFull);
+        }
+        let a = slot_addr(slot);
+        (*e).free = read_volatile((a + SLOT_HEADER) as *const u32);
+        // The state machine fits after the header (checked above), and the
+        // slot is 4-byte aligned (RT_SLOT is a multiple of 4).
+        core::ptr::write((a + SLOT_HEADER) as *mut F, fut);
+        write_volatile(a as *mut Option<PollFn>, Some(poll_slot::<F> as PollFn));
+        (*e).live += 1;
+        Ok(slot)
+    }
+}
+
+/// The executor: polls every live slot in slot order, round robin, until
+/// every task is done, and checks its stack after each poll (above).
+#[cfg(tmodel_async)]
+extern "C" fn executor(_arg: usize) {
+    // A waker that does nothing: every live task is polled each round anyway.
+    let mut cx = Context::from_waker(Waker::noop());
+    // SAFETY: see Global; every slot index is below POOL_TASKS, and a slot
+    // whose header is Some holds the state machine that poll function expects.
+    unsafe {
+        let e = EXEC.ptr();
+        while (*e).live > 0 {
+            let mut i = 0u32;
+            while (i as usize) < POOL_TASKS {
+                let a = slot_addr(i);
+                if let Some(poll) = *(a as *const Option<PollFn>) {
+                    if poll((a + SLOT_HEADER) as *mut u8, &mut cx).is_ready() {
+                        *(a as *mut Option<PollFn>) = None;
+                        *((a + SLOT_HEADER) as *mut u32) = (*e).free;
+                        (*e).free = i;
+                        (*e).live -= 1;
+                    }
+                    yield_now();
+                }
+                i += 1;
+            }
+        }
+    }
+}
+
+/// Pending on its first poll and ready on its second: one await of it is one
+/// step back to the executor. It does not wake its task (see the limits).
+#[cfg(tmodel_async)]
+struct YieldOnce(bool);
+
+#[cfg(tmodel_async)]
+impl Future for YieldOnce {
+    type Output = ();
+    fn poll(mut self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<()> {
+        if self.0 {
+            return Poll::Ready(());
+        }
+        self.0 = true;
+        Poll::Pending
+    }
+}
+
+#[cfg(tmodel_async)]
+fn yield_once() -> YieldOnce {
+    YieldOnce(false)
+}
+
+/// Bytes of the state machine that the task function `f` returns.
+#[cfg(tmodel_async)]
+const fn state_bytes<A, Fut: Future<Output = ()>, F: Fn(A) -> Fut>(_f: &F) -> usize {
+    core::mem::size_of::<Fut>()
+}
+
+/// The worker task's work as a stackless task: the same bookkeeping per
+/// iteration, then one await. Written as a function that returns an async
+/// block, not as an `async fn`: this compiler keeps an async fn's argument
+/// twice, once as passed and once as the body's local, which makes the same
+/// state machine 4 bytes larger (case async_holder prints both sizes).
+#[cfg(tmodel_async)]
+fn async_worker(id: u32) -> impl Future<Output = ()> {
+    async move {
+        let mut i = 0u32;
+        while i < YIELDS {
+            // SAFETY: see Global.
+            unsafe {
+                let st = STATS.ptr();
+                (*st).total += 1;
+                (*st).order = ((*st).order ^ id.wrapping_mul(0x9e37_79b9).wrapping_add(i)).wrapping_mul(0x0100_0193);
+            }
+            i += 1;
+            yield_once().await;
+        }
+    }
+}
+
+/// Spawns the one executor task.
+#[cfg(tmodel_async)]
+fn spawn_executor() -> bool {
+    if let Err(e) = spawn(executor, 0) {
+        puts("tasks: FAIL spawn of the executor refused: ");
+        puts(e.name());
+        putc(b'\n');
+        return false;
+    }
+    true
+}
+
+/// Free pool slots, counted along the free list (bounded, in case it is corrupt).
+#[cfg(any(tcase_async_many, tcase_async_full, tcase_async_holder))]
+fn pool_free_count() -> usize {
+    // SAFETY: see Global; the walk stops at an index outside the pool.
+    unsafe {
+        let mut n = 0usize;
+        let mut i = (*EXEC.ptr()).free;
+        while i != NONE && (i as usize) < POOL_TASKS && n <= POOL_TASKS {
+            n += 1;
+            i = read_volatile((slot_addr(i) + SLOT_HEADER) as *const u32);
+        }
+        n
+    }
+}
+
+/// Spawns `n` stackless worker tasks, ids 0..n.
+#[cfg(any(tcase_async_many, tcase_async_full))]
+fn spawn_async_workers(n: usize) -> bool {
+    let mut i = 0;
+    while i < n {
+        if let Err(e) = async_spawn(async_worker(i as u32)) {
+            puts("tasks: FAIL async spawn of task ");
+            put_dec(i);
+            puts(" refused: ");
+            puts(e.name());
+            putc(b'\n');
+            return false;
+        }
+        i += 1;
+    }
+    true
+}
+
+#[cfg(tmodel_async)]
+fn async_header(case: &str) {
+    header(case);
+    puts("tasks: async pool ");
+    put_dec(POOL_TASKS);
+    puts(" slots of ");
+    put_dec(SLOT_BYTES);
+    puts(" bytes, ");
+    put_dec(POOL_TASKS * SLOT_BYTES);
+    puts(" bytes; the executor is one task\n");
+}
+
+#[cfg(tmodel_async)]
+fn report_async_cost(state: usize) {
+    puts("tasks: cost per async task: ");
+    put_dec(SLOT_BYTES);
+    puts(" bytes (a ");
+    put_dec(SLOT_HEADER);
+    puts("-byte header and a ");
+    put_dec(state);
+    puts("-byte state machine); one executor task for all of them: ");
+    put_dec(core::mem::size_of::<Tcb>() + STACK_BYTES);
+    puts(" bytes; deepest executor stack use ");
+    put_dec(high_water(0));
+    puts(" bytes\n");
+}
+
+/// The totals line of the async many and full cases, and their pass check,
+/// with `tasks` stackful tasks (the executor and any probe) ended.
+#[cfg(any(tcase_async_many, tcase_async_full))]
+fn async_results(tasks: u32) -> bool {
+    // SAFETY: scheduler context after run().
+    let (total, order, live, ended) =
+        unsafe { ((*STATS.ptr()).total, (*STATS.ptr()).order, (*EXEC.ptr()).live, (*SCHED.ptr()).ended) };
+    let want = POOL_TASKS as u32 * YIELDS;
+    let free = pool_free_count();
+    puts("tasks: total ");
+    put_dec(total as usize);
+    puts(" (want ");
+    put_dec(want as usize);
+    puts("), order ");
+    put_hex(order);
+    puts(" (want ");
+    put_hex(EXPECT_ORDER);
+    puts("), tasks left ");
+    put_dec(live as usize);
+    puts(", free slots ");
+    put_dec(free);
+    putc(b'\n');
+    report_async_cost(state_bytes(&async_worker));
+    total == want && order == EXPECT_ORDER && live == 0 && free == POOL_TASKS && ended == tasks && free_count() == MAX_TASKS
+}
+
+#[cfg(any(tcase_async_many, tcase_async_full))]
+const _: () = assert!(
+    SLOT_BYTES == SLOT_HEADER + state_bytes(&async_worker),
+    "RT_SLOT must be the slot header plus the worker's state machine, exactly"
+);
+
+/// RT_JOBS stackless tasks of YIELDS awaits each, polled round robin by one
+/// executor: the totals and the order must be exactly those of as many
+/// stackful tasks, and every slot must be free again.
+#[cfg(tcase_async_many)]
+fn case() -> i32 {
+    async_header("async many");
+    if !spawn_async_workers(POOL_TASKS) || !spawn_executor() {
+        return 1;
+    }
+    if !run() {
+        report_fault();
+        return 1;
+    }
+    if async_results(1) {
+        puts("tasks: PASS async many (");
+        put_dec(POOL_TASKS);
+        puts(" tasks x ");
+        put_dec(YIELDS as usize);
+        puts(" awaits)\n");
+        0
+    } else {
+        puts("tasks: FAIL async many\n");
+        1
+    }
+}
+
+/// Case async full: a stackful task that tries an async spawn while tasks
+/// run (the executor polls; it switches here at its first yield). The spawn
+/// must be refused as coming from a running task, although the pool is full.
+#[cfg(tcase_async_full)]
+extern "C" fn async_spawn_prober(_arg: usize) {
+    let refused = async_spawn(async_worker(NONE)) == Err(SpawnError::FromTask);
+    // SAFETY: see Global.
+    unsafe { (*STATS.ptr()).probe_refused = refused };
+}
+
+/// A full pool refuses one more task, and the refusal changes nothing: the
+/// tasks already in it run to the expected total, in the expected order (a
+/// refusal that overwrote a slot would keep the total but change the order).
+/// A spawn from a running task is refused too.
+#[cfg(tcase_async_full)]
+fn case() -> i32 {
+    async_header("async full");
+    if !spawn_async_workers(POOL_TASKS) || !spawn_executor() {
+        return 1;
+    }
+    if spawn(async_spawn_prober, 1).is_err() {
+        puts("tasks: FAIL spawn of the prober refused\n");
+        return 1;
+    }
+    match async_spawn(async_worker(POOL_TASKS as u32)) {
+        Err(SpawnError::PoolFull) => {
+            puts("tasks: async task ");
+            put_dec(POOL_TASKS + 1);
+            puts(" refused: pool full (");
+            put_dec(POOL_TASKS);
+            puts(" of ");
+            put_dec(POOL_TASKS);
+            puts(")\n");
+        }
+        Err(e) => {
+            puts("tasks: FAIL async task beyond capacity refused for the wrong reason: ");
+            puts(e.name());
+            putc(b'\n');
+            return 1;
+        }
+        Ok(slot) => {
+            puts("tasks: FAIL async task beyond capacity accepted, slot ");
+            put_dec(slot as usize);
+            putc(b'\n');
+            return 1;
+        }
+    }
+    if !run() {
+        report_fault();
+        return 1;
+    }
+    // SAFETY: scheduler context after run().
+    let refused = unsafe { (*STATS.ptr()).probe_refused };
+    puts(if refused { "tasks: async spawn from a running task refused\n" } else { "tasks: async spawn from a running task NOT refused\n" });
+    if async_results(2) && refused {
+        puts("tasks: PASS async full (task ");
+        put_dec(POOL_TASKS + 1);
+        puts(" of ");
+        put_dec(POOL_TASKS);
+        puts(" refused; a spawn from a running task refused; the ");
+        put_dec(POOL_TASKS);
+        puts(" tasks then ran ");
+        // SAFETY: scheduler context after run().
+        put_dec(unsafe { (*STATS.ptr()).total } as usize);
+        puts(" steps in the expected order)\n");
+        0
+    } else {
+        puts("tasks: FAIL async full\n");
+        1
+    }
+}
+
+/// A stackless task whose first poll overruns the executor's stack.
+#[cfg(tcase_async_overflow)]
+fn async_smasher(_id: u32) -> impl Future<Output = ()> {
+    async move {
+        smash_stack();
+        yield_once().await;
+    }
+}
+
+#[cfg(tcase_async_overflow)]
+const ASYNC_OVERFLOW_STATE: usize = {
+    let w = state_bytes(&async_worker);
+    let s = state_bytes(&async_smasher);
+    if w > s {
+        w
+    } else {
+        s
+    }
+};
+
+#[cfg(tcase_async_overflow)]
+const _: () = assert!(
+    SLOT_BYTES == SLOT_HEADER + ASYNC_OVERFLOW_STATE,
+    "RT_SLOT must be the slot header plus the largest state machine, exactly"
+);
+
+/// Task 1 of 3 (tasks 0 and 2 are workers) overruns the executor's stack in
+/// its first poll; the check after that poll must report it, before task 2 is
+/// polled: one step ran (task 0's), and no task is done.
+#[cfg(tcase_async_overflow)]
+fn case() -> i32 {
+    async_header("async overflow");
+    let spawned = async_spawn(async_worker(0)).is_ok()
+        && async_spawn(async_smasher(1)).is_ok()
+        && async_spawn(async_worker(2)).is_ok();
+    if !spawned || !spawn_executor() {
+        puts("tasks: FAIL spawn\n");
+        return 1;
+    }
+    if run() {
+        puts("tasks: FAIL async overflow: the run ended without a fault\n");
+        return 1;
+    }
+    report_fault();
+    // SAFETY: scheduler context after run().
+    let (total, order, live, f) =
+        unsafe { ((*STATS.ptr()).total, (*STATS.ptr()).order, (*EXEC.ptr()).live, (*SCHED.ptr()).fault) };
+    puts("tasks: steps run before the fault: ");
+    put_dec(total as usize);
+    puts(", order ");
+    put_hex(order);
+    puts(", tasks left ");
+    put_dec(live as usize);
+    putc(b'\n');
+    report_async_cost(ASYNC_OVERFLOW_STATE);
+    if f.kind == FaultKind::GuardWord && f.task == 0 && total == 1 && live == 3 {
+        puts("tasks: FAULT found after the overrunning task's poll, before the next task was polled\n");
+    }
+    1
+}
+
+/// The worker again, written as an `async fn`, for its size only: this
+/// compiler keeps the argument twice (see async_worker).
+#[cfg(tcase_async_holder)]
+async fn async_worker_as_fn(id: u32) {
+    let mut i = 0u32;
+    while i < YIELDS {
+        // SAFETY: see Global.
+        unsafe {
+            let st = STATS.ptr();
+            (*st).total += 1;
+            (*st).order = ((*st).order ^ id.wrapping_mul(0x9e37_79b9).wrapping_add(i)).wrapping_mul(0x0100_0193);
+        }
+        i += 1;
+        yield_once().await;
+    }
+}
+
+/// Holds eight opaque values, its seed and its counter across every await,
+/// as the registers case's holder does across every switch: the state machine
+/// grows by what it holds. After each await every value must be unchanged.
+#[cfg(tcase_async_holder)]
+fn async_holder(seed: u32) -> impl Future<Output = ()> {
+    async move {
+        let a = core::hint::black_box(seed ^ 0x1111_1111);
+        let b = core::hint::black_box(seed ^ 0x2222_2222);
+        let c = core::hint::black_box(seed ^ 0x3333_3333);
+        let d = core::hint::black_box(seed ^ 0x4444_4444);
+        let e = core::hint::black_box(seed ^ 0x5555_5555);
+        let f = core::hint::black_box(seed ^ 0x6666_6666);
+        let g = core::hint::black_box(seed ^ 0x7777_7777);
+        let h = core::hint::black_box(seed ^ 0x0888_8888);
+        let mut i = 0u32;
+        while i < YIELDS {
+            yield_once().await;
+            let ok = a == seed ^ 0x1111_1111
+                && b == seed ^ 0x2222_2222
+                && c == seed ^ 0x3333_3333
+                && d == seed ^ 0x4444_4444
+                && e == seed ^ 0x5555_5555
+                && f == seed ^ 0x6666_6666
+                && g == seed ^ 0x7777_7777
+                && h == seed ^ 0x0888_8888;
+            if !ok {
+                puts("tasks: FAIL async holder: a value held across an await changed in task ");
+                put_dec(seed as usize);
+                putc(b'\n');
+                // SAFETY: semihosting exit.
+                unsafe { rt_exit(1) }
+            }
+            // SAFETY: see Global.
+            unsafe { (*STATS.ptr()).total += 1 };
+            i = core::hint::black_box(i + 1);
+        }
+    }
+}
+
+#[cfg(tcase_async_holder)]
+const _: () = assert!(
+    SLOT_BYTES == SLOT_HEADER + state_bytes(&async_holder),
+    "RT_SLOT must be the slot header plus the holder's state machine, exactly"
+);
+
+/// Measurement shape (make measure-tasks, not make check): RT_JOBS holders,
+/// each awaiting YIELDS times, and the sizes of three state machines.
+#[cfg(tcase_async_holder)]
+fn case() -> i32 {
+    async_header("async holder");
+    puts("tasks: state machines: worker ");
+    put_dec(state_bytes(&async_worker));
+    puts(" bytes (written as an async fn: ");
+    put_dec(state_bytes(&async_worker_as_fn));
+    puts(" bytes), holder ");
+    put_dec(state_bytes(&async_holder));
+    puts(" bytes\n");
+    let mut k = 0;
+    while k < POOL_TASKS {
+        if let Err(err) = async_spawn(async_holder(k as u32)) {
+            puts("tasks: FAIL async spawn refused: ");
+            puts(err.name());
+            putc(b'\n');
+            return 1;
+        }
+        k += 1;
+    }
+    if !spawn_executor() {
+        return 1;
+    }
+    if !run() {
+        report_fault();
+        return 1;
+    }
+    // SAFETY: scheduler context after run().
+    let (total, live) = unsafe { ((*STATS.ptr()).total, (*EXEC.ptr()).live) };
+    report_async_cost(state_bytes(&async_holder));
+    if total == POOL_TASKS as u32 * YIELDS && live == 0 && pool_free_count() == POOL_TASKS && free_count() == MAX_TASKS {
+        puts("tasks: PASS async holder (");
+        put_dec(POOL_TASKS);
+        puts(" tasks each held 8 values across ");
+        put_dec(YIELDS as usize);
+        puts(" awaits; none changed)\n");
+        0
+    } else {
+        puts("tasks: FAIL async holder: total ");
+        put_dec(total as usize);
+        putc(b'\n');
+        1
+    }
+}
+
 // ---- entry, exceptions, panic ---------------------------------------------
 
 /// Called by kstart.S after the stack and .bss are set up; returns the exit
@@ -1435,6 +2065,16 @@ pub extern "C" fn kmain() -> i32 {
         put_dec(ARENA_BYTES);
         puts(" bytes this image expects\n");
         return 1;
+    }
+    #[cfg(tmodel_async)]
+    {
+        if !pool_ok() {
+            puts("tasks: FAIL the linker's async pool is not the ");
+            put_dec(POOL_TASKS * SLOT_BYTES);
+            puts(" bytes this image expects\n");
+            return 1;
+        }
+        pool_init();
     }
     sched_init();
     case()

@@ -59,7 +59,7 @@ Emulator and device tests are separate on purpose. No device milestone is marked
 
 ### `make test-tasks`
 
-The emulator-only task experiment ([ADR 0003](decisions/0003-task-model.md)): stackful tasks with a cooperative context switch, a fixed task table and one stack slot per task, each slot with a guard word that every switch checks; and, as a second model, run-to-completion jobs on a bounded queue, all run by one runner task on one stack. One image per case; each run is bounded by the QEMU time limit. It claims nothing for the phone.
+The emulator-only task experiment ([ADR 0003](decisions/0003-task-model.md)): stackful tasks with a cooperative context switch, a fixed task table and one stack slot per task, each slot with a guard word that every switch checks; as a second model, run-to-completion jobs on a bounded queue, all run by one runner task on one stack; and, as a third, stackless tasks (Rust `async` without a heap) in a fixed pool, all polled by one executor task on one stack. One image per case; each run is bounded by the QEMU time limit. It claims nothing for the phone.
 
 | Test | Pass when |
 | --- | --- |
@@ -69,16 +69,21 @@ The emulator-only task experiment ([ADR 0003](decisions/0003-task-model.md)): st
 | `qemu-tasks-stack-overrun` (negative) | A task that writes past the bottom of its stack slot **is reported** by the guard-word check at its next yield: task 1, after exactly 3 iterations, with no task resumed; QEMU exits 1 |
 | `qemu-tasks-stack-pointer` (negative) | A task that yields from inside a frame too deep to leave room for a switch, without writing past its slot, **is reported** by the stack-pointer check at that yield, to the same standard |
 | `qemu-tasks-overrun-at-exit` (negative) | A task that overruns its slot and then returns without yielding **is reported** by the check at its exit, to the same standard |
+| `qemu-tasks-fault-leaves-stack` (negative) | A task in the lowest slot that yields from a frame too deep for a switch **is reported** by the stack-pointer check, and leaving its stack writes nothing to it: afterwards the task's guard word is intact and every word of the moat, the unused slot below it, is unchanged |
 | `qemu-tasks-return` | 64 tasks whose entry functions return are ended and their slots reclaimed: a second wave of 64 runs in the same slots. A spawn tried from inside a running task **is refused** |
 | `qemu-tasks-registers` | 64 tasks, each holding eight values, its seed and its counter across 50 yields (more live values than there are free callee-saved registers), find every value unchanged after every switch |
 | `qemu-jobs-1000` | 1,000 jobs of 100 steps each, all run to completion one step at a time by one runner task, end with exactly 100,000 steps and the same order checksum as 1,000 tasks; the queue is empty and the runner has ended |
 | `qemu-jobs-100000` | The same for 100,000 jobs of 10 steps each |
 | `qemu-jobs-queue-full` (negative) | With all 64 queue entries in use, job 65 **is refused** ("queue full"), and the 64 jobs then run to the expected total and in the expected order, so a refusal that overwrote a queued job fails it |
 | `qemu-jobs-stack-overrun` (negative) | A job whose step overruns the runner's stack **is reported** right after that step, before the next job runs, and QEMU exits 1 |
+| `qemu-async-1000` | 1,000 stackless tasks of 100 awaits each, all polled round robin by one executor task, end with exactly 100,000 steps and the same order checksum as 1,000 tasks; no task is left and every pool slot is free again |
+| `qemu-async-100000` | The same for 100,000 stackless tasks of 10 awaits each |
+| `qemu-async-pool-full` (negative) | With all 64 pool slots in use, task 65 **is refused** ("pool full"), a spawn tried from a running task **is refused**, and the 64 tasks then run to the expected total and in the expected order, so a refusal that overwrote a slot fails it |
+| `qemu-async-stack-overrun` (negative) | A stackless task whose poll overruns the executor's stack **is reported** right after that poll, before the next task is polled, and QEMU exits 1 |
 | `build-tasks-symbols` | Every symbol that the entry stub and the switch reference, weak ones included, is defined in the task image, and none is undefined. A weak reference that the linker quietly resolves to 0 fails it |
 | `build-tasks-one-svc` | The task image has exactly one system-call instruction, the semihosting exit: the context switch makes none |
 
-`make measure-tasks` prints the experiment's measurements (task counts up to QEMU's RAM, instructions per switch, code bytes, job counts and instructions per job step). It is not a test and is not part of `make check`.
+`make measure-tasks` prints the experiment's measurements (task counts up to QEMU's RAM, instructions per switch, code bytes, job counts and instructions per job step, stackless task counts, instructions per step, bytes per task and the executor's stack use, and the state machine of a task that holds eight values across its await). It is not a test and is not part of `make check`.
 
 ### `make test-exceptions`
 
