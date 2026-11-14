@@ -76,11 +76,11 @@ All under `make check`, each run bounded by the QEMU time limit. They are listed
 | `build-tasks-symbols` | Every symbol that `kstart.o` and `switch.o` reference, weak ones included, is defined in the image, and none is undefined. (Its first version only counted `nm -u` lines, which this link always leaves empty: a strong undefined reference fails the link, and a weak one is resolved to 0 and dropped from the symbol table. An independent review found that; this version fails on a weak `task_exited` left undefined.) |
 | `build-tasks-one-svc` | One system-call instruction, the semihosting exit: the switch makes none |
 
-**Each check can fail.** Each mutation below was applied alone to a scratch copy of the tree, and every test was then run on its own. An unchanged copy was run as a control, and no test failed on it.
+**Each check can fail.** Each mutation below was applied alone to a scratch copy of this pull request's final tree, and every test was then run on its own; the whole table comes from one run on that tree. An unchanged copy was run as a control, and no test failed on it.
 
 | Mutation | Tests that failed |
 | --- | --- |
-| `yield_now` skips the next task | `qemu-tasks-1000`, `-10000`, `-table-full`, `-return`, and the three overrun tests (their iteration count) |
+| `yield_now` skips the next task | `qemu-tasks-1000`, `-10000`, `-table-full`, `-return`, `-registers`, and the three overrun tests (their iteration count) |
 | `ctx_switch` does not save r11 | every QEMU test of the task and job cases |
 | `ctx_switch` saves r12 in place of r9 (the frame keeps its size) | `qemu-tasks-registers` only: no other test keeps a value in r9 across a switch |
 | `spawn` puts the new task at the head of the ring, not the tail | `qemu-tasks-1000`, `-10000` (the order checksum) |
@@ -90,18 +90,18 @@ All under `make check`, each run bounded by the QEMU time limit. They are listed
 | No stack-pointer check | `qemu-tasks-stack-pointer` only |
 | No stack check at a task's exit | `qemu-tasks-overrun-at-exit` only |
 | The guard word is never written | every QEMU test of the task and job cases |
-| An ended task's slot is not reclaimed | `qemu-tasks-1000`, `-10000`, `-table-full`, `-return`, `qemu-jobs-1000`, `-100000`, `-queue-full` |
+| An ended task's slot is not reclaimed | `qemu-tasks-1000`, `-10000`, `-table-full`, `-return`, `-registers`, `qemu-jobs-1000`, `-100000`, `-queue-full` |
 | An ended task is not unlinked from the ring | `qemu-tasks-return` only |
 | A spawn from a running task is not refused | `qemu-tasks-return` only |
 | A system call added to `ctx_switch` | every QEMU test of the task and job cases, and `build-tasks-one-svc` (2 found) |
-| `task_exited` renamed, its reference in `switch.S` made weak (the link then succeeds with the call going to address 0) | `build-tasks-symbols` (`task_exited` missing), and the cases in which a task returns |
+| `task_exited` renamed, its reference in `switch.S` made weak (the link then succeeds: the linker turns the call into a NOP, and a task that returns runs off the end of `task_trampoline`) | `build-tasks-symbols` (`task_exited` missing), and the cases in which a task returns |
 | Jobs: no queue-full check in `push` | `qemu-jobs-queue-full` only |
 | Jobs: a refused `push` overwrites the oldest queued job (and still reports "full") | `qemu-jobs-queue-full` only (the order checksum) |
 | Jobs: the runner skips its stack check after a step | `qemu-jobs-stack-overrun` only |
 | Jobs: a job queued again skips a step | `qemu-jobs-1000`, `-100000`, `-queue-full` |
 | Jobs: the ring's tail does not wrap | `qemu-jobs-1000`, `-100000`, `-queue-full` |
 
-Two tests were tightened after a mutation first passed them. The job overrun test was first written to check only that an overrun was reported. The mutation "the runner skips its stack check" passed that test, because the overrun was still caught later, when the runner ended. The test now also requires that exactly one step ran before the fault and that the next job is still queued. With that, the mutation fails it. The same applies to the task overrun tests, which now require the kind of check, the task and the iteration count (an independent review pointed out that a detection one switch late would have passed), and to `build-tasks-symbols` (above).
+Four tests were tightened after a mutation first passed them. The job overrun test was first written to check only that an overrun was reported. The mutation "the runner skips its stack check" passed that test, because the overrun was still caught later, when the runner ended. The test now also requires that exactly one step ran before the fault and that the next job is still queued. With that, the mutation fails it. The same applies to the task overrun tests, which now require the kind of check, the task and the iteration count (an independent review pointed out that a detection one switch late would have passed), to `build-tasks-symbols` (above), and to `qemu-jobs-queue-full`, which first checked only the total, so a refused push that overwrote a queued job passed it; it now also checks the order checksum.
 
 The first version of the order checksum (rotate and xor) was found too weak while it was being measured. Its rotation repeats every 32 steps, so with 1,000,000 tasks (a multiple of 32) and 4 yields every task's contributions cancelled out. A task that never ran would have gone unseen. It was replaced by an FNV-1a style step (xor, then multiply by an odd constant), in the guest and in the oracle alike.
 
@@ -116,7 +116,7 @@ All are from this pull request's code, built by the Makefile's own rule. Each fi
 | One task-table entry | 8 bytes | `size_of::<Tcb>()`, printed by every run |
 | One task, as tested at 10,000 tasks and in the sweep | 8 + 256 = **264 bytes** | The "cost per task" line of `qemu-tasks-10000`'s log and of the sweep's run logs |
 | One task, as tested at 1,000 tasks | 8 + 512 = 520 bytes | `qemu-tasks-1000`'s log |
-| Deepest stack use of a worker task, by stack painting | 84 bytes when a task runs 10 or fewer yields (the compiler unrolls the worker's loop): `qemu-tasks-10000` and the sweep from 10,000 tasks up; 92 bytes in the 100-yield images (the loop is kept, and two more registers are saved), at 256- or 512-byte stacks; 76 bytes in the 64-task images; **60 bytes without the stack checks** | "deepest stack use" in each run's log; the last from a scratch copy with `check_stack` emptied |
+| Deepest stack use of a worker task, by stack painting | 84 bytes when a task runs 10 or fewer yields (the compiler unrolls the worker's loop): `qemu-tasks-10000` and the sweep from 10,000 tasks up; 92 bytes in the 100-yield images (the loop is kept, and two more registers are saved), at 256- or 512-byte stacks; 76 bytes in the full and return images; 148 bytes in the registers image, whose holder tasks keep ten values live across each yield; **60 bytes without the stack checks** | "deepest stack use" in each run's log; the last from a scratch copy with `check_stack` emptied |
 | Scheduler code: `ctx_switch` 16, `task_trampoline` 12, `yield_now` 240, `task_exited` 320, `spawn` 356, `run` 152, `fault` 60, `sched_init` 88 | **1,244 bytes** in all | `arm-none-eabi-nm -S` of the capacity-1,000 image (`make measure-tasks`, part 3) |
 | The whole capacity-1,000 image, loadable: `.text` 11,688 + `.rodata` 4,368 + `.ARM.exidx` 8 + `.data` 48 | 16,112 bytes | `arm-none-eabi-size -A` (part 3). Most of it is the test cases' reporting and Rust core's panic-message formatting, not the scheduler |
 | The same image, reserved: the task table (8,000 bytes, plus 4 bytes of test counter in `.bss`), the scheduler's stack, the arena (1,001 slots of 256 bytes) | 8,004 + 65,536 + 256,256 bytes | The same |
