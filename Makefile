@@ -511,12 +511,12 @@ test-tasks: $(TASKS_ELFS) | need-qemu need-arm ## Run the emulator-only task exp
 
 test-exceptions: $(EXC_ELFS) | need-qemu need-arm ## Run the emulator-only exception reports (a step toward ROADMAP 3a): an undefined instruction, a data abort and a prefetch abort, each reported with its kind and address, then a halt
 	@mkdir -p $(LOGS)
-	@tests/qemu/run.sh qemu-exc-undefined-instruction $(QEMU_OUT)/exc-undef.elf $(LOGS)/exc-undef.log 1 \
+	@QEMU_MEM=64M tests/qemu/run.sh qemu-exc-undefined-instruction $(QEMU_OUT)/exc-undef.elf $(LOGS)/exc-undef.log 1 \
 	    "exception: as expected (undefined instruction at the expected pc); halted"
-	@tests/qemu/run.sh qemu-exc-data-abort $(QEMU_OUT)/exc-dabt.elf $(LOGS)/exc-dabt.log 1 \
-	    "exception: as expected (data abort at the expected pc, fault address and status); halted"
-	@tests/qemu/run.sh qemu-exc-prefetch-abort $(QEMU_OUT)/exc-pabt.elf $(LOGS)/exc-pabt.log 1 \
-	    "exception: as expected (prefetch abort at the expected pc, fault address and status); halted"
+	@QEMU_MEM=64M tests/qemu/run.sh qemu-exc-data-abort $(QEMU_OUT)/exc-dabt.elf $(LOGS)/exc-dabt.log 1 \
+	    "exception: as expected (data abort at the expected pc, fault address and status: synchronous external abort, a read); halted"
+	@QEMU_MEM=64M tests/qemu/run.sh qemu-exc-prefetch-abort $(QEMU_OUT)/exc-pabt.elf $(LOGS)/exc-pabt.log 1 \
+	    "exception: as expected (prefetch abort at the expected pc, fault address and status: synchronous external abort); halted"
 
 test-payload: $(PAYLOAD_BIN) $(PAYLOAD_IMG) $(PAYLOAD_INVALID_IMG) $(PAYLOAD_OUT)/kstart.o tests/boot/run_payload.py tests/boot/read_bootimg.py tests/boot/check_negative_img.py tests/boot/serrano_v1.py tests/boot/payload_hosted_libc.rs $(FIXTURE)/hosted_std.rs tests/build/check_image_integrity.sh | need-qemu need-arm need-rust ## Boot the Phase 2 payload in QEMU (paint the framebuffers, inject MDP4 values and a fault), and check the handoff, the packer, the negative-test image, the frozen hashes and reproducibility
 	@mkdir -p $(LOGS) $(PAYLOAD_OUT)/neg

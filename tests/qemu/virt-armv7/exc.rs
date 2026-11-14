@@ -120,7 +120,10 @@ fn fault_status_name(fs: u32) -> &'static str {
 struct Expect {
     kind: u32,
     pc: usize,
+    /// The fault address, for an abort.
     far: Option<usize>,
+    /// The 5-bit fault status, for an abort.
+    status: Option<u32>,
 }
 
 struct Global<T>(UnsafeCell<T>);
@@ -128,7 +131,7 @@ struct Global<T>(UnsafeCell<T>);
 // and read only by exc_report after it.
 unsafe impl<T> Sync for Global<T> {}
 
-static EXPECT: Global<Expect> = Global(UnsafeCell::new(Expect { kind: u32::MAX, pc: 0, far: None }));
+static EXPECT: Global<Expect> = Global(UnsafeCell::new(Expect { kind: u32::MAX, pc: 0, far: None, status: None }));
 
 fn expect(e: Expect) {
     // SAFETY: see Global.
@@ -165,13 +168,22 @@ pub extern "C" fn exc_report(kind: u32, pc: usize, fsr: u32, far: usize) -> ! {
         Some(a) => far == a,
         None => true,
     };
-    let status_ok = !is_abort || fault_status(fsr) == FS_SYNC_EXTERNAL;
+    let status_ok = match e.status {
+        Some(fs) => fault_status(fsr) == fs,
+        None => true,
+    };
     if kind == e.kind && pc == e.pc && far_ok && status_ok {
+        // The decoded status is part of the line the tests check, so a wrong
+        // decode fails them too.
         puts("exception: as expected (");
         puts(name);
         puts(" at the expected pc");
         if is_abort {
-            puts(", fault address and status");
+            puts(", fault address and status: ");
+            puts(fault_status_name(fault_status(fsr)));
+            if kind == DATA_ABORT {
+                puts(if fsr & (1 << 11) != 0 { ", a write" } else { ", a read" });
+            }
         }
         puts("); halted\n");
     } else {
@@ -183,6 +195,10 @@ pub extern "C" fn exc_report(kind: u32, pc: usize, fsr: u32, far: usize) -> ! {
             puts(", fault address ");
             put_hex(a as u32);
         }
+        if let Some(fs) = e.status {
+            puts(", status ");
+            puts(fault_status_name(fs));
+        }
         puts("; halted\n");
     }
     // SAFETY: semihosting exit; the run ends here.
@@ -191,7 +207,7 @@ pub extern "C" fn exc_report(kind: u32, pc: usize, fsr: u32, far: usize) -> ! {
 
 #[cfg(ecase_undef)]
 fn case() -> i32 {
-    expect(Expect { kind: 1, pc: exc_udf as *const () as usize, far: None });
+    expect(Expect { kind: 1, pc: exc_udf as *const () as usize, far: None, status: None });
     // SAFETY: deliberate fault; exc_report does not return.
     unsafe { exc_udf() };
     puts("exception: FAIL the undefined instruction did not trap\n");
@@ -200,7 +216,7 @@ fn case() -> i32 {
 
 #[cfg(ecase_dabt)]
 fn case() -> i32 {
-    expect(Expect { kind: DATA_ABORT, pc: exc_load as *const () as usize, far: Some(UNMAPPED) });
+    expect(Expect { kind: DATA_ABORT, pc: exc_load as *const () as usize, far: Some(UNMAPPED), status: Some(FS_SYNC_EXTERNAL) });
     // SAFETY: deliberate fault; exc_report does not return.
     let v = unsafe { exc_load(UNMAPPED) };
     puts("exception: FAIL the load from nothing returned ");
@@ -211,7 +227,7 @@ fn case() -> i32 {
 
 #[cfg(ecase_pabt)]
 fn case() -> i32 {
-    expect(Expect { kind: PREFETCH_ABORT, pc: UNMAPPED, far: Some(UNMAPPED) });
+    expect(Expect { kind: PREFETCH_ABORT, pc: UNMAPPED, far: Some(UNMAPPED), status: Some(FS_SYNC_EXTERNAL) });
     // SAFETY: deliberate fault: a call to an address with nothing behind it;
     // exc_report does not return.
     let nowhere: extern "C" fn() = unsafe { core::mem::transmute::<usize, extern "C" fn()>(UNMAPPED) };
@@ -223,6 +239,12 @@ fn case() -> i32 {
 /// Called by kstart.S after the stack and .bss are set up.
 #[no_mangle]
 pub extern "C" fn kmain() -> i32 {
+    // The decode of FS[4] (bit 10) cannot be seen in QEMU's 0x8, so check it
+    // on known values first: 0x406 is an asynchronous external abort.
+    if fault_status(0x406) != 0b10110 || fault_status(0x8) != FS_SYNC_EXTERNAL || fault_status(0x40f) != 0b11111 {
+        puts("exception: FAIL the fault-status decode\n");
+        return 1;
+    }
     // SAFETY: writes VBAR; interrupts are masked (kstart.S).
     unsafe { install_exc_vectors() };
     case()
