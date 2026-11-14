@@ -263,7 +263,7 @@ $(QEMU_OUT)/tasks-%.elf: $(FIXTURE)/tasks.rs $(QEMU_OUT)/kstart.o $(QEMU_OUT)/sw
 	jobs=$${5:-0}; model=; case "$$1" in jobs_*) model='--cfg tmodel_jobs';; overflow*) model='--cfg tgroup_overflow';; esac; \
 	expect=0x0; case "$$1" in \
 	  many) expect=$$($(PYTHON) -I tests/qemu/tasks_oracle.py $$2 $$4);; \
-	  jobs_many) expect=$$($(PYTHON) -I tests/qemu/tasks_oracle.py $$jobs $$4);; \
+	  jobs_many|jobs_full) expect=$$($(PYTHON) -I tests/qemu/tasks_oracle.py $$jobs $$4);; \
 	esac; \
 	RT_TASKS=$$2 RT_STACK=$$3 RT_YIELDS=$$4 RT_JOBS=$$jobs RT_EXPECT=$$expect \
 	$(RUSTC) $(RUST_FLAGS) $(RUST_LINK_BASE) -C link-arg=-Wl,-T,$(TASKS_LD) \
@@ -487,7 +487,7 @@ test-tasks: $(TASKS_ELFS) | need-qemu need-arm ## Run the emulator-only task exp
 	@tests/qemu/run.sh qemu-jobs-100000 $(QEMU_OUT)/tasks-jobs-100k.elf $(LOGS)/tasks-jobs-100k.log 0 \
 	    "tasks: PASS jobs many (100000 jobs x 10 steps)"
 	@tests/qemu/run.sh qemu-jobs-queue-full $(QEMU_OUT)/tasks-jobs-full.elf $(LOGS)/tasks-jobs-full.log 0 \
-	    "tasks: PASS jobs full (job 65 of 64 refused; the 64 jobs then ran 192 steps"
+	    "tasks: PASS jobs full (job 65 of 64 refused; the 64 jobs then ran 192 steps in the expected order)"
 	@tests/qemu/run.sh qemu-jobs-stack-overrun $(QEMU_OUT)/tasks-jobs-overflow.elf $(LOGS)/tasks-jobs-overflow.log 1 \
 	    "tasks: FAULT found after the overrunning job's step, before the next job ran"
 	@export LC_ALL=C; \
@@ -586,7 +586,7 @@ clean: ## Remove the build directory (sources are never touched)
 
 # ---- measurements (not tests, not part of check) ---------------------------
 
-measure-tasks: | need-qemu need-arm need-rust ## Measure the task experiment (ADR 0003): task counts up to QEMU's RAM, instructions per switch, bytes. Prints figures; slow; not part of check
+measure-tasks: | need-qemu need-arm need-rust ## Measure the task experiment (ADR 0003): task counts up to QEMU's RAM, instructions per switch, bytes, job counts and instructions per job step. Prints figures; slow; not part of check
 	@MAKE='$(MAKE)' tests/qemu/measure_tasks.sh $(OUT)/measure
 
 # ---- interactive (not tests) ----------------------------------------------

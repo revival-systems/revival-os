@@ -76,7 +76,7 @@ const fn parse_dec(s: &str) -> usize {
 }
 
 /// A 32-bit `0x...` number from the build (lower-case), checked at compile time.
-#[cfg(any(tcase_many, tcase_jobs_many))]
+#[cfg(any(tcase_many, tcase_jobs_many, tcase_jobs_full))]
 const fn parse_hex(s: &str) -> u32 {
     let b = s.as_bytes();
     assert!(b.len() > 2 && b.len() <= 10 && b[0] == b'0' && b[1] == b'x', "expected 0x and 1 to 8 hex digits");
@@ -98,7 +98,7 @@ const MAX_TASKS: usize = parse_dec(env!("RT_TASKS"));
 const STACK_BYTES: usize = parse_dec(env!("RT_STACK"));
 #[cfg(not(tcase_return))]
 const YIELDS: u32 = parse_dec(env!("RT_YIELDS")) as u32;
-#[cfg(any(tcase_many, tcase_jobs_many))]
+#[cfg(any(tcase_many, tcase_jobs_many, tcase_jobs_full))]
 const EXPECT_ORDER: u32 = parse_hex(env!("RT_EXPECT"));
 #[cfg(tmodel_jobs)]
 const MAX_JOBS: usize = parse_dec(env!("RT_JOBS"));
@@ -1107,7 +1107,9 @@ extern "C" fn job_runner(_arg: usize) {
         };
         let again = step(job.id, job.iter);
         yield_now();
-        // pop() freed an entry, so this push cannot be refused.
+        // pop() freed an entry, so this push cannot be refused, as long as no
+        // step queues a job itself (none does here; a step that fans out would
+        // take the freed entry, and this re-queue would then end the run).
         if again && push(Job { step: job.step, id: job.id, iter: job.iter + 1 }).is_err() {
             puts("tasks: FAIL a job could not be queued again\n");
             // SAFETY: semihosting exit.
@@ -1219,7 +1221,8 @@ fn case() -> i32 {
 }
 
 /// A full queue refuses one more job, and the refusal changes nothing: the
-/// queued jobs run to the expected total.
+/// queued jobs run to the expected total, in the expected order (a refusal
+/// that overwrote a queued job would keep the total but change the order).
 #[cfg(tcase_jobs_full)]
 fn case() -> i32 {
     jobs_header("jobs full");
@@ -1242,10 +1245,19 @@ fn case() -> i32 {
         return 1;
     }
     // SAFETY: scheduler context after run().
-    let (total, order) = unsafe { ((*STATS.ptr()).total, (*STATS.ptr()).order) };
+    let (total, order, ended) = unsafe { ((*STATS.ptr()).total, (*STATS.ptr()).order, (*SCHED.ptr()).ended) };
     let want = MAX_JOBS as u32 * YIELDS;
+    puts("tasks: total ");
+    put_dec(total as usize);
+    puts(" (want ");
+    put_dec(want as usize);
+    puts("), order ");
+    put_hex(order);
+    puts(" (want ");
+    put_hex(EXPECT_ORDER);
+    puts(")\n");
     report_job_cost();
-    if total == want && queued() == 0 && free_count() == MAX_TASKS {
+    if total == want && order == EXPECT_ORDER && queued() == 0 && ended == 1 && free_count() == MAX_TASKS {
         puts("tasks: PASS jobs full (job ");
         put_dec(MAX_JOBS + 1);
         puts(" of ");
@@ -1254,9 +1266,7 @@ fn case() -> i32 {
         put_dec(MAX_JOBS);
         puts(" jobs then ran ");
         put_dec(total as usize);
-        puts(" steps, order ");
-        put_hex(order);
-        puts(")\n");
+        puts(" steps in the expected order)\n");
         0
     } else {
         puts("tasks: FAIL jobs full: total ");
