@@ -1,11 +1,11 @@
-# Phase 2 write plan, method A (`RECOVERY` only): DRAFT v3
+# Phase 2 write plan, method A (`RECOVERY` only): DRAFT v3.1
 
 **This is a draft. It approves nothing.**
 
 - **No command in this document may be run** until an approved write-plan issue exists ([AGENTS.md](../../AGENTS.md#hardware-safety-contract), rule 1).
 - **The issue is opened by the implementer when the reviewer's task says so.** This file is the proposed text of that issue. The reviewer reviews it, and **the owner approves the finished plan**.
 - Every `heimdall flash` line below is a proposal. Until the issue is approved, the only commands allowed on the phone are the read-only ones in the [Phase 0 checklist](../phase-0/hardware-verification-checklist.md#rules-for-this-checklist) (rule 5).
-- Written 2026-11-11 from the repository's documents and public sources, revised the same day (v2), and revised on 2026-11-14 (v3) with the recorded Phase 0 facts and the decisions below. **No device was touched and no flash command was run to write it.**
+- Written 2026-11-11 from the repository's documents and public sources, revised the same day (v2), and revised on 2026-11-14 (v3) with the recorded Phase 0 facts and the decisions below. v3.1, the same day, marks the reviewer's confirmed wordings as decided and adds the two-minute wait at the lock screen. **No device was touched and no flash command was run to write it.**
 
 **Phase:** 2, first bare-metal boot ([ROADMAP.md](../../ROADMAP.md#phase-2--first-bare-metal-boot)). **Method:** A, decided by the former orchestrator on 2026-11-11 ([PR #10 comment](https://github.com/revival-systems/revival-os/pull/10#issuecomment-6792632937), decision B). **Partition:** `RECOVERY`, and no other.
 
@@ -48,6 +48,11 @@ The 2026-11-11 decisions were recorded by the former orchestrator in the [PR #12
 | Roles and proof of the owner's acceptance; E-15 stays open | Reviewer decision, 2026-11-14 (u) | Sections 2, 10 |
 | Fresh clone without LFS download; no hosted run | Reviewer decision, 2026-11-14 (v) | Sections 3, 12 |
 | PRs #10, #11 and #14 merged; E-11 names the commit on `main` once the plan is final | Reviewer decision, 2026-11-14 (w) | Sections 1, 2 (E-11) |
+| Reset loop: a second self-reset in one window ends the trial and the series | Reviewer decision, 2026-11-14 (v3 review) | Section 4 |
+| Stop rule A5: a second unplanned Android start during the payload's trials ends the series | Reviewer decision, 2026-11-14 (v3 review) | Section 4 |
+| The 30-minute bound of the transfer-failure procedure (F-5) | Reviewer decision, 2026-11-14 (v3 review) | Section 4 |
+| The 10-second key hold that defines the key-release event (T2) | Reviewer decision, 2026-11-14 (v3 review) | Section 4 |
+| Two minutes at the lock screen before powering off, so the restore can finish (S2, A1) | Reviewer decision, 2026-11-14 (v3 review) | Section 4 |
 
 ## Two facts that change the procedure
 
@@ -219,7 +224,7 @@ Blockers 7 to 10 are not open: 7 is decided (method A), 8 and 9 are the reviewed
 | Host | The Ubuntu development machine used for the 2026-11-13 Phase 0 re-test ([DEVELOPMENT.md](../DEVELOPMENT.md#one-time-setup)). No other computer, no virtual machine, no USB hub. |
 | Heimdall | `v2.1.0` as printed by `heimdall version`: Ubuntu package `heimdall-flash` 2.1.0-1build1. A different version stops the plan until the issue is updated. |
 | Other flashing tools | None. No Odin, no fastboot, no lk2nd. |
-| Repository | A fresh clone of the commit named in the issue (E-11), made with `GIT_LFS_SKIP_SMUDGE=1` so the firmware is not downloaded again, with nothing else in it (reviewer decision, 2026-11-14). |
+| Repository | A fresh clone of the commit named in the issue (E-11), made in a shell with `GIT_LFS_SKIP_SMUDGE=1` exported, so that neither the clone nor the checkout downloads the firmware again, with nothing else in it (reviewer decision, 2026-11-14). |
 | Stock image | The private copy named in section 1. |
 | Row decoder | [tools/read_rows.py](../../tools/read_rows.py) at that commit ([Trial kit](boot-payload-research.md#row-reading-tool)). |
 | Camera | A second device that records video with sound and takes sharp still photographs. Its clock is set to the host's. |
@@ -229,7 +234,8 @@ Blockers 7 to 10 are not open: 7 is decided (method A), 8 and 9 are the reviewed
 
 ```sh
 # Host only. Nothing here contacts the phone.
-GIT_LFS_SKIP_SMUDGE=1 git clone https://github.com/revival-systems/revival-os.git && cd revival-os
+export GIT_LFS_SKIP_SMUDGE=1   # for the clone and the checkout: the firmware is not downloaded
+git clone https://github.com/revival-systems/revival-os.git && cd revival-os
 git checkout <commit named in the approved issue>
 git status --short        # must print nothing
 make check                # must exit 0 and print: PASS payload-frozen (payload.bin 8ee519ae…, payload.img bde09074…)
@@ -288,7 +294,7 @@ Reviewer decision, 2026-11-14. A timeout or Ctrl-C on the host does not show tha
 | F-2 | If Heimdall ends within that time, act on its output. A successful end (exit status 0, the line `RECOVERY upload successful`, and no `ERROR` line) continues with D5; any other end continues with F-4. |
 | F-3 | If Heimdall has not ended after 10 minutes, stop the host process and save its complete output. |
 | F-4 | Photograph the phone's screen. |
-| F-5 | Leave the phone and the cable untouched until two photographs taken 5 minutes apart are identical. If they still differ after 30 minutes, keep leaving it untouched and report; wait for the reviewer. |
+| F-5 | Leave the phone and the cable untouched until two photographs taken 5 minutes apart are identical. If they still differ after 30 minutes (the 30-minute bound: reviewer decision, 2026-11-14), keep leaving it untouched and report; wait for the reviewer. |
 | F-6 | Only then unplug the cable and remove the battery. |
 | F-7 | The content of `RECOVERY` is now unknown. Run no trial and repeat no write. Stop and report. |
 
@@ -301,7 +307,7 @@ Repeated; the steps are the same for both images.
 | Step | Action | Expected | Stop if |
 | --- | --- | --- | --- |
 | T1 | Leave the cable unplugged. Start the video recording and say the trial number and the time. The whole screen is in frame. | — | — |
-| T2 | Insert the battery. Hold **Volume Up + Home + Power**. When the Samsung logo appears, release Power only and keep holding the other two until the screen changes, or for 10 seconds after releasing Power if it does not change, whichever comes first, as in checklist E1; then release them. That release is the **key-release event**, read from the video. | The image in `RECOVERY` starts. Sections 6 and 7 list what may appear. | Android's boot animation appears: go to "If Android starts". |
+| T2 | Insert the battery. Hold **Volume Up + Home + Power**, as in checklist E1. When the Samsung logo appears, release Power only and keep holding the other two until the screen changes, or for 10 seconds after releasing Power if it does not change, whichever comes first (the 10-second hold: reviewer decision, 2026-11-14); then release them. That release is the **key-release event**, read from the video. | The image in `RECOVERY` starts. Sections 6 and 7 list what may appear. | Android's boot animation appears: go to "If Android starts". |
 | T3 | Keep filming without touching the phone, for the trial's window ("How long to film"). | A picture that does not change, or one of the other outcomes in sections 6 and 7. | The phone becomes hot, or smells: remove the battery at once. |
 | T4 | While filming continues, take a sharp still photograph of the whole screen, square on, with no reflection across the rows. | Every cell of every row is countable in the photograph. | — |
 | T5 | End the trial at the end of its window: remove the battery. Say the time. Wait 10 seconds. Stop the recording. | The screen goes dark. | The screen stays lit with the battery out. |
@@ -323,8 +329,8 @@ Rules for every window:
 
 - **One fixed window per trial.** A reset does not restart it. The trial ends at the window's end, whatever happened inside it.
 - **The first self-reset:** keep filming and touch no key. What the phone starts next is part of the result (section 6).
-- **Reset loop:** if the phone resets by itself a second time within one window, remove the battery at once (unless Android's boot animation is showing, below), record a reset loop with each reset's time, and stop the series after this trial.
-- **Android ends the window.** If Android's boot animation appears at any point in a window, after a reset or otherwise, the window and the reset-loop rule no longer apply. Do not remove the battery: follow "If Android starts" from A1. A second reset that started Android is recorded as a reset loop after A2.
+- **Reset loop** (reviewer decision, 2026-11-14): a second self-reset in one window ends the trial and the series. If the phone resets by itself a second time within one window, remove the battery at once (unless Android's boot animation is showing, below), record a reset loop with each reset's time, and stop the series after this trial.
+- **Android ends the window.** If Android's boot animation appears at any point in a window, after a reset or otherwise, the window and the reset-loop rule no longer apply. Do not remove the battery: follow "If Android starts" from A1. A second reset that started Android is recorded as a reset loop after A2, and it too ends the series.
 - **The exception** replaces the formula only for the image whose self-reset started Android, including after W3 for `payload.img`. A reset seen with `payload-invalid.img` does not shorten any `payload.img` window. The reset time and what started next are recorded from the trial that showed them; they are not measured again. If the reset comes too soon to photograph the screen and remove the battery, stop and report.
 - **Observations only.** A reset and its latency are recorded as observations. Timing alone does not prove that a watchdog caused a reset, and no reset in ten minutes does not prove that the watchdog is off. The reference timeouts in the research, 0.39 and 48 seconds ([section 4](boot-payload-research.md#4-watchdog)), are not known to apply.
 
@@ -333,7 +339,7 @@ Rules for every window:
 | Step | Action | Stop if |
 | --- | --- | --- |
 | S1 | **W1, then `payload-invalid.img`:** up to 3 trials. One trial is enough if it ends in Android starting, because `RECOVERY` is then assumed rewritten with stock recovery (E-13), which S2 checks. | The trials' results differ from each other. |
-| S2 | **Rescue check** (reviewer decision, 2026-11-14), required before W2. Insert the battery and power on normally. Let Android start once and reach the lock screen, accepting no prompt; it should rewrite `RECOVERY`. Power off from Android's menu, remove the battery and wait 10 seconds. With the camera recording, insert the battery and hold the recovery keys as in T2. The stock recovery menu proves the restore route with no host write: photograph it, select **reboot system now** and nothing else, let Android start, and power off from its menu. Only then go on to W2. | The stock recovery menu does not appear. Stop and report. |
+| S2 | **Rescue check** (reviewer decision, 2026-11-14), required before W2. Insert the battery and power on normally. Let Android start once and reach the lock screen, accepting no prompt; it should rewrite `RECOVERY`. Once the lock screen shows, wait two minutes, touching nothing, so that the restore has time to finish (reviewer decision, 2026-11-14). Then power off from Android's menu, remove the battery and wait 10 seconds. With the camera recording, insert the battery and hold the recovery keys as in T2. The stock recovery menu proves the restore route with no host write: photograph it, select **reboot system now** and nothing else, let Android start, and power off from its menu. Only then go on to W2. | The stock recovery menu does not appear. Stop and report. |
 | S3 | **W2, then `payload.img`:** 5 trials, each started from a removed battery (T1–T7), with no Android start and no Download-mode entry between them. The pass criterion is in section 6. | Two trials differ: record both, stop, report. A failed trial is recorded, not repeated or replaced. |
 | S4 | After the last trial: enter Download mode (D1), photograph and transcribe the status lines (D2), run `heimdall detect` (D3), and leave by removing the battery (D6). | Download mode cannot be reached: section 9. |
 | S5 | Write nothing more. `RECOVERY` is left holding `payload.img`; a stock image is not restored unless section 9 requires it. | — |
@@ -346,11 +352,11 @@ At any point after W1, outside the rescue check (S2), before the last trial. Any
 
 | Step | Action | Why, and what follows |
 | --- | --- | --- |
-| A1 | Do not remove the battery. Let Android reach the lock screen. Accept no prompt in Android: no update, no setup. Touch nothing else. Keep filming and note the time. | Android is assumed to be rewriting `RECOVERY` at that moment (E-13). Interrupting it would leave the partition half written. |
+| A1 | Do not remove the battery. Let Android reach the lock screen, then wait two more minutes, touching nothing (reviewer decision, 2026-11-14). Accept no prompt in Android: no update, no setup. Keep filming and note the time the lock screen appeared. | Android is assumed to be rewriting `RECOVERY` at that moment (E-13). The two minutes give the restore time to finish; interrupting it would leave the partition half written. |
 | A2 | Power off from Android's own power menu, and do nothing else in Android. Remove the battery and wait 10 seconds. Record that Android started, and what led to it: the keys, a restart after the write, a self-reset during a trial, or a rejected image. | The content of `RECOVERY` is now not known. |
 | A3 | Run one **check trial** (T1–T7). If Android was started by a self-reset, end it before the reset time seen ("How long to film"). | **The payload appears:** it survived. This check trial is **trial 1 of a new series**; earlier trials are recorded, not counted. **The stock recovery menu appears:** if at least one trial since the last write showed the payload before this Android start, the payload was replaced: select **reboot system now** and nothing else, let Android start, power off from its menu, then A4. If no trial since the last write had shown the payload, this is not evidence of replacement: stop and report; no W3. **Any other screen:** end the trial as its section 6 row says, record it, then stop and report; `RECOVERY`'s content is not established, and W3 is not allowed on it. **During the invalid image's trials:** the check trial is not needed; go to S2. |
 | A4 | Only for `payload.img`, and only on the evidence in A3 that it was replaced (the payload was seen running after the last write, and then replaced): W3, once. The series then restarts with five trials, each from a removed battery. | No other reason allows W3. |
-| A5 | **Stop rule.** A second unplanned Android start during the payload's trials, counted from W2, ends the series: stop and report. The plan's own Android starts (S2, and every "reboot system now" from the stock recovery menu) are not counted. | The write budget stays at four; a phone that keeps starting Android is a result to report, not a reason for more writes. |
+| A5 | **Stop rule** (reviewer decision, 2026-11-14). A second unplanned Android start during the payload's trials, counted from W2, ends the series: stop and report. The plan's own Android starts (S2, and every "reboot system now" from the stock recovery menu) are not counted. | The write budget stays at four; a phone that keeps starting Android is a result to report, not a reason for more writes. |
 
 ## 5. Order of the two images
 
@@ -573,7 +579,6 @@ Everything this draft leaves open, in one place.
 | The commit on `main` to build from | Open | E-11 |
 | The five phone-only questions accepted as open | Open | E-10 |
 | The write host, cable and port | Open | E-16 |
-| The reset-loop rule and the A5 stop rule's exact wording | Proposed in v3 | The reviewer's review |
 | Does this phone's Android actually rewrite `RECOVERY`? | Assumed yes (E-13) | The rescue check (S2) |
 | Rescue by W4 | Untested | Only if section 9 requires it |
 | Signing-chain verification of the stock images | Not done | Not needed for this plan; recorded as a limit |
