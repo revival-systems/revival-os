@@ -39,8 +39,15 @@
 //!   RT_JOBS    queue capacity and jobs queued (job cases)
 //!   RT_EXPECT  order checksum from tests/qemu/tasks_oracle.py (the "many"
 //!              cases)
-//! and one case cfg: tcase_many, tcase_full, tcase_overflow, tcase_return,
+//! and one case cfg: tcase_many, tcase_full, tcase_return; with
+//! tgroup_overflow, tcase_overflow, tcase_overflow_sp or tcase_overflow_exit;
 //! or, with tmodel_jobs, tcase_jobs_many, tcase_jobs_full, tcase_jobs_overflow.
+//!
+//! Calling contract: spawn and run only from the scheduler context (spawn
+//! refuses a running task with SpawnError::FromTask); yield_now only from a
+//! running task, and task_exited only through task_trampoline. The test cases
+//! keep to this; yield_now and run do not check it themselves, so the code
+//! that builds on this experiment (ROADMAP 3g) must, as spawn does.
 //! The context switch is the only assembly (switch.S); kstart.S (Phase 1)
 //! supplies the entry, the vectors and the semihosting exit.
 
@@ -276,7 +283,7 @@ enum SpawnError {
 }
 
 impl SpawnError {
-    #[cfg_attr(tcase_overflow, allow(dead_code))] // unused only in the overflow image
+    #[cfg_attr(tgroup_overflow, allow(dead_code))] // unused only in the overflow images
     fn name(self) -> &'static str {
         match self {
             SpawnError::TableFull => "table full",
@@ -412,10 +419,12 @@ fn fault(cur: u32, kind: FaultKind, value: usize, addr: usize) -> ! {
     }
 }
 
-/// Gives the CPU to the next task in the ring (round robin).
+/// Gives the CPU to the next task in the ring (round robin). Only a running
+/// task may call it (the calling contract in the header).
 #[inline(never)]
 fn yield_now() {
-    // SAFETY: see Global; `current` and every ring index are below MAX_TASKS.
+    // SAFETY: see Global. Called from a running task, so `current` is a live
+    // task below MAX_TASKS, and every ring index is below MAX_TASKS.
     unsafe {
         let s = SCHED.ptr();
         let t = TCBS.ptr();
@@ -464,7 +473,7 @@ pub extern "C" fn task_exited() -> ! {
 
 /// Bytes of a slot written since its spawn (painted words overwritten),
 /// counted down from the top. Valid until the slot is spawned again.
-#[cfg_attr(tcase_overflow, allow(dead_code))] // unused only in the overflow image
+#[cfg_attr(tgroup_overflow, allow(dead_code))] // unused only in the overflow images
 fn high_water(slot: u32) -> usize {
     let base = slot_base(slot);
     let top = base + STACK_BYTES;
@@ -476,7 +485,7 @@ fn high_water(slot: u32) -> usize {
     top - a
 }
 
-#[cfg_attr(any(tcase_overflow, tmodel_jobs), allow(dead_code))] // unused in the overflow and job images
+#[cfg_attr(any(tgroup_overflow, tmodel_jobs), allow(dead_code))] // unused in the overflow and job images
 fn max_high_water(slots: usize) -> usize {
     let mut max = 0;
     let mut i = 0;
@@ -491,7 +500,7 @@ fn max_high_water(slots: usize) -> usize {
 }
 
 /// Free slots, counted along the free list (bounded, in case it is corrupt).
-#[cfg_attr(any(tcase_overflow, tcase_jobs_overflow), allow(dead_code))] // unused in the two overflow images
+#[cfg_attr(any(tgroup_overflow, tcase_jobs_overflow), allow(dead_code))] // unused in the overflow images
 fn free_count() -> usize {
     // SAFETY: see Global.
     unsafe {
@@ -531,7 +540,7 @@ fn report_fault() {
     puts("; found at a switch, no task resumed\n");
 }
 
-#[cfg_attr(any(tcase_overflow, tmodel_jobs), allow(dead_code))] // unused in the overflow and job images
+#[cfg_attr(any(tgroup_overflow, tmodel_jobs), allow(dead_code))] // unused in the overflow and job images
 fn report_cost(slots: usize) {
     puts("tasks: cost per task: ");
     put_dec(core::mem::size_of::<Tcb>());
@@ -583,7 +592,7 @@ static STATS: Global<Stats> = Global::new(Stats {
 
 /// One iteration of bookkeeping, then a yield. tests/qemu/tasks_oracle.py
 /// computes the same order checksum for N tasks run round robin.
-#[cfg(any(tcase_many, tcase_full, tcase_overflow))]
+#[cfg(any(tcase_many, tcase_full, tgroup_overflow))]
 extern "C" fn worker(arg: usize) {
     #[cfg_attr(not(tcase_many), allow(unused_variables))]
     let id = arg as u32;
@@ -603,8 +612,7 @@ extern "C" fn worker(arg: usize) {
     }
 }
 
-#[cfg(any(tcase_many, tcase_full, tcase_overflow))]
-#[cfg_attr(tcase_overflow, allow(dead_code))] // unused only in the overflow image
+#[cfg(any(tcase_many, tcase_full))]
 fn spawn_workers(n: usize) -> bool {
     let mut i = 0;
     while i < n {
@@ -729,7 +737,7 @@ fn case() -> i32 {
 
 /// Writes STACK_BYTES bytes of locals: more than the slot has left, so the
 /// writes run over the guard word into the slot below.
-#[cfg(any(tcase_overflow, tcase_jobs_overflow))]
+#[cfg(any(tcase_overflow, tcase_overflow_exit, tcase_jobs_overflow))]
 #[inline(never)]
 fn smash_stack() {
     let mut buf = [0u32; STACK_BYTES / 4];
@@ -754,24 +762,77 @@ extern "C" fn overflower(_arg: usize) {
     unsafe { rt_exit(1) }
 }
 
-/// Task 1 of 3 overruns its stack; the next switch must report it.
-#[cfg(tcase_overflow)]
-fn case() -> i32 {
-    header("overflow");
-    if spawn(worker, 0).is_err() || spawn(overflower, 1).is_err() || spawn(worker, 2).is_err() {
+/// Yields from inside a frame that leaves less room than a switch needs above
+/// the guard word, without writing it: only the stack-pointer check can see it.
+#[cfg(tcase_overflow_sp)]
+#[inline(never)]
+fn yield_from_deep_frame() {
+    let deep = core::mem::MaybeUninit::<[u32; (STACK_BYTES - 96) / 4]>::uninit();
+    black_box(&deep);
+    yield_now(); // the stack-pointer check in this switch must stop the task
+    black_box(&deep);
+}
+
+#[cfg(tcase_overflow_sp)]
+extern "C" fn deep_yielder(_arg: usize) {
+    yield_now();
+    yield_from_deep_frame();
+    puts("tasks: FAIL the deep yield was not stopped\n");
+    // SAFETY: semihosting exit.
+    unsafe { rt_exit(1) }
+}
+
+/// Overruns its stack and returns without yielding: only the check at the
+/// task's exit can see it.
+#[cfg(tcase_overflow_exit)]
+extern "C" fn smash_and_return(_arg: usize) {
+    yield_now();
+    smash_stack();
+}
+
+/// Task 1 of 3 (tasks 0 and 2 are workers) misuses its stack. The fault must
+/// be the expected kind, in task 1, found at its next switch: after exactly 3
+/// iterations (two of task 0, one of task 2), with no task resumed after it.
+#[cfg(tgroup_overflow)]
+fn overflow_case(case: &str, culprit: extern "C" fn(usize), want: FaultKind, found_by: &str) -> i32 {
+    header(case);
+    if spawn(worker, 0).is_err() || spawn(culprit, 1).is_err() || spawn(worker, 2).is_err() {
         puts("tasks: FAIL spawn\n");
         return 1;
     }
     if run() {
-        puts("tasks: FAIL overflow: the run ended without a fault\n");
+        puts("tasks: FAIL ");
+        puts(case);
+        puts(": the run ended without a fault\n");
         return 1;
     }
     report_fault();
-    puts("tasks: iterations run before the fault: ");
     // SAFETY: scheduler context after run().
-    put_dec(unsafe { (*STATS.ptr()).total } as usize);
+    let (total, f) = unsafe { ((*STATS.ptr()).total, (*SCHED.ptr()).fault) };
+    puts("tasks: iterations run before the fault: ");
+    put_dec(total as usize);
     putc(b'\n');
+    if f.kind == want && f.task == 1 && total == 3 {
+        puts("tasks: FAULT found by ");
+        puts(found_by);
+        puts(" (task 1, 3 iterations before it); no task resumed\n");
+    }
     1
+}
+
+#[cfg(tcase_overflow)]
+fn case() -> i32 {
+    overflow_case("overflow", overflower, FaultKind::GuardWord, "the guard-word check at the task's next yield")
+}
+
+#[cfg(tcase_overflow_sp)]
+fn case() -> i32 {
+    overflow_case("overflow, stack pointer", deep_yielder, FaultKind::StackPointer, "the stack-pointer check at the task's yield")
+}
+
+#[cfg(tcase_overflow_exit)]
+fn case() -> i32 {
+    overflow_case("overflow at exit", smash_and_return, FaultKind::GuardWord, "the guard-word check at the task's exit")
 }
 
 /// Task k yields k % 4 times, then returns (k % 4 == 0 returns at once).

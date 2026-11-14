@@ -97,12 +97,14 @@ RUSTNEG        := $(OUT)/rust-negative
 # bounded queue) run every job on one runner task. tests/qemu/measure_tasks.sh
 # builds more cases through the same rule.
 TASKS_LD                := $(FIXTURE)/tasks.ld
-TASKS_CASES             := many-1k many-10k full overflow return jobs-1k jobs-100k jobs-full jobs-overflow
+TASKS_CASES             := many-1k many-10k full overflow overflow-sp overflow-exit return jobs-1k jobs-100k jobs-full jobs-overflow
 TASKS_ELFS              := $(TASKS_CASES:%=$(QEMU_OUT)/tasks-%.elf)
 TASKS_CFG_many-1k       := many 1000 512 100
 TASKS_CFG_many-10k      := many 10000 256 10
 TASKS_CFG_full          := full 64 256 3
 TASKS_CFG_overflow      := overflow 4 512 4
+TASKS_CFG_overflow-sp   := overflow_sp 4 512 4
+TASKS_CFG_overflow-exit := overflow_exit 4 512 4
 TASKS_CFG_return        := return 64 256 1
 TASKS_CFG_jobs-1k       := jobs_many 4 512 100 1000
 TASKS_CFG_jobs-100k     := jobs_many 4 512 10 100000
@@ -246,12 +248,13 @@ $(QEMU_OUT)/switch.o: $(FIXTURE)/switch.S | need-arm
 # of (capacity + 1) stack slots, the lowest one an unused moat. kstart.S
 # (Phase 1) supplies the entry, the vectors and the semihosting exit. The
 # "many" cases get their expected order checksum from the Python oracle; the
-# job cases also get --cfg tmodel_jobs and RT_JOBS.
+# job cases also get --cfg tmodel_jobs and RT_JOBS, the overflow cases
+# --cfg tgroup_overflow.
 $(QEMU_OUT)/tasks-%.elf: $(FIXTURE)/tasks.rs $(QEMU_OUT)/kstart.o $(QEMU_OUT)/switch.o $(TASKS_LD) tests/qemu/tasks_oracle.py | need-rust need-arm
 	@mkdir -p $(@D)
 	@test -n "$(TASKS_CFG_$*)" || { echo "no TASKS_CFG_$* for $@"; exit 1; }
 	set -- $(TASKS_CFG_$*); \
-	jobs=$${5:-0}; model=; case "$$1" in jobs_*) model='--cfg tmodel_jobs';; esac; \
+	jobs=$${5:-0}; model=; case "$$1" in jobs_*) model='--cfg tmodel_jobs';; overflow*) model='--cfg tgroup_overflow';; esac; \
 	expect=0x0; case "$$1" in \
 	  many) expect=$$($(PYTHON) -I tests/qemu/tasks_oracle.py $$2 $$4);; \
 	  jobs_many) expect=$$($(PYTHON) -I tests/qemu/tasks_oracle.py $$jobs $$4);; \
@@ -479,7 +482,11 @@ test-tasks: $(TASKS_ELFS) | need-qemu need-arm ## Run the emulator-only task exp
 	@tests/qemu/run.sh qemu-tasks-table-full $(QEMU_OUT)/tasks-full.elf $(LOGS)/tasks-full.log 0 \
 	    "tasks: PASS full (spawn 65 of 64 refused; the 64 tasks then ran 192 iterations)"
 	@tests/qemu/run.sh qemu-tasks-stack-overrun $(QEMU_OUT)/tasks-overflow.elf $(LOGS)/tasks-overflow.log 1 \
-	    "tasks: FAULT stack overflow in task 1: guard word"
+	    "tasks: FAULT found by the guard-word check at the task's next yield (task 1, 3 iterations before it); no task resumed"
+	@tests/qemu/run.sh qemu-tasks-stack-pointer $(QEMU_OUT)/tasks-overflow-sp.elf $(LOGS)/tasks-overflow-sp.log 1 \
+	    "tasks: FAULT found by the stack-pointer check at the task's yield (task 1, 3 iterations before it); no task resumed"
+	@tests/qemu/run.sh qemu-tasks-overrun-at-exit $(QEMU_OUT)/tasks-overflow-exit.elf $(LOGS)/tasks-overflow-exit.log 1 \
+	    "tasks: FAULT found by the guard-word check at the task's exit (task 1, 3 iterations before it); no task resumed"
 	@tests/qemu/run.sh qemu-tasks-return $(QEMU_OUT)/tasks-return.elf $(LOGS)/tasks-return.log 0 \
 	    "tasks: PASS return (wave 1: 64 tasks returned and 64 slots reclaimed; spawn from a running task refused; wave 2: 64 tasks in the same slots returned)"
 	@tests/qemu/run.sh qemu-jobs-1000 $(QEMU_OUT)/tasks-jobs-1k.elf $(LOGS)/tasks-jobs-1k.log 0 \
@@ -490,9 +497,14 @@ test-tasks: $(TASKS_ELFS) | need-qemu need-arm ## Run the emulator-only task exp
 	    "tasks: PASS jobs full (job 65 of 64 refused; the 64 jobs then ran 192 steps"
 	@tests/qemu/run.sh qemu-jobs-stack-overrun $(QEMU_OUT)/tasks-jobs-overflow.elf $(LOGS)/tasks-jobs-overflow.log 1 \
 	    "tasks: FAULT found after the overrunning job's step, before the next job ran"
-	@u=$$($(ARM_NM) -u $(QEMU_OUT)/tasks-many-1k.elf | wc -l | tr -d ' '); \
-	  if [ "$$u" = 0 ]; then echo "PASS build-tasks-symbols (no undefined symbols; Rust links its own core)"; \
-	  else echo "FAIL build-tasks-symbols: $$u undefined"; $(ARM_NM) -u $(QEMU_OUT)/tasks-many-1k.elf; exit 1; fi
+	@export LC_ALL=C; \
+	  refs=$$($(ARM_NM) -u -A $(QEMU_OUT)/kstart.o $(QEMU_OUT)/switch.o | awk '{print $$NF}' | sort -u); \
+	  defs=$$($(ARM_NM) --defined-only $(QEMU_OUT)/tasks-many-1k.elf | awk '{print $$NF}' | sort -u); \
+	  missing=$$(comm -23 <(printf '%s\n' $$refs) <(printf '%s\n' $$defs) | tr '\n' ' '); \
+	  u=$$($(ARM_NM) -u $(QEMU_OUT)/tasks-many-1k.elf | wc -l | tr -d ' '); \
+	  if [ -z "$$missing" ] && [ "$$u" = 0 ]; then \
+	    echo "PASS build-tasks-symbols (every symbol kstart.o and switch.o reference, weak ones included, is defined in the image; none is undefined)"; \
+	  else echo "FAIL build-tasks-symbols: referenced but not defined in the image: $$missing; undefined: $$u"; exit 1; fi
 	@n=$$($(ARM_OBJDUMP) -d $(QEMU_OUT)/tasks-many-1k.elf | grep -cE '\s(svc|swi|smc|hvc)\s' || true); \
 	  if [ "$$n" = 1 ]; then echo "PASS build-tasks-one-svc (only the semihosting exit; the context switch makes no system call)"; \
 	  else echo "FAIL build-tasks-one-svc: found $$n"; exit 1; fi

@@ -7,9 +7,13 @@
  * stack pointer, loads another stack pointer and resumes the other chain.
  * Rust has no way to name those registers or to replace the stack pointer
  * in the middle of a function: the compiler owns sp and assumes it never
- * changes under it. So the switch is four instructions of assembly, and the
- * trampoline that starts a new task is three more. Everything else
- * (choosing the next task, checking the stack guard, the task table) is Rust.
+ * changes under it. So the switch is four instructions of assembly.
+ * The trampoline that starts a new task (three more) is assembly because of
+ * the frame this experiment chose: spawn() leaves the entry function and its
+ * argument in r4 and r5, which only assembly can read. A Rust entry shim that
+ * read them from the task's slot instead would need no assembly; ADR 0003
+ * records that as an open choice. Everything else (choosing the next task,
+ * checking the stack guard, the task table) is Rust.
  *
  * Calling convention (AAPCS, soft-float): r0-r3, r12 and lr are caller-saved,
  * so a call to ctx_switch from Rust only has to preserve r4-r11 and sp. There

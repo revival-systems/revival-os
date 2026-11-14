@@ -5,8 +5,10 @@
  * 32-bit image at 0x40000000 can address below 4 GiB with the MMU off, so
  * that the measurement runs can size the arena up to the RAM QEMU is given
  * with -m (the region ends below 4 GiB, so no address wraps). The make check
- * images stay small (tests/qemu/run.sh gives QEMU 64M). An arena that does
- * not fit the RAM QEMU has faults when spawn() first paints past its end. */
+ * images stay small (tests/qemu/run.sh gives QEMU 64M). The arena is part
+ * of the data segment's memory size, so QEMU refuses to load an image whose
+ * arena does not fit the RAM given with -m ("too large to fit in RAM") and
+ * the guest never runs; QEMU's loader also zero-fills the arena. */
 ENTRY(_start)
 
 MEMORY
@@ -54,7 +56,8 @@ SECTIONS
     /* The task arena: (tasks + 1) stack slots, the lowest one an unused moat
      * between the scheduler's stack and the tasks' stacks. The Makefile gives
      * the size with --defsym=__task_arena_size=...; a link without it fails.
-     * Not zeroed by kstart.S: spawn() paints each slot before a task uses it. */
+     * Not zeroed by kstart.S (QEMU's loader zero-fills it): spawn() paints
+     * each slot before a task uses it. */
     .task_arena (NOLOAD) : ALIGN(8)
     {
         __task_arena_start = .;

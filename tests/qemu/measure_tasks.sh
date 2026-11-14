@@ -9,9 +9,10 @@
 #      image runs with the MMU off at 0x40000000, so it can use at most the
 #      3 GiB below 4 GiB.
 #   2. Instructions per switch: two runs of the same image shape (capacity
-#      1,000) that differ only in yields per task (2 and 4, so that both
-#      builds have the same loop), each traced one executed instruction at a
-#      time; insn_profile.py divides the difference by the extra yields, which
+#      1,000) that differ only in yields per task (2 and 4: the compiler
+#      unrolls both loops, and their first and last iterations cancel in the
+#      difference), each traced one executed instruction at a time;
+#      insn_profile.py divides the difference by the extra yields, which
 #      cancels start-up and reporting.
 #   3. Code and image bytes, from nm and size.
 #   4. Run-to-completion jobs (the second experiment): the largest job count
