@@ -1,0 +1,145 @@
+# ADR 0003 — The task model: what one task costs (emulator experiment)
+
+- **Status:** Proposed. The reviewer decides.
+- **Builds on:** [ADR 0002](0002-design-goals.md) goal 4 (scalable: thousands of tasks, one more task at a small, fixed cost) and goal 7 (the memory rule), and [ADR 0001](0001-rust-and-arm-assembly.md) (Rust; assembly only where Rust cannot work).
+- **Scope:** QEMU's `virt` board with a Cortex-A15 CPU model, ARMv7-A. **Emulator only.** It does not start Phase 3 on the phone and claims nothing for the phone. **Emulator timing is not phone timing**, and no time below is a phone figure.
+
+## Context
+
+Goal 4 asks for many pieces of work at once, from dozens up to thousands. Nothing in the project showed what one piece of work costs. The roadmap's provisional sub-milestone 3g (tasks and scheduling) needs a task model before Phase 3 starts. This record measures one model, the stackful task, in the emulator, and sets it beside the other two options.
+
+## Options compared
+
+| Option | What one unit of work holds | Memory per unit | What it allows | What it costs |
+| --- | --- | --- | --- | --- |
+| **Stackful tasks** (built here) | Its own stack and a table entry | Stack slot + 8 bytes | Any function can yield or block anywhere, at any call depth; code is written straight through | The stack must be sized for the deepest path. Without an MMU an overrun is caught after the fact (guard word); an MMU guard page catches it at once but works in 4 KiB pages |
+| **Run-to-completion jobs** (not built) | A queue entry: a function and its state | A queue entry (a function pointer and a few words) | No stack per job and no context switch; jobs share one stack | A job cannot wait in the middle. Long work is split into steps, and its state lives outside the stack |
+| **Stackless state machines** (Rust `async` without a heap; not built) | One state machine per task, sized by the compiler | The size of that state machine | Yield at any `.await` without a stack per task | Needs an executor and, with no heap, a static pool per task type. The state machine grows with what is held across each `.await` |
+
+Only the first was built. The other two are compared from how they work, not from measurements here.
+
+## What was built
+
+All of it is emulator test fixture code next to the Phase 1 kernel, in [tests/qemu/virt-armv7/](../../tests/qemu/virt-armv7/kernel.rs). There is no `kernel/` tree and nothing under `boot/` changed.
+
+| File | What it is |
+| --- | --- |
+| [tasks.rs](../../tests/qemu/virt-armv7/tasks.rs) | `#![no_std]` Rust, no heap, no allocator. The task table, the stack arena, spawn, round-robin `yield_now`, task exit, the stack checks and the five test cases |
+| [switch.S](../../tests/qemu/virt-armv7/switch.S) | The only new assembly: `ctx_switch` (4 instructions) and `task_trampoline` (3 instructions), with the reason they cannot be Rust |
+| [tasks.ld](../../tests/qemu/virt-armv7/tasks.ld) | The Phase 1 link layout plus the task arena, and RAM up to what a flat 32-bit image can address |
+| [tasks_oracle.py](../../tests/qemu/tasks_oracle.py) | Computes, independently, the order checksum that strict round robin must produce |
+| [measure_tasks.sh](../../tests/qemu/measure_tasks.sh), [insn_profile.py](../../tests/qemu/insn_profile.py) | `make measure-tasks`: the measurements below |
+
+**The design.**
+
+- **Task table:** a fixed capacity, set when the image is built. Each entry is 8 bytes: the saved stack pointer and one link. That link is the ready ring while the task lives, or the free list once its slot is free.
+- **Stacks:** one arena of equal slots, reserved by the linker, with one unused slot (the moat) below them, between the scheduler's own stack and the lowest task stack.
+- **Switching:** cooperative and round robin, straight from one task to the next. `ctx_switch` pushes r4–r11 and lr, stores the stack pointer, loads the next one and pops. There is no VFP state, because the build is soft-float.
+- **Limits are errors, not undefined behaviour:**
+  - a full table refuses a spawn;
+  - a spawn from inside a running task is refused, because the ring is built only by the scheduler;
+  - every switch away from a task checks the guard word at the bottom of its slot, and checks that its stack pointer leaves room for the 36-byte switch frame above that word;
+  - a failed check switches straight to the scheduler's stack, which reports the fault and exits without resuming any task;
+  - a task whose function returns is ended and its slot goes back on the free list.
+- **What the guard word cannot do:** it catches only an overrun that writes over it. A frame that skips the word is not caught. An overrun may already have written into the slot below before the next switch finds it; no task runs after that. Prevention needs the MMU guard pages of ROADMAP 3b.
+
+## Tests
+
+All under `make check`, each run bounded by the QEMU time limit. They are listed in [TESTING.md](../TESTING.md#make-test-tasks).
+
+| Test | Shows |
+| --- | --- |
+| `qemu-tasks-1000` | 1,000 tasks × 100 yields: exactly 100,000 iterations, the oracle's order checksum, every task ended, every slot free again |
+| `qemu-tasks-10000` | 10,000 tasks × 10 yields, with 256-byte stacks, to the same standard |
+| `qemu-tasks-table-full` | The 65th spawn into a 64-entry table is refused, and the 64 tasks then run to the expected total |
+| `qemu-tasks-stack-overrun` | A task that writes 512 bytes of locals on a 512-byte stack is reported at its next switch, and the run exits 1 |
+| `qemu-tasks-return` | 64 tasks that return are ended and reclaimed; a second wave of 64 runs in the same slots; a spawn from inside a task is refused |
+| `build-tasks-symbols`, `build-tasks-one-svc` | No undefined symbol, and one system-call instruction, the semihosting exit: the switch makes none |
+
+**Each check can fail.** Each mutation below was applied alone to a scratch copy of the tree, and every test was then run on its own. An unchanged copy was run as a control, and no test failed on it.
+
+| Mutation | Tests that failed |
+| --- | --- |
+| `yield_now` skips the next task | `qemu-tasks-1000`, `-10000`, `-table-full`, `-return` |
+| `ctx_switch` does not save r11 | all five QEMU tests |
+| `spawn` puts the new task at the head of the ring, not the tail | `qemu-tasks-1000`, `-10000` (the order checksum) |
+| The worker runs one iteration too few | `qemu-tasks-1000`, `-10000`, `-table-full` |
+| No capacity check in `spawn` | `qemu-tasks-table-full` only |
+| No guard-word check at a switch | `qemu-tasks-stack-overrun` only |
+| The guard word is never written | all five QEMU tests |
+| An ended task's slot is not reclaimed | `qemu-tasks-1000`, `-10000`, `-table-full`, `-return` |
+| An ended task is not unlinked from the ring | `qemu-tasks-return` only |
+| A spawn from a running task is not refused | `qemu-tasks-return` only |
+| A system call added to `ctx_switch` | all five QEMU tests, and `build-tasks-one-svc` (2 found) |
+
+The first version of the order checksum (rotate and xor) was found too weak while it was being measured. Its rotation repeats every 32 steps, so with 1,000,000 tasks (a multiple of 32) and 4 yields every task's contributions cancelled out. A task that never ran would have gone unseen. It was replaced by an FNV-1a style step (xor, then multiply by an odd constant), in the guest and in the oracle alike.
+
+## Measurements
+
+All are from the commit that adds this record, built by the Makefile's own rule. Every figure except the disassembly breakdown comes from `make measure-tasks`; that breakdown comes from `arm-none-eabi-objdump -d` of the same image. Times are host wall time for a whole QEMU run, not phone time.
+
+**Bytes**
+
+| Figure | Value | Source |
+| --- | --- | --- |
+| One task-table entry | 8 bytes | `size_of::<Tcb>()`, printed by every run |
+| One task, as tested at 10,000 tasks and in the sweep | 8 + 256 = **264 bytes** | The same line ("cost per task") |
+| One task, as tested at 1,000 tasks | 8 + 512 = 520 bytes | `qemu-tasks-1000`'s log |
+| Deepest stack use of a worker task, by stack painting | 84 bytes (capacity 10,000 and the sweep); 92 bytes (capacity 1,000, 512-byte stacks); 76 bytes (64-task images) | "deepest stack use" in each run's log |
+| Scheduler code: `ctx_switch` 16, `task_trampoline` 12, `yield_now` 240, `task_exited` 320, `spawn` 356, `run` 152, `fault` 60, `sched_init` 88 | **1,244 bytes** in all | `arm-none-eabi-nm -S` of the capacity-1,000 image (`make measure-tasks`, part 3) |
+| The whole capacity-1,000 image, loadable: `.text` 11,688 + `.rodata` 4,368 + `.ARM.exidx` 8 + `.data` 48 | 16,112 bytes | `arm-none-eabi-size -A` (part 3). Most of it is the test cases' reporting and Rust core's panic-message formatting, not the scheduler |
+| The same image, reserved: the task table, the scheduler's stack, the arena (1,001 slots of 256 bytes) | 8,004 + 65,536 + 256,256 bytes | The same |
+
+**The largest task count that ran.** Case "many", 256-byte stacks, all tasks spawned before the run and every iteration checked:
+
+| Tasks | Yields each | QEMU RAM | Result | Host seconds |
+| --- | --- | --- | --- | --- |
+| 1,000 | 100 | 64 MiB | PASS | 0.08 |
+| 10,000 | 10 | 64 MiB | PASS | 0.09 |
+| 100,000 | 10 | 256 MiB | PASS | 0.29 |
+| 1,000,000 | 4 | 512 MiB | PASS | 1.64 |
+| 4,000,000 | 2 | 2 GiB | PASS | 4.90 |
+| 8,000,000 | 2 | 3 GiB | PASS | 11.32 |
+| **12,000,000** | 2 | 3 GiB | PASS | 14.55 |
+
+12,000,000 tasks is close to the limit. The image runs with the MMU off from `0x40000000`, so it can use at most the 3 GiB below 4 GiB. At 264 bytes per task that is about 12.2 million tasks, less the image and the scheduler's stack. **Memory is the limit, not the scheduler.**
+
+**The cost of one switch.** One yield: the yielding task's `yield_now` (its stack checks, picking the next task) plus `ctx_switch`, ending in the next task's return from its own `yield_now`.
+
+| Figure | Value | Source |
+| --- | --- | --- |
+| One yield | **48 instructions**: `yield_now` 44 + `ctx_switch` 4 | `make measure-tasks` part 2: QEMU's instruction trace (one instruction per translation block) of two capacity-1,000 runs with 2 and 4 yields per task. The difference is divided by the 2,000 extra yields |
+| The same, from the code | `yield_now`: 42 instructions up to and including the call, 2 on return; `ctx_switch`: 4 | `arm-none-eabi-objdump -d` of the same image; agrees with the trace |
+| Where `yield_now`'s 44 go | stack checks 18 (the guard word 7; the stack pointer 11, which `black_box` forces through memory); bounds checks on the table 6; the frame 5; addresses, loads and the ring 15 | The same disassembly |
+| Code bytes | `ctx_switch` 16; `yield_now` 240, its cold fault and bounds-check paths included | `arm-none-eabi-nm -S` |
+| The worker's own iteration, for comparison | 9 instructions (the test's two counters and the loop) | The same trace |
+
+These are instruction counts on the emulated CPU. Cycles on the phone's Krait cores, with its caches, are not known from them.
+
+## Recommendation, for which kind of work
+
+These are recommendations for the reviewer, from emulator measurements only.
+
+1. **Stackful tasks are cheap enough for the first proof point.** At 264 bytes a task, 1,000 tasks take 264,000 bytes: about 0.02 % of the 1,363,632 kB the phone's stock kernel reports usable. Use them for long-lived activities that wait in the middle of their work: a service loop, a protocol handler, a driver's state.
+2. **Size each kind of task's stack from its measured depth**, by painting as here, plus a stated margin; do not use one large stack for all. The worker here needs 84 bytes; real tasks need their own measurement.
+3. **Use run-to-completion jobs for short, frequent work** (an event, a packet, one step of a longer job), once they are measured. A job needs no stack of its own, and thousands of queued jobs cost a queue entry each. This is the next experiment to run, under the same kind of tests.
+4. **Measure stackless state machines before choosing them** for heavy concurrency: they avoid a stack per task, but their size depends on the code, and without a heap they need a static pool per task type.
+5. **Keep the stack checks, and add MMU guard pages where they fit.** The two checks cost 18 of the 48 instructions of a yield and catch an overrun after the fact. A guard page prevents it, but on ARMv7 each guarded stack becomes at least one 4 KiB page: 1,000 tasks would need 4,096,000 bytes of stack instead of 256,000. A mixed scheme (pages for the few deep stacks, words for the many small ones) is an open question for 3b and 3g.
+
+## Open questions
+
+- **Preemption.** A timer interrupt that switches tasks must save every register, not only r4–r11, and needs an interrupt stack. That is not built, and on QEMU it would use board-specific timer and interrupt-controller code.
+- **Two cores.** Run queues per core, locking with `LDREX`/`STREX`, and moving tasks between cores.
+- **The phone.** Cycles per switch on Krait, and the cache cost of thousands of small stacks, can only be measured there.
+- **Bounding a stack before running.** Here a stack's depth is measured by painting; a static bound (call-graph analysis) would let the build refuse a task whose stack is too small.
+- **Spawning from a task, blocking and waking, priorities.** None is built; spawn from a running task is refused.
+- **The two other options** are not measured yet (above).
+
+## Consequences
+
+- If the reviewer accepts this direction, Phase 3's sub-milestone 3g starts from these numbers, and ADR 0002's goal 4 has its first emulator figures.
+- Nothing here changes the phone, the frozen payload or the hardware-safety contract.
+
+## Scope of this pull request
+
+Emulator fixture code, a measurement script and documentation. No device was contacted, nothing under `boot/` changed, no hosted CI ran, and no firmware was downloaded.

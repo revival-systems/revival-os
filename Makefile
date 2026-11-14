@@ -88,6 +88,20 @@ KERNEL_ELFS    := $(foreach m,$(KERNEL_MODES),$(QEMU_OUT)/kernel-$(m).elf)
 # corrupted-image detection). Built only by test-rust, never by `build`, and
 # kept out of the reproducibility set.
 RUSTNEG        := $(OUT)/rust-negative
+# Emulator-only task experiment (ADR 0003): stackful tasks, a cooperative
+# context switch and a guard word per stack, next to the Phase 1 fixture.
+# QEMU fixture, not OS code. One image per case. TASKS_CFG_<case> gives the
+# case, the task-table capacity, the bytes per stack and the yields per task;
+# tasks.rs reads them with env!(). tests/qemu/measure_tasks.sh builds more
+# cases through the same rule.
+TASKS_LD           := $(FIXTURE)/tasks.ld
+TASKS_CASES        := many-1k many-10k full overflow return
+TASKS_ELFS         := $(TASKS_CASES:%=$(QEMU_OUT)/tasks-%.elf)
+TASKS_CFG_many-1k  := many 1000 512 100
+TASKS_CFG_many-10k := many 10000 256 10
+TASKS_CFG_full     := full 64 256 3
+TASKS_CFG_overflow := overflow 4 512 4
+TASKS_CFG_return   := return 64 256 1
 
 # Phase 2 GT-I9195 proof-of-execution payload (the device image, boot/ layer per
 # ARCHITECTURE.md). Built here and tested only in QEMU; never flashed.
@@ -113,8 +127,8 @@ PY_FILES      := $(wildcard tests/*.py tests/*/*.py tools/*.py)
 OWN_C         := $(wildcard $(FIXTURE)/*.c tests/host/*.c tests/build/link-negative/*.c)
 
 .PHONY: help doctor install-toolchain build payload payload-invalid test test-build test-unit test-qemu \
-        test-rust test-payload test-repro lint check-docs check clean qemu-run qemu-debug \
-        need-goose need-arm need-qemu need-rust
+        test-rust test-tasks test-payload test-repro lint check-docs check clean qemu-run qemu-debug \
+        measure-tasks need-goose need-arm need-qemu need-rust
 
 help: ## List the targets
 	@echo "Revival OS local development (docs/DEVELOPMENT.md):"
@@ -211,6 +225,28 @@ $(QEMU_OUT)/kernel-%.elf: $(FIXTURE)/kernel.rs $(QEMU_OUT)/kstart.o $(FIXTURE)/l
 	$(RUSTC) $(RUST_FLAGS) $(RUST_LINK) -C link-arg=$(QEMU_OUT)/kstart.o $$cfg \
 	    --emit link -o $@ $(FIXTURE)/kernel.rs
 
+# ---- emulator-only task experiment (ADR 0003) ------------------------------
+
+# The context switch, the experiment's only assembly (switch.S says why).
+$(QEMU_OUT)/switch.o: $(FIXTURE)/switch.S | need-arm
+	@mkdir -p $(@D)
+	$(ARM_CC) $(ARM_ARCH) -g $(REPRO) -c $< -o $@
+
+# rustc drives the link as for the Phase 1 kernel, with tasks.ld and an arena
+# of (capacity + 1) stack slots, the lowest one an unused moat. kstart.S
+# (Phase 1) supplies the entry, the vectors and the semihosting exit. The
+# "many" cases get their expected order checksum from the Python oracle.
+$(QEMU_OUT)/tasks-%.elf: $(FIXTURE)/tasks.rs $(QEMU_OUT)/kstart.o $(QEMU_OUT)/switch.o $(TASKS_LD) tests/qemu/tasks_oracle.py | need-rust need-arm
+	@mkdir -p $(@D)
+	@test -n "$(TASKS_CFG_$*)" || { echo "no TASKS_CFG_$* for $@"; exit 1; }
+	set -- $(TASKS_CFG_$*); \
+	expect=0x0; if [ "$$1" = many ]; then expect=$$($(PYTHON) -I tests/qemu/tasks_oracle.py $$2 $$4); fi; \
+	RT_TASKS=$$2 RT_STACK=$$3 RT_YIELDS=$$4 RT_EXPECT=$$expect \
+	$(RUSTC) $(RUST_FLAGS) $(RUST_LINK_BASE) -C link-arg=-Wl,-T,$(TASKS_LD) \
+	    -C link-arg=-Wl,--defsym=__task_arena_size=$$(( ($$2 + 1) * $$3 )) \
+	    -C link-arg=$(QEMU_OUT)/kstart.o -C link-arg=$(QEMU_OUT)/switch.o \
+	    --cfg tcase_$$1 --emit link -o $@ $(FIXTURE)/tasks.rs
+
 # ---- Phase 2 GT-I9195 proof-of-execution payload (device image) -----------
 
 # The device entry stub (ARM asm): halt-only vectors + zImage header, handoff
@@ -247,8 +283,8 @@ payload-invalid: $(PAYLOAD_INVALID_IMG) ## Build the Phase 2 NEGATIVE-TEST image
 	@echo 'NEGATIVE-TEST IMAGE, NOT THE PAYLOAD: payload-invalid.img has the magic "INVALID!" and is built to be rejected.'
 	@echo "INVALID-MAGIC-NEGATIVE-TEST sha256 $$(sha256sum < $(PAYLOAD_INVALID_IMG) | cut -d' ' -f1)  payload-invalid.img  ($$(stat -c %s $(PAYLOAD_INVALID_IMG)) bytes)"
 
-build: $(PROBE_ELFS) $(PROBE_BINS) $(ALLOC_ELF) $(KERNEL_ELFS) $(PAYLOAD_BIN) $(PAYLOAD_IMG) ## Build every artifact that exists today (the ARMv7-A probe, allocator, Rust kernel and Phase 2 payload images)
-	@cd $(QEMU_OUT) && sha256sum probe-*.elf probe-*.bin alloc.elf kernel-*.elf
+build: $(PROBE_ELFS) $(PROBE_BINS) $(ALLOC_ELF) $(KERNEL_ELFS) $(TASKS_ELFS) $(PAYLOAD_BIN) $(PAYLOAD_IMG) ## Build every artifact that exists today (the ARMv7-A probe, allocator, Rust kernel, task-experiment and Phase 2 payload images)
+	@cd $(QEMU_OUT) && sha256sum probe-*.elf probe-*.bin alloc.elf kernel-*.elf $(notdir $(TASKS_ELFS))
 	@cd $(PAYLOAD_OUT) && sha256sum payload.elf payload.bin payload.img
 
 # ---- link check (build-link-map) -------------------------------------------
@@ -301,7 +337,7 @@ $(HOST_OUT)/probe_host_asan: $(HOST_OUT)/probe_gen_asan.o $(HOST_OUT)/probe_main
 
 # ---- tests -----------------------------------------------------------------
 
-test: test-build test-unit test-qemu test-rust test-payload test-repro ## Run every automated test (build, unit, QEMU, Rust kernel, Phase 2 payload, reproducibility)
+test: test-build test-unit test-qemu test-rust test-tasks test-payload test-repro ## Run every automated test (build, unit, QEMU, Rust kernel, task experiment, Phase 2 payload, reproducibility)
 
 test-build: build $(QEMU_OUT)/hosted_probe.o $(LINK_CHECKED) ## Check the freestanding build: link inputs, symbols, ELF attributes, no system calls
 	@mkdir -p $(LOGS)
@@ -404,6 +440,25 @@ test-rust: $(KERNEL_ELFS) $(FIXTURE)/hosted_std.rs $(FIXTURE)/hosted_libc.rs tes
 	    --emit link -o $(RUSTNEG)/kernel-hosted-libc.elf $(FIXTURE)/hosted_libc.rs
 	@tests/build/check_image_integrity.sh $(QEMU_OUT)/kernel-heartbeat.elf $(RUSTNEG)
 
+test-tasks: $(TASKS_ELFS) | need-qemu need-arm ## Run the emulator-only task experiment (ADR 0003): 1,000 and 10,000 tasks, a full table, a stack overrun, tasks that return
+	@mkdir -p $(LOGS)
+	@tests/qemu/run.sh qemu-tasks-1000 $(QEMU_OUT)/tasks-many-1k.elf $(LOGS)/tasks-many-1k.log 0 \
+	    "tasks: PASS many (1000 tasks x 100 yields)"
+	@tests/qemu/run.sh qemu-tasks-10000 $(QEMU_OUT)/tasks-many-10k.elf $(LOGS)/tasks-many-10k.log 0 \
+	    "tasks: PASS many (10000 tasks x 10 yields)"
+	@tests/qemu/run.sh qemu-tasks-table-full $(QEMU_OUT)/tasks-full.elf $(LOGS)/tasks-full.log 0 \
+	    "tasks: PASS full (spawn 65 of 64 refused; the 64 tasks then ran 192 iterations)"
+	@tests/qemu/run.sh qemu-tasks-stack-overrun $(QEMU_OUT)/tasks-overflow.elf $(LOGS)/tasks-overflow.log 1 \
+	    "tasks: FAULT stack overflow in task 1: guard word"
+	@tests/qemu/run.sh qemu-tasks-return $(QEMU_OUT)/tasks-return.elf $(LOGS)/tasks-return.log 0 \
+	    "tasks: PASS return (wave 1: 64 tasks returned and 64 slots reclaimed; spawn from a running task refused; wave 2: 64 tasks in the same slots returned)"
+	@u=$$($(ARM_NM) -u $(QEMU_OUT)/tasks-many-1k.elf | wc -l | tr -d ' '); \
+	  if [ "$$u" = 0 ]; then echo "PASS build-tasks-symbols (no undefined symbols; Rust links its own core)"; \
+	  else echo "FAIL build-tasks-symbols: $$u undefined"; $(ARM_NM) -u $(QEMU_OUT)/tasks-many-1k.elf; exit 1; fi
+	@n=$$($(ARM_OBJDUMP) -d $(QEMU_OUT)/tasks-many-1k.elf | grep -cE '\s(svc|swi|smc|hvc)\s' || true); \
+	  if [ "$$n" = 1 ]; then echo "PASS build-tasks-one-svc (only the semihosting exit; the context switch makes no system call)"; \
+	  else echo "FAIL build-tasks-one-svc: found $$n"; exit 1; fi
+
 test-payload: $(PAYLOAD_BIN) $(PAYLOAD_IMG) $(PAYLOAD_INVALID_IMG) $(PAYLOAD_OUT)/kstart.o tests/boot/run_payload.py tests/boot/read_bootimg.py tests/boot/check_negative_img.py tests/boot/serrano_v1.py tests/boot/payload_hosted_libc.rs $(FIXTURE)/hosted_std.rs tests/build/check_image_integrity.sh | need-qemu need-arm need-rust ## Boot the Phase 2 payload in QEMU (paint the framebuffers, inject MDP4 values and a fault), and check the handoff, the packer, the negative-test image, the frozen hashes and reproducibility
 	@mkdir -p $(LOGS) $(PAYLOAD_OUT)/neg
 	@echo "# (a) run the exact kernel-slot bytes; the framebuffers must match the host oracle, with the MDP4 value absent, injected, and faulting, a device-like handoff, and a relocated image"
@@ -485,6 +540,11 @@ check: doctor lint check-docs test ## Everything to run before pushing: tools, l
 clean: ## Remove the build directory (sources are never touched)
 	@case "$(OUT)" in "$(CURDIR)"|"$(HOME)"|/|"") echo "refusing to remove '$(OUT)'"; exit 1;; esac
 	rm -rf $(OUT)
+
+# ---- measurements (not tests, not part of check) ---------------------------
+
+measure-tasks: | need-qemu need-arm need-rust ## Measure the task experiment (ADR 0003): task counts up to QEMU's RAM, instructions per switch, bytes. Prints figures; slow; not part of check
+	@MAKE='$(MAKE)' tests/qemu/measure_tasks.sh $(OUT)/measure
 
 # ---- interactive (not tests) ----------------------------------------------
 

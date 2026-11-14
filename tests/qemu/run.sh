@@ -11,7 +11,8 @@
 #     TEXT    a fixed string the console output must contain
 #
 # Environment: QEMU (default qemu-system-arm), QEMU_TIMEOUT (seconds,
-# default 20).
+# default 20), QEMU_MEM (guest RAM, default 64M; only the task-experiment
+# measurements raise it, tests/qemu/measure_tasks.sh).
 set -euo pipefail
 
 if [ "$#" -ne 5 ]; then
@@ -21,6 +22,7 @@ fi
 name=$1 elf=$2 log=$3 expect=$4 text=$5
 qemu=${QEMU:-qemu-system-arm}
 limit=${QEMU_TIMEOUT:-20}
+mem=${QEMU_MEM:-64M}
 
 if ! command -v "$qemu" >/dev/null 2>&1; then
     echo "FAIL $name: $qemu not found (install qemu-system-arm; see docs/DEVELOPMENT.md)"
@@ -36,7 +38,7 @@ set +e
 # virtio-net NIC and QEMU exits 1 before running the guest when that NIC's
 # option ROM (efi-virtio.rom, package ipxe-qemu) is not installed.
 timeout --kill-after=5 "$limit" "$qemu" \
-    -M virt -cpu cortex-a15 -m 64M -nic none \
+    -M virt -cpu cortex-a15 -m "$mem" -nic none \
     -nographic -monitor none -serial stdio \
     -semihosting-config enable=on,target=native \
     -kernel "$elf" </dev/null >"$log" 2>&1
