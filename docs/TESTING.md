@@ -10,7 +10,7 @@ Every test runs locally with `make` and prints one `PASS <name>` or `FAIL <name>
 | Static analysis | Host | `make lint` | No |
 | Build validation | Host (ARM cross build) | `make test-build` | No |
 | Unit | Host (x86-64 Linux) | `make test-unit` | No |
-| Emulator | QEMU `virt`, ARMv7-A | `make test-qemu`, `make test-tasks` | **No.** QEMU is not the Samsung. |
+| Emulator | QEMU `virt`, ARMv7-A | `make test-qemu`, `make test-tasks`, `make test-exceptions` | **No.** QEMU is not the Samsung. |
 | Reproducibility | Host | `make test-repro` | No |
 | Device | The GT-I9195 | none: manual procedures with recorded evidence | Yes, when recorded as below |
 
@@ -76,6 +76,16 @@ The emulator-only task experiment ([ADR 0003](decisions/0003-task-model.md)): st
 | `build-tasks-one-svc` | The task image has exactly one system-call instruction, the semihosting exit: the context switch makes none |
 
 `make measure-tasks` prints the experiment's measurements (task counts up to QEMU's RAM, instructions per switch, code bytes). It is not a test and is not part of `make check`.
+
+### `make test-exceptions`
+
+Emulator-only exception reporting, a step toward ROADMAP 3a: vectors ([exc_vectors.S](../tests/qemu/virt-armv7/exc_vectors.S), [exc.rs](../tests/qemu/virt-armv7/exc.rs)) that report which exception happened, the address of the instruction that caused it and, for an abort, the fault status and fault address, then halt. Each case states beforehand what it expects, and the report is checked against it. The faults are made at known addresses: an undefined instruction and a load in two assembly triggers, and a jump to an address QEMU has nothing behind. It claims nothing for the phone; 3a is tested on the device.
+
+| Test | Pass when |
+| --- | --- |
+| `qemu-exc-undefined-instruction` (negative) | An undefined instruction is reported as one, at the exact address of the instruction, and the run halts (QEMU exits 1) |
+| `qemu-exc-data-abort` (negative) | A load from an address with nothing behind it is reported as a data abort at the exact address of the load, with the fault address and a synchronous external abort status (DFSR, DFAR) |
+| `qemu-exc-prefetch-abort` (negative) | A jump to that address is reported as a prefetch abort at that address, with the fault address and status (IFSR, IFAR) |
 
 ### `make test-repro`
 
