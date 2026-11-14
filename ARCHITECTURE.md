@@ -4,6 +4,19 @@
 
 ## Goals
 
+The owner's headline goals, each with what it means here, how it is measured and where its number is set, in [ADR 0002](docs/decisions/0002-design-goals.md):
+
+- **Very small:** one of the smallest operating systems that does real work.
+- **Very fast and efficient:** high performance on old hardware.
+- **Secure.**
+- **Scalable:** from dozens up to thousands of tasks at once, and able to move to other devices.
+- **Maintainable:** a codebase that stays simple to understand and to change.
+- **Built from the ground up, with room to invent:** original ideas from the project's own research, when they serve the goals above.
+- **The stack first, a heap only when necessary:** bounded arenas, as [ADR 0001](docs/decisions/0001-rust-and-arm-assembly.md#memory-strategy) decides.
+- **A real-world system, not a demo:** it ends up doing a real job on real hardware.
+
+The engineering goals that serve them:
+
 - Run on supported hardware with no Linux, Android or hosted C library at run time.
 - Keep architecture-independent code separate from CPU-architecture code, SoC code and board code, so that a second device means a new port and not a rewrite.
 - Bound every resource: memory, queues, connections, storage, time. Overload must degrade predictably.

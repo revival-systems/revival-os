@@ -47,7 +47,7 @@ The buildable artifacts today are QEMU-only test fixtures. The **Phase 1 Rust + 
 | [ARCHITECTURE.md](ARCHITECTURE.md) | Proposed module boundaries, dependency rules and vendor-firmware boundaries |
 | [ROADMAP.md](ROADMAP.md) | Phases 0–9, each with a capability, tests, pass/fail criteria and recovery evidence |
 | [AGENTS.md](AGENTS.md) | Rules for coding agents, including the hardware safety contract |
-| [docs/decisions/](docs/decisions/README.md) | Architecture decision records; [ADR 0001](docs/decisions/0001-rust-and-arm-assembly.md) adopts Rust + ARM Assembly |
+| [docs/decisions/](docs/decisions/README.md) | Architecture decision records; [ADR 0001](docs/decisions/0001-rust-and-arm-assembly.md) adopts Rust + ARM Assembly; [ADR 0002](docs/decisions/0002-design-goals.md) records the owner's design goals and how each is measured |
 | [docs/goose-reference-preservation-plan.md](docs/goose-reference-preservation-plan.md) | Inventory and plan for keeping Goose as a `reference/goose/` study workspace |
 | [Makefile](Makefile) | The local build and test entry points (`make help`) |
 | [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) | Setup, pinned versions, commands, workflow and review checklist |
