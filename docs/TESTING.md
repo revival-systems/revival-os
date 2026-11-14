@@ -70,6 +70,7 @@ The emulator-only task experiment ([ADR 0003](decisions/0003-task-model.md)): st
 | `qemu-tasks-stack-pointer` (negative) | A task that yields from inside a frame too deep to leave room for a switch, without writing past its slot, **is reported** by the stack-pointer check at that yield, to the same standard |
 | `qemu-tasks-overrun-at-exit` (negative) | A task that overruns its slot and then returns without yielding **is reported** by the check at its exit, to the same standard |
 | `qemu-tasks-return` | 64 tasks whose entry functions return are ended and their slots reclaimed: a second wave of 64 runs in the same slots. A spawn tried from inside a running task **is refused** |
+| `qemu-tasks-registers` | 64 tasks, each holding eight values, its seed and its counter across 50 yields (more live values than there are free callee-saved registers), find every value unchanged after every switch |
 | `qemu-jobs-1000` | 1,000 jobs of 100 steps each, all run to completion one step at a time by one runner task, end with exactly 100,000 steps and the same order checksum as 1,000 tasks; the queue is empty and the runner has ended |
 | `qemu-jobs-100000` | The same for 100,000 jobs of 10 steps each |
 | `qemu-jobs-queue-full` (negative) | With all 64 queue entries in use, job 65 **is refused** ("queue full"), and the 64 jobs then run to the expected total |

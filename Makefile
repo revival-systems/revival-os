@@ -97,7 +97,7 @@ RUSTNEG        := $(OUT)/rust-negative
 # bounded queue) run every job on one runner task. tests/qemu/measure_tasks.sh
 # builds more cases through the same rule.
 TASKS_LD                := $(FIXTURE)/tasks.ld
-TASKS_CASES             := many-1k many-10k full overflow overflow-sp overflow-exit return jobs-1k jobs-100k jobs-full jobs-overflow
+TASKS_CASES             := many-1k many-10k full overflow overflow-sp overflow-exit return registers jobs-1k jobs-100k jobs-full jobs-overflow
 TASKS_ELFS              := $(TASKS_CASES:%=$(QEMU_OUT)/tasks-%.elf)
 TASKS_CFG_many-1k       := many 1000 512 100
 TASKS_CFG_many-10k      := many 10000 256 10
@@ -106,6 +106,7 @@ TASKS_CFG_overflow      := overflow 4 512 4
 TASKS_CFG_overflow-sp   := overflow_sp 4 512 4
 TASKS_CFG_overflow-exit := overflow_exit 4 512 4
 TASKS_CFG_return        := return 64 256 1
+TASKS_CFG_registers     := registers 64 256 50
 TASKS_CFG_jobs-1k       := jobs_many 4 512 100 1000
 TASKS_CFG_jobs-100k     := jobs_many 4 512 10 100000
 TASKS_CFG_jobs-full     := jobs_full 4 512 3 64
@@ -470,6 +471,8 @@ test-tasks: $(TASKS_ELFS) | need-qemu need-arm ## Run the emulator-only task exp
 	    "tasks: FAULT found by the guard-word check at the task's exit (task 1, 3 iterations before it); no task resumed"
 	@tests/qemu/run.sh qemu-tasks-return $(QEMU_OUT)/tasks-return.elf $(LOGS)/tasks-return.log 0 \
 	    "tasks: PASS return (wave 1: 64 tasks returned and 64 slots reclaimed; spawn from a running task refused; wave 2: 64 tasks in the same slots returned)"
+	@tests/qemu/run.sh qemu-tasks-registers $(QEMU_OUT)/tasks-registers.elf $(LOGS)/tasks-registers.log 0 \
+	    "tasks: PASS registers (64 tasks each held 8 values across 50 switches; none changed)"
 	@tests/qemu/run.sh qemu-jobs-1000 $(QEMU_OUT)/tasks-jobs-1k.elf $(LOGS)/tasks-jobs-1k.log 0 \
 	    "tasks: PASS jobs many (1000 jobs x 100 steps)"
 	@tests/qemu/run.sh qemu-jobs-100000 $(QEMU_OUT)/tasks-jobs-100k.elf $(LOGS)/tasks-jobs-100k.log 0 \

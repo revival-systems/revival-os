@@ -39,7 +39,7 @@
 //!   RT_JOBS    queue capacity and jobs queued (job cases)
 //!   RT_EXPECT  order checksum from tests/qemu/tasks_oracle.py (the "many"
 //!              cases)
-//! and one case cfg: tcase_many, tcase_full, tcase_return; with
+//! and one case cfg: tcase_many, tcase_full, tcase_return, tcase_registers; with
 //! tgroup_overflow, tcase_overflow, tcase_overflow_sp or tcase_overflow_exit;
 //! or, with tmodel_jobs, tcase_jobs_many, tcase_jobs_full, tcase_jobs_overflow.
 //!
@@ -943,6 +943,82 @@ fn case() -> i32 {
         put_dec(ended2 as usize);
         puts(", free slots ");
         put_dec(free2);
+        putc(b'\n');
+        1
+    }
+}
+
+/// Holds eight opaque values, its seed and its counter across every yield:
+/// more live values than there are free callee-saved registers, so the
+/// compiler keeps them in r4-r11 (and the stack) across ctx_switch. After
+/// each yield every value must be unchanged; a switch that stopped saving
+/// any of r4-r11 corrupts one of them.
+#[cfg(tcase_registers)]
+extern "C" fn holder(arg: usize) {
+    let seed = arg as u32;
+    let a = black_box(seed ^ 0x1111_1111);
+    let b = black_box(seed ^ 0x2222_2222);
+    let c = black_box(seed ^ 0x3333_3333);
+    let d = black_box(seed ^ 0x4444_4444);
+    let e = black_box(seed ^ 0x5555_5555);
+    let f = black_box(seed ^ 0x6666_6666);
+    let g = black_box(seed ^ 0x7777_7777);
+    let h = black_box(seed ^ 0x0888_8888);
+    let mut i = 0u32;
+    while i < YIELDS {
+        yield_now();
+        let ok = a == seed ^ 0x1111_1111
+            && b == seed ^ 0x2222_2222
+            && c == seed ^ 0x3333_3333
+            && d == seed ^ 0x4444_4444
+            && e == seed ^ 0x5555_5555
+            && f == seed ^ 0x6666_6666
+            && g == seed ^ 0x7777_7777
+            && h == seed ^ 0x0888_8888;
+        if !ok {
+            puts("tasks: FAIL registers: a value held across a switch changed in task ");
+            put_dec(seed as usize);
+            putc(b'\n');
+            // SAFETY: semihosting exit.
+            unsafe { rt_exit(1) }
+        }
+        // SAFETY: see Global.
+        unsafe { (*STATS.ptr()).total += 1 };
+        i = black_box(i + 1);
+    }
+}
+
+/// MAX_TASKS holders interleaved: every value survives every switch.
+#[cfg(tcase_registers)]
+fn case() -> i32 {
+    header("registers");
+    let mut k = 0;
+    while k < MAX_TASKS {
+        if let Err(err) = spawn(holder, k) {
+            puts("tasks: FAIL spawn refused: ");
+            puts(err.name());
+            putc(b'\n');
+            return 1;
+        }
+        k += 1;
+    }
+    if !run() {
+        report_fault();
+        return 1;
+    }
+    // SAFETY: scheduler context after run().
+    let total = unsafe { (*STATS.ptr()).total };
+    report_cost(MAX_TASKS);
+    if total == MAX_TASKS as u32 * YIELDS && free_count() == MAX_TASKS {
+        puts("tasks: PASS registers (");
+        put_dec(MAX_TASKS);
+        puts(" tasks each held 8 values across ");
+        put_dec(YIELDS as usize);
+        puts(" switches; none changed)\n");
+        0
+    } else {
+        puts("tasks: FAIL registers: total ");
+        put_dec(total as usize);
         putc(b'\n');
         1
     }

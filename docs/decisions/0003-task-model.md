@@ -67,6 +67,7 @@ All under `make check`, each run bounded by the QEMU time limit. They are listed
 | `qemu-tasks-stack-pointer` | A task that yields from inside a frame too deep to leave room for a switch, without writing past its slot, is reported by the stack-pointer check at that yield, to the same standard |
 | `qemu-tasks-overrun-at-exit` | A task that overruns its slot and then returns without yielding is reported by the check at its exit, to the same standard |
 | `qemu-tasks-return` | 64 tasks that return are ended and reclaimed; a second wave of 64 runs in the same slots; a spawn from inside a task is refused |
+| `qemu-tasks-registers` | 64 tasks each hold eight values, a seed and a counter across 50 yields, more live values than there are free callee-saved registers, so the compiler keeps them in r4–r11; every value is unchanged after every switch |
 | `qemu-jobs-1000` | 1,000 jobs × 100 steps on one runner: exactly 100,000 steps and the same order checksum as 1,000 tasks; the queue is empty and the runner has ended |
 | `qemu-jobs-100000` | 100,000 jobs × 10 steps, to the same standard |
 | `qemu-jobs-queue-full` | Job 65 into a 64-entry queue is refused, and the 64 jobs then run to the expected total |
@@ -80,6 +81,7 @@ All under `make check`, each run bounded by the QEMU time limit. They are listed
 | --- | --- |
 | `yield_now` skips the next task | `qemu-tasks-1000`, `-10000`, `-table-full`, `-return`, and the three overrun tests (their iteration count) |
 | `ctx_switch` does not save r11 | every QEMU test of the task and job cases |
+| `ctx_switch` saves r12 in place of r9 (the frame keeps its size) | `qemu-tasks-registers` only: no other test keeps a value in r9 across a switch |
 | `spawn` puts the new task at the head of the ring, not the tail | `qemu-tasks-1000`, `-10000` (the order checksum) |
 | The worker runs one iteration too few | `qemu-tasks-1000`, `-10000`, `-table-full` |
 | No capacity check in `spawn` | `qemu-tasks-table-full` only |
@@ -184,7 +186,7 @@ These are recommendations for the reviewer, from emulator measurements only.
 - **Stackless state machines** are not measured yet (above).
 - **A cheaper job path:** the stack check per batch instead of per step, and queue operations without bounds checks, each measured against the 104 instructions here.
 - **The calling contract** of `yield_now` and `run` (above) is documented, not checked.
-- **Coverage left:** no test keeps values in r9 and r10 across a switch, so a switch that stopped saving those two would not be caught (r11 and the others are). The task-case parameters live in the Makefile and are not a prerequisite of the images, so an edited parameter needs a clean build (`make measure-tasks` deletes each image before building it).
+- **Coverage left:** `yield_now`'s own prologue saves r4, r10 and r11 in this build, so a switch that stopped saving those three is not observable through any test here (`ctx_switch` saving r12 in place of r10 passes them all); the registers case covers r5 to r9. The AAPCS still requires `ctx_switch` to save all of r4–r11, because another caller could rely on them. The task-case parameters live in the Makefile and are not a prerequisite of the images, so an edited parameter needs a clean build (`make measure-tasks` deletes each image before building it).
 
 ## Consequences
 
