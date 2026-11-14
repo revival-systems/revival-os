@@ -2,7 +2,7 @@
 
 **Purpose:** confirm the exact phone, its firmware, and its boot, recovery and Download-mode paths, **without writing anything to the phone**. This is a **one-time stock-hardware baseline and rescue assessment**, not a recurring requirement to boot Android. From Phase 2 onward, boot and reboot milestones must exercise **Revival OS code**. The owner intends to remove Android and does not require preserving personal files. This is the observable test for [Phase 0](../../ROADMAP.md#phase-0--samsung-identification-boot-reboot-and-recovery). The research behind each step is in [gt-i9195.md](../hardware/gt-i9195.md).
 
-**Status:** In progress. The owner has reported partial hardware verification (including Heimdall detection, PIT read and a return to stock Android), but the redacted evidence summary and remaining checklist steps are not yet complete or reviewed. Do not mark Phase 0 passed based on these reports alone.
+**Status:** **Phase 0 PASS, 2026-11-13 (owner-directed H3).** The [Phase 0 addendum](../evidence/phase-0/2026-11-13-linux-retest.md) records every step's result, each labelled as measured, photographed or owner-confirmed, and supersedes the earlier PASS WITH BLOCKERS [closeout](../evidence/phase-0/2026-11-13-closeout.md). The owner directs that these physical checks are not repeated. [Phase 1's separate host/emulator gate is reviewed PASS](../evidence/phase-1/2026-11-13-gate-review.md). **No Phase 2 write is authorized by this closeout.**
 
 **Time needed:** about 2–3 hours, plus downloading the stock firmware (section G).
 
@@ -36,7 +36,7 @@ Stopping costs nothing. Guessing can.
 
 ### Privacy
 
-The IMEI, serial numbers (`ro.serialno`, `androidboot.serialno` in `/proc/cmdline`, the USB serial), Wi-Fi and Bluetooth MAC addresses, account names and personal photos must **not** be committed. Save everything to the private evidence directory (A2). Only the redacted summary (H2) goes into the repository.
+The IMEI, serial numbers (`ro.serialno`, `androidboot.serialno` in `/proc/cmdline`, the USB serial), Wi-Fi and Bluetooth MAC addresses, account names and personal photos must **not** be committed. Save everything to the private evidence directory (A2). Only the redacted summary (H2), and photographs of the device redacted as [TESTING.md](../TESTING.md#recording-evidence) describes, go into the repository.
 
 ---
 
@@ -354,7 +354,7 @@ The session after F2–F5 is trial 1. Repeat F2 steps 1–3, then this step, twi
 **G2. Obtain the matching stock firmware.** Find the firmware for exactly this model, build and region from a source the reviewer accepts (Samsung's update service through an established client, or an established firmware archive). Do not use a different build or a different model.
 
 - Record the source, the file name and the size.
-- Never commit firmware. It is proprietary and large.
+- Never commit firmware. It is proprietary and large. The one exception (owner, 2026-11-13) is the verified rescue firmware for the installed build, in Git LFS under `firmware/GT-I9195/` ([AGENTS.md](../../AGENTS.md#hardware-safety-contract), rule 7). Commit no other firmware.
 
 **G3. Verify it.** Samsung firmware of this era is usually a `.tar.md5` file: a tar archive with its MD5 line appended (Community-documented format).
 
@@ -370,7 +370,7 @@ sha256sum "$f" | tee "$EV/G3-firmware-sha256.txt"
 - Also record the other files it contains. Bootloader images such as `sbl1.mbn` or `aboot.mbn` are listed for the record and are **never** flashed by Revival work.
 - If the format differs, or the MD5 values differ, **stop** and report.
 
-**G4. Store it privately.** Keep the firmware outside every repository, for example in `~/revival-firmware/gt-i9195/<build>/`, with the `sha256sum` output beside it. Do not flash it.
+**G4. Store it privately.** Keep the firmware outside every repository, for example in `~/revival-firmware/gt-i9195/<build>/`, with the `sha256sum` output beside it. Do not flash it. (The rescue copy in `firmware/GT-I9195/` is the one exception; see G2.)
 
 ## H. Close-out
 

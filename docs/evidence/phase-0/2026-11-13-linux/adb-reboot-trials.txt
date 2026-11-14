@@ -1,0 +1,9 @@
+baseline fingerprint: samsung/serranoltexx/serranolte:4.4.2/KOT49H/I9195XXSCQAN:user/release-keys
+uptime before trials: 269301.82 s
+trial 1 start 15:44:27
+trial 1 booted 15:45:05: USB gone after 0.5 s, adb back at 19.6 s, boot_completed at 38.2 s, phone uptime 31.22 s, fingerprint unchanged
+trial 2 start 15:45:13
+trial 2 booted 15:45:50: USB gone after 0.5 s, adb back at 14.6 s, boot_completed at 36.8 s, phone uptime 29.79 s, fingerprint unchanged
+trial 3 start 15:45:58
+trial 3 booted 15:46:36: USB gone after 0.4 s, adb back at 17.5 s, boot_completed at 38.1 s, phone uptime 31.18 s, fingerprint unchanged
+RESULT: 3 of 3 adb reboot trials reached sys.boot_completed=1

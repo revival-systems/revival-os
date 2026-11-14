@@ -30,7 +30,7 @@ Inspected on 2026-11-08:
 | Steps | Install packages, `make install-toolchain`, `make doctor`, `make check` | The same entry points as local development |
 | Caches, artifacts | None | No storage cost. Each run downloads the pinned toolchains (about 170 MB) and verifies their SHA-256. |
 
-**It has not run yet.** Its first run is the first test of it on a hosted runner. The runner differs from the development machine (Ubuntu 24.04 with older gcc, Python, QEMU, shellcheck and cppcheck), and a difference may surface as a failure there. That is part of what independent verification is for.
+**Historical results verified on 2026-11-13:** the [2026-11-09 run](https://github.com/revival-systems/revival-os/actions/runs/42661958874) failed at `qemu-checksum`. After the default-NIC fix, the [2026-11-10 run](https://github.com/revival-systems/revival-os/actions/runs/42757111224) on `3f1130a` passed every step, including `make check` (36 PASS / 0 FAIL). The hosted runner used Ubuntu 24.04.5 and QEMU 8.2.2, distinct from the local Ubuntu/QEMU 10.2.1 environment. These historical results support the [Phase 1 gate review](evidence/phase-1/2026-11-13-gate-review.md); no new run was started to write that review.
 
 ## When to run it
 
@@ -55,6 +55,7 @@ Ordinary pull requests rely on the local `make check`, with its output quoted in
 | Repeated manual runs | Concurrency cancels the older run on the same branch |
 | Scheduled (cron) workflows | None, and none to be added without approval |
 | Artifact and cache storage | None configured |
+| Git LFS storage and downloads: the 907 MB GT-I9195 rescue firmware under `firmware/GT-I9195/` | Do not download it again without a reason: fetch, clone and check out with `GIT_LFS_SKIP_SMUDGE=1` and use the private local copy. Adding large files to Git LFS, artifacts or caches needs approval ([AGENTS.md](../AGENTS.md#ci-and-cost-rules)). |
 | Internal and private repositories use the plan's Actions minutes | The repository is `internal`. Its minutes come from the organization's plan, and use beyond the plan is billed when the spending limit allows it. |
 | Workflow settings alone do not guarantee zero cost | **The organization's Actions spending limit must be checked in GitHub's billing settings by an owner.** It could not be checked from here. |
 

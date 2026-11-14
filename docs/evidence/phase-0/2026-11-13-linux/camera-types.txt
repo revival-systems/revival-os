@@ -1,0 +1,4 @@
+rear/rear_camtype: S.LSI_S5K3H5XA
+rear/rear_camfw: S08Q0LEGC01 S08Q0LEGC01
+front/front_camtype: SLSI_S5K6A3YX
+front/front_camfw: S5K6A3YX S5K6A3YX

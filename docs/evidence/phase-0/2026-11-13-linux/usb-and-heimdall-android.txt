@@ -1,0 +1,6 @@
+$ lsusb | grep -i 04e8
+Bus 001 Device NNN: ID 04e8:6860 Samsung Electronics Co., Ltd Galaxy series, misc. (MTP mode)
+
+$ heimdall detect; echo "exit=$?"     # phone booted into Android
+ERROR: Failed to detect compatible download-mode device.
+exit=1

@@ -104,7 +104,14 @@ A device result counts only when it is recorded. **Phase 0 records the stock And
 5. Every failure, what was done to recover, and the state afterwards.
 6. A statement of every write made to the device, or that none was made.
 
-Raw evidence (photos, full logs, `getprop` dumps, the PIT file, firmware) stays in a private directory outside every repository. Only the redacted summary is committed, under `docs/evidence/<phase>/`. Identifiers that are never committed: IMEI, serial numbers, MAC addresses, account names, personal photos.
+Apart from the two exceptions below, raw evidence (original photos, full logs, `getprop` dumps, the PIT file, firmware) stays in a private directory outside every repository. Only the redacted summary, and redacted photographs as described below, are committed, under `docs/evidence/<phase>/`.
+
+The owner made two exceptions on 2026-11-13 ([AGENTS.md](../AGENTS.md#hardware-safety-contract), rule 7):
+
+- **Rescue firmware:** the GT-I9195 rescue firmware for the installed build, in Git LFS under [`firmware/GT-I9195/`](../firmware/GT-I9195/README.md).
+- **Redacted photographs:** photographs of the device and its screens under `docs/evidence/`, with every identifier blacked out and the image metadata stripped, as in [the Phase 0 addendum](evidence/phase-0/2026-11-13-linux-retest.md#owner-photographs).
+
+Everything else stays out of the repository: no other vendor files, and never an IMEI, serial number, MAC address, account name, personal photo or unredacted photograph. The repository must stay private while its history or Git LFS storage holds vendor firmware.
 
 ### Phase 0 summary template
 
