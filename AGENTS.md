@@ -41,6 +41,15 @@ The owner made this change on 2026-11-13. Until then ChatGPT was the orchestrato
 - Hosted CI runs only by hand (`workflow_dispatch`), at phase milestones ([docs/CI-STRATEGY.md](docs/CI-STRATEGY.md)). Agents do not start it unless the task says so.
 - Adding or changing a workflow trigger, the runner type, caches, artifacts or schedules needs approval.
 - No self-hosted runner.
+- **Spend in bulk (owner, 2026-11-14).** Whatever costs money on GitHub is done rarely and
+  in bulk, never repeatedly. Local `make check` is free and is the default test. A hosted
+  run is proposed as one run that covers everything pending, and needs the owner's approval
+  each time.
+- **Large files.** Do not download the Git LFS firmware again without a reason: fetch,
+  clone and check out with `GIT_LFS_SKIP_SMUDGE=1` and use the private local copy. Adding
+  large files to Git LFS, artifacts or caches needs approval.
+- Merging, pushing and opening pull requests start no workflow here and cost nothing.
+  Keep it that way.
 
 ## Hardware safety contract
 
