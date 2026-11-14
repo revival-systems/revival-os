@@ -65,5 +65,18 @@ SECTIONS
         __task_arena_end = .;
     } > RAM :data
 
+    /* The pool of the stackless-task experiment (tasks.rs, tmodel_async):
+     * capacity x slot bytes. Reserved here, not as a Rust static, because
+     * stable Rust cannot name an async fn's future type for a typed static
+     * pool (and a large static costs the compiler memory, ADR 0003). The
+     * Makefile gives the size with --defsym=__async_pool_size=..., 0 in the
+     * other images. async_init() clears every slot's header before use. */
+    .async_pool (NOLOAD) : ALIGN(8)
+    {
+        __async_pool_start = .;
+        . += __async_pool_size;
+        __async_pool_end = .;
+    } > RAM :data
+
     /DISCARD/ : { *(.comment) *(.note .note.*) }
 }
