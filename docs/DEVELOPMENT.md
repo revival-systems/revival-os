@@ -108,14 +108,14 @@ What each test checks, and what is not tested yet, is in [TESTING.md](TESTING.md
 ```text
 write Rust (and minimal ARM assembly)  →  make build  →  make test  →  fix
         →  make check  →  review the diff  →  commit  →  push  →  pull request
-        →  orchestrator review  →  (at phase milestones) manual CI run  →  merge by the orchestrator
+        →  review by the reviewer  →  (at phase milestones) manual CI run  →  merge by the implementer, only when the reviewer's task says so, at the head it names
 ```
 
 - **Branches:** `agent/<machine>/<short-task>`, for example `agent/ubuntu/local-dev-environment`. Never commit to `main` directly.
 - **Commits:** one logical change each, with a message that says what changed and why. Unrelated changes go in separate commits and pull requests.
 - **Before pushing:** `make check` must pass. If a check cannot pass for a reason outside the change, say so in the pull request. Never skip it silently.
 - **Pull requests:** open as drafts until ready. The description lists what changed, the commands run and their results, and anything not verified.
-- **Review:** the orchestrator (currently ChatGPT) reviews and merges. Authors never merge their own pull requests.
+- **Review:** the reviewer (a separate Claude session the owner runs) writes each task and reviews each report and pull request independently ([AGENTS.md](../AGENTS.md#roles)). The implementer merges a pull request only when the reviewer's task says so and names the exact head commit the reviewer verified. Never otherwise. Always a merge commit (no squash, no rebase), pinned to that head: `gh pr merge N --merge --match-head-commit <sha>`.
 
 ## Review checklist
 
@@ -125,7 +125,7 @@ write Rust (and minimal ARM assembly)  →  make build  →  make test  →  fix
 - [ ] Pins changed only on purpose, with the reason recorded.
 - [ ] Nothing in the change writes to a device. If it does, it follows an approved write plan ([AGENTS.md](../AGENTS.md#hardware-safety-contract)).
 - [ ] Documentation matches the behaviour. Claims are labelled implemented or proposed.
-- [ ] No vendor firmware, device identifiers or secrets are committed.
+- [ ] No vendor firmware, device identifiers or secrets are committed, beyond the two exceptions in [AGENTS.md](../AGENTS.md#hardware-safety-contract) rule 7.
 
 ## Troubleshooting
 

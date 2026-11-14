@@ -93,7 +93,7 @@ On the GT-I9195, Revival OS sits on a fixed vendor boot chain and depends on sev
 | SoC boot ROM (PBL) | First code; verifies the next stage | Immutable. Not touched. |
 | Secondary bootloaders, TrustZone, RPM firmware | Signed early boot, secure monitor, shared-resource manager | Never written. Revival OS calls TrustZone and talks to the RPM where hardware needs it. |
 | Samsung bootloader (`aboot`) | Loads `boot` or `recovery`; provides Download mode | Never written. It is the device's recovery anchor. |
-| Wi-Fi/Bluetooth (WCNSS), modem, video and GPU microcode | Peripheral firmware | Loaded at run time from the device's own partitions when a driver needs it. Never committed to this repository. |
+| Wi-Fi/Bluetooth (WCNSS), modem, video and GPU microcode | Peripheral firmware | Loaded at run time from the device's own partitions when a driver needs it. Not committed for use by Revival OS; the only copy in this repository is inside the rescue firmware package under `firmware/GT-I9195/` ([AGENTS.md](AGENTS.md#hardware-safety-contract), rule 7). |
 
 "Replacing Android" means replacing the contents of `boot`, and later `system` and `userdata`. It does not mean replacing this chain.
 

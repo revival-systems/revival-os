@@ -55,6 +55,7 @@ Ordinary pull requests rely on the local `make check`, with its output quoted in
 | Repeated manual runs | Concurrency cancels the older run on the same branch |
 | Scheduled (cron) workflows | None, and none to be added without approval |
 | Artifact and cache storage | None configured |
+| Git LFS storage and downloads: the 907 MB GT-I9195 rescue firmware under `firmware/GT-I9195/` | Do not download it again without a reason: fetch, clone and check out with `GIT_LFS_SKIP_SMUDGE=1` and use the private local copy. Adding large files to Git LFS, artifacts or caches needs approval ([AGENTS.md](../AGENTS.md#ci-and-cost-rules)). |
 | Internal and private repositories use the plan's Actions minutes | The repository is `internal`. Its minutes come from the organization's plan, and use beyond the plan is billed when the spending limit allows it. |
 | Workflow settings alone do not guarantee zero cost | **The organization's Actions spending limit must be checked in GitHub's billing settings by an owner.** It could not be checked from here. |
 
