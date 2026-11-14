@@ -1,6 +1,6 @@
 # ADR 0003 — The task model: what one task costs (emulator experiment)
 
-- **Status:** Proposed. The reviewer decides.
+- **Status:** Accepted by the reviewer, 2026-11-14, as the record of the experiment and the starting direction for ROADMAP 3g (provisional, rule 5). Emulator figures only.
 - **Builds on:** [ADR 0002](0002-design-goals.md) goal 4 (scalable: thousands of tasks, one more task at a small, fixed cost) and goal 7 (the memory rule), and [ADR 0001](0001-rust-and-arm-assembly.md) (Rust; assembly only where Rust cannot work).
 - **Scope:** QEMU's `virt` board with a Cortex-A15 CPU model, ARMv7-A. **Emulator only.** It does not start Phase 3 on the phone and claims nothing for the phone. **Emulator timing is not phone timing**, and no time below is a phone figure.
 
