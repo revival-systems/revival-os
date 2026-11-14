@@ -19,7 +19,16 @@ The complete original decrypted Samsung ZIP and its original `boot.img` and
 `I9195XXSCQAN_I9195OXXCNK2/`. The ZIP contains all four verified original TAR
 packages; separately uploaded copies of those TARs are unnecessary.
 
-After checking out `agent/windows/phase0-firmware-evidence`, run:
+**Pull only when the firmware is needed.** The download is about 924 MB
+(923,421,973 bytes for the three files below), and Git LFS downloads are
+metered, so each one costs part of the organization's paid quota. A verified copy is
+already in the private firmware directory on the development machine,
+`~/revival-firmware/gt-i9195/`
+([re-verification](../../docs/evidence/phase-0/2026-11-13-linux-retest.md#firmware-re-verified-on-ubuntu));
+use it instead. Clone, fetch and check out with `GIT_LFS_SKIP_SMUDGE=1`
+([AGENTS.md](../../AGENTS.md#ci-and-cost-rules)).
+
+When a download is needed, check out `main` and run:
 
 ```sh
 git lfs install

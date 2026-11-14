@@ -111,7 +111,7 @@ The owner made two exceptions on 2026-11-13 ([AGENTS.md](../AGENTS.md#hardware-s
 - **Rescue firmware:** the GT-I9195 rescue firmware for the installed build, in Git LFS under [`firmware/GT-I9195/`](../firmware/GT-I9195/README.md).
 - **Redacted photographs:** photographs of the device and its screens under `docs/evidence/`, with every identifier blacked out and the image metadata stripped, as in [the Phase 0 addendum](evidence/phase-0/2026-11-13-linux-retest.md#owner-photographs).
 
-Everything else stays out of the repository: no other vendor files, and never an IMEI, serial number, MAC address, account name, personal photo or unredacted photograph. The repository must stay private while its history or Git LFS storage holds vendor firmware.
+Everything else stays out of the repository: no other vendor files, and never an IMEI, serial number, MAC address, account name, personal photo or unredacted photograph. The repository must never be public while its history or Git LFS storage holds vendor firmware. It is internal on purpose, so that the owner's other agents and machines can read it; the owner decided this on 2026-11-14.
 
 ### Phase 0 summary template
 

@@ -1,6 +1,6 @@
 # Revival OS roadmap
 
-Each phase adds the smallest capability that can be observed and tested, on the real Samsung where hardware is involved. A phase is complete only when its pass criteria are met **and** recorded as evidence ([docs/TESTING.md](docs/TESTING.md#recording-evidence)), and the orchestrator has reviewed that evidence.
+Each phase adds the smallest capability that can be observed and tested, on the real Samsung where hardware is involved. A phase is complete only when its pass criteria are met **and** recorded as evidence ([docs/TESTING.md](docs/TESTING.md#recording-evidence)), and the reviewer has reviewed that evidence.
 
 **Owner's hardware intent:** The GT-I9195 is a dedicated Revival OS experimental target. Android and its personal data are not product requirements. Phase 0 uses the existing stock installation only to establish a one-time hardware and rescue baseline. From Phase 2 onward, **boot, reboot, and functional pass criteria measure Revival OS running on the device**, not successful return to Android. Recovery means regaining control of the device and another safe Revival OS test attempt; a verified stock image is an emergency rescue artifact, not the goal of the development cycle.
 
@@ -12,7 +12,7 @@ Sources: Revival Server issues [#120](https://github.com/revival-systems/revival
 
 1. **No hardware milestone is complete on a design or an emulator result.** Emulators prove code generation and architecture-level logic only.
 2. **Every phase that runs on the device records boot, reboot and recovery evidence**: the image hash, the device state before and after, the number of trials, and the recovery action taken.
-3. **No write to the device without an approved write plan.** The plan is a GitHub issue that names the exact partition, image, hash and recovery procedure, approved by the owner and the orchestrator. Bootloader-chain partitions are never written ([AGENTS.md](AGENTS.md#hardware-safety-contract)).
+3. **No write to the device without an approved write plan.** The plan is a GitHub issue that names the exact partition, image, hash and recovery procedure, approved by the owner and the reviewer. Bootloader-chain partitions are never written ([AGENTS.md](AGENTS.md#hardware-safety-contract)).
 4. **Android and user data are disposable.** The owner intends Revival OS to replace Android and does not require personal-data preservation. Do not erase or overwrite partitions merely to clear Android: remove obsolete Android components only when the current milestone needs it, a repeatable Revival OS boot and device rescue path have been demonstrated, and the exact changes have an approved write plan. Protected boot-firmware/device-identity partitions remain untouched.
 5. **Later-phase criteria are provisional.** They are refined in a reviewed pull request before the phase starts, using what earlier phases measured.
 6. **A failed phase is a result.** It is recorded with its evidence, and the next step is re-planned. It is never worked around silently.
@@ -116,7 +116,7 @@ Sources: Revival Server issues [#120](https://github.com/revival-systems/revival
 - Phase 1 has passed.
 - A write plan issue names the method, partition, image hash and recovery steps.
 - The owner has explicitly accepted that flashing a non-Samsung image is reported to trip the irreversible Knox warranty bit ([gt-i9195.md](docs/hardware/gt-i9195.md#bootloader-lock-and-knox)).
-- The orchestrator has approved the plan.
+- The reviewer has approved the plan.
 
 **Capability:** The smallest device-accepted image containing our ARM entry code and Rust-originated code. Prove that *Revival OS code itself* executes on the Samsung and produces one minimal, verifiable sign of life, then halts or resets deterministically. A logo, full kernel, user interface, camera driver, or Android runtime is **not** required for this first increment. Establish normal power-on into Revival OS as a separate verified step if the initial test must use an alternate entry path.
 
