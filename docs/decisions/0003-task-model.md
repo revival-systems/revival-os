@@ -24,7 +24,7 @@ All of it is emulator test fixture code next to the Phase 1 kernel, in [tests/qe
 
 | File | What it is |
 | --- | --- |
-| [tasks.rs](../../tests/qemu/virt-armv7/tasks.rs) | `#![no_std]` Rust, no heap, no allocator. The task table, the stack arena, spawn, round-robin `yield_now`, task exit, the stack checks, the job queue and its runner, and the nine test cases (eleven images) |
+| [tasks.rs](../../tests/qemu/virt-armv7/tasks.rs) | `#![no_std]` Rust, no heap, no allocator. The task table, the stack arena, spawn, round-robin `yield_now`, task exit, the stack checks, the job queue and its runner, and the ten test cases (twelve images) |
 | [switch.S](../../tests/qemu/virt-armv7/switch.S) | The only new assembly: `ctx_switch` (4 instructions), which cannot be Rust because Rust can neither name r4–r11 nor replace the stack pointer, and `task_trampoline` (3 instructions). The trampoline is assembly only because of the frame chosen here: `spawn` leaves the entry function and its argument in r4 and r5. A Rust entry shim that read them from the task's slot would need no assembly; that is an open choice |
 | [tasks.ld](../../tests/qemu/virt-armv7/tasks.ld) | The Phase 1 link layout plus the task arena, and RAM up to what a flat 32-bit image can address |
 | [tasks_oracle.py](../../tests/qemu/tasks_oracle.py) | Computes, independently, the order checksum that strict round robin must produce |
@@ -186,7 +186,7 @@ These are recommendations for the reviewer, from emulator measurements only.
 - **Stackless state machines** are not measured yet (above).
 - **A cheaper job path:** the stack check per batch instead of per step, and queue operations without bounds checks, each measured against the 104 instructions here.
 - **The calling contract** of `yield_now` and `run` (above) is documented, not checked.
-- **Coverage left:** `yield_now`'s own prologue saves r4, r10 and r11 in this build, so a switch that stopped saving those three is not observable through any test here (`ctx_switch` saving r12 in place of r10 passes them all); the registers case covers r5 to r9. The AAPCS still requires `ctx_switch` to save all of r4–r11, because another caller could rely on them. The task-case parameters live in the Makefile and are not a prerequisite of the images, so an edited parameter needs a clean build (`make measure-tasks` deletes each image before building it).
+- **Coverage left:** `yield_now`'s own prologue saves r4, r10 and r11 in this build, so a switch that stopped saving those three is not observable through any test here (`ctx_switch` saving r12 in place of r10 passes them all); the registers case covers r5 to r9. The AAPCS still requires `ctx_switch` to save all of r4–r11, because another caller could rely on them. (The task-case parameters were not a prerequisite of the images, so an edited parameter needed a clean build; each image now depends on a stamp file holding its parameters.)
 
 ## Consequences
 

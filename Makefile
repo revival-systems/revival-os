@@ -247,7 +247,16 @@ $(QEMU_OUT)/switch.o: $(FIXTURE)/switch.S | need-arm
 # "many" cases get their expected order checksum from the Python oracle; the
 # job cases also get --cfg tmodel_jobs and RT_JOBS, the overflow cases
 # --cfg tgroup_overflow.
-$(QEMU_OUT)/tasks-%.elf: $(FIXTURE)/tasks.rs $(QEMU_OUT)/kstart.o $(QEMU_OUT)/switch.o $(TASKS_LD) tests/qemu/tasks_oracle.py | need-rust need-arm
+# Each case's parameters in a stamp file, rewritten only when they change, so
+# that editing a TASKS_CFG_<case> rebuilds that image and nothing else (the
+# stamp is checked on every run; its time changes only with its content).
+.PHONY: tasks-cfg-check
+tasks-cfg-check: ;
+$(QEMU_OUT)/tasks-%.cfg: tasks-cfg-check
+	@mkdir -p $(@D)
+	@printf '%s\n' '$(TASKS_CFG_$*)' | cmp -s - $@ 2>/dev/null || printf '%s\n' '$(TASKS_CFG_$*)' > $@
+
+$(QEMU_OUT)/tasks-%.elf: $(FIXTURE)/tasks.rs $(QEMU_OUT)/kstart.o $(QEMU_OUT)/switch.o $(QEMU_OUT)/tasks-%.cfg $(TASKS_LD) tests/qemu/tasks_oracle.py | need-rust need-arm
 	@mkdir -p $(@D)
 	@test -n "$(TASKS_CFG_$*)" || { echo "no TASKS_CFG_$* for $@"; exit 1; }
 	set -- $(TASKS_CFG_$*); \
