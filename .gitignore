@@ -7,6 +7,10 @@ __pycache__/
 
 # Never commit vendor or device material, even by accident:
 # Samsung firmware packages, partition tables, raw images, private evidence.
+# One tracked exception: firmware/GT-I9195/ (the GT-I9195 rescue firmware in
+# Git LFS), added on purpose under the owner's exception of 2026-11-13
+# (AGENTS.md rule 7) although the patterns below match it. Nothing else under
+# /firmware/ is added.
 *.tar.md5
 *.pit
 *.img

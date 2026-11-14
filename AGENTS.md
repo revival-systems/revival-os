@@ -65,5 +65,5 @@ The first device is the owner's Samsung GT-I9195. These rules apply to every age
    - the GT-I9195 rescue firmware for the installed build, in Git LFS under [`firmware/GT-I9195/`](firmware/GT-I9195/README.md);
    - redacted photographs of the device and its screens under `docs/evidence/`, with every identifier blacked out and the image metadata stripped ([TESTING.md](docs/TESTING.md#recording-evidence)).
 
-   Everything else stays forbidden: no other vendor files, and never an IMEI, serial number, MAC address, account name, personal photo or unredacted photograph. The repository must stay private while its history or Git LFS storage holds vendor firmware.
+   Everything else stays forbidden: no other vendor files, and never an IMEI, serial number, MAC address, account name, personal photo or unredacted photograph. The repository must never be public while its history or Git LFS storage holds vendor firmware. It is internal on purpose, so that the owner's other agents and machines can read it; the owner decided this on 2026-11-14.
 8. **Stop on anything unexpected:** a wrong model, an unexpected screen, a write prompt, or failing recovery. Report it, and do not retry blindly.
