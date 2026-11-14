@@ -96,6 +96,11 @@ fn fault_status(fsr: u32) -> u32 {
     ((fsr >> 6) & 0x10) | (fsr & 0xf)
 }
 
+/// Whether a DFSR value records a write (WnR, bit 11).
+fn is_write(fsr: u32) -> bool {
+    fsr & (1 << 11) != 0
+}
+
 fn fault_status_name(fs: u32) -> &'static str {
     match fs {
         0b00001 => "alignment fault",
@@ -156,7 +161,7 @@ pub extern "C" fn exc_report(kind: u32, pc: usize, fsr: u32, far: usize) -> ! {
         puts(" (");
         puts(fault_status_name(fault_status(fsr)));
         if kind == DATA_ABORT {
-            puts(if fsr & (1 << 11) != 0 { ", a write" } else { ", a read" });
+            puts(if is_write(fsr) { ", a write" } else { ", a read" });
         }
         puts(")");
     }
@@ -182,7 +187,7 @@ pub extern "C" fn exc_report(kind: u32, pc: usize, fsr: u32, far: usize) -> ! {
             puts(", fault address and status: ");
             puts(fault_status_name(fault_status(fsr)));
             if kind == DATA_ABORT {
-                puts(if fsr & (1 << 11) != 0 { ", a write" } else { ", a read" });
+                puts(if is_write(fsr) { ", a write" } else { ", a read" });
             }
         }
         puts("); halted\n");
@@ -239,9 +244,17 @@ fn case() -> i32 {
 /// Called by kstart.S after the stack and .bss are set up.
 #[no_mangle]
 pub extern "C" fn kmain() -> i32 {
-    // The decode of FS[4] (bit 10) cannot be seen in QEMU's 0x8, so check it
-    // on known values first: 0x406 is an asynchronous external abort.
-    if fault_status(0x406) != 0b10110 || fault_status(0x8) != FS_SYNC_EXTERNAL || fault_status(0x40f) != 0b11111 {
+    // QEMU's faults here give only DFSR/IFSR 0x8 (a read, FS[4] clear), so the
+    // decode is first checked on known values these faults never produce:
+    // FS[4] (bit 10) set (0x406, 0x40f), the write bit set (0x808), and the
+    // domain, write and ExT bits set around a synchronous external abort
+    // (0x18f8); 0x1008 has ExT (bit 12) set but is a read.
+    let status_ok = fault_status(0x406) == 0b10110
+        && fault_status(0x8) == FS_SYNC_EXTERNAL
+        && fault_status(0x40f) == 0b11111
+        && fault_status(0x18f8) == FS_SYNC_EXTERNAL;
+    let write_ok = is_write(0x808) && !is_write(0x1008) && !is_write(0x8);
+    if !status_ok || !write_ok {
         puts("exception: FAIL the fault-status decode\n");
         return 1;
     }
