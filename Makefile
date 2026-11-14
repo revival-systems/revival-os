@@ -111,6 +111,10 @@ TASKS_CFG_jobs-1k       := jobs_many 4 512 100 1000
 TASKS_CFG_jobs-100k     := jobs_many 4 512 10 100000
 TASKS_CFG_jobs-full     := jobs_full 4 512 3 64
 TASKS_CFG_jobs-overflow := jobs_overflow 4 512 1 3
+# Emulator-only exception reporting (a step toward ROADMAP 3a): vectors that
+# say which exception happened and where, then halt. One image per case.
+EXC_CASES := undef dabt pabt
+EXC_ELFS  := $(EXC_CASES:%=$(QEMU_OUT)/exc-%.elf)
 
 # Phase 2 GT-I9195 proof-of-execution payload (the device image, boot/ layer per
 # ARCHITECTURE.md). Built here and tested only in QEMU; never flashed.
@@ -136,7 +140,7 @@ PY_FILES      := $(wildcard tests/*.py tests/*/*.py tools/*.py)
 OWN_C         := $(wildcard $(FIXTURE)/*.c tests/host/*.c tests/build/link-negative/*.c)
 
 .PHONY: help doctor install-toolchain build payload payload-invalid test test-build test-unit test-qemu \
-        test-rust test-tasks test-payload test-repro lint check-docs check clean qemu-run qemu-debug \
+        test-rust test-tasks test-exceptions test-payload test-repro lint check-docs check clean qemu-run qemu-debug \
         measure-tasks need-goose need-arm need-qemu need-rust
 
 help: ## List the targets
@@ -271,6 +275,21 @@ $(QEMU_OUT)/tasks-%.elf: $(FIXTURE)/tasks.rs $(QEMU_OUT)/kstart.o $(QEMU_OUT)/sw
 	    -C link-arg=$(QEMU_OUT)/kstart.o -C link-arg=$(QEMU_OUT)/switch.o \
 	    --cfg tcase_$$1 $$model --emit link -o $@ $(FIXTURE)/tasks.rs
 
+# ---- emulator-only exception reporting (a step toward ROADMAP 3a) ------------
+
+# The reporting vectors and two fault triggers at known addresses (assembly;
+# exc_vectors.S says why).
+$(QEMU_OUT)/exc_vectors.o: $(FIXTURE)/exc_vectors.S | need-arm
+	@mkdir -p $(@D)
+	$(ARM_CC) $(ARM_ARCH) -g $(REPRO) -c $< -o $@
+
+# rustc drives the link as for the Phase 1 kernel (link.ld, kstart.o); the
+# case stem selects the fault: undef, dabt or pabt.
+$(QEMU_OUT)/exc-%.elf: $(FIXTURE)/exc.rs $(QEMU_OUT)/kstart.o $(QEMU_OUT)/exc_vectors.o $(FIXTURE)/link.ld | need-rust need-arm
+	@mkdir -p $(@D)
+	$(RUSTC) $(RUST_FLAGS) $(RUST_LINK) -C link-arg=$(QEMU_OUT)/kstart.o -C link-arg=$(QEMU_OUT)/exc_vectors.o \
+	    --cfg ecase_$* --emit link -o $@ $(FIXTURE)/exc.rs
+
 # ---- Phase 2 GT-I9195 proof-of-execution payload (device image) -----------
 
 # The device entry stub (ARM asm): halt-only vectors + zImage header, handoff
@@ -307,8 +326,8 @@ payload-invalid: $(PAYLOAD_INVALID_IMG) ## Build the Phase 2 NEGATIVE-TEST image
 	@echo 'NEGATIVE-TEST IMAGE, NOT THE PAYLOAD: payload-invalid.img has the magic "INVALID!" and is built to be rejected.'
 	@echo "INVALID-MAGIC-NEGATIVE-TEST sha256 $$(sha256sum < $(PAYLOAD_INVALID_IMG) | cut -d' ' -f1)  payload-invalid.img  ($$(stat -c %s $(PAYLOAD_INVALID_IMG)) bytes)"
 
-build: $(PROBE_ELFS) $(PROBE_BINS) $(ALLOC_ELF) $(KERNEL_ELFS) $(TASKS_ELFS) $(PAYLOAD_BIN) $(PAYLOAD_IMG) ## Build every artifact that exists today (the ARMv7-A probe, allocator, Rust kernel, task-experiment and Phase 2 payload images)
-	@cd $(QEMU_OUT) && sha256sum probe-*.elf probe-*.bin alloc.elf kernel-*.elf $(notdir $(TASKS_ELFS))
+build: $(PROBE_ELFS) $(PROBE_BINS) $(ALLOC_ELF) $(KERNEL_ELFS) $(TASKS_ELFS) $(EXC_ELFS) $(PAYLOAD_BIN) $(PAYLOAD_IMG) ## Build every artifact that exists today (the ARMv7-A probe, allocator, Rust kernel, task-experiment, exception-report and Phase 2 payload images)
+	@cd $(QEMU_OUT) && sha256sum probe-*.elf probe-*.bin alloc.elf kernel-*.elf $(notdir $(TASKS_ELFS)) $(notdir $(EXC_ELFS))
 	@cd $(PAYLOAD_OUT) && sha256sum payload.elf payload.bin payload.img
 
 # ---- link check (build-link-map) -------------------------------------------
@@ -361,7 +380,7 @@ $(HOST_OUT)/probe_host_asan: $(HOST_OUT)/probe_gen_asan.o $(HOST_OUT)/probe_main
 
 # ---- tests -----------------------------------------------------------------
 
-test: test-build test-unit test-qemu test-rust test-tasks test-payload test-repro ## Run every automated test (build, unit, QEMU, Rust kernel, task experiment, Phase 2 payload, reproducibility)
+test: test-build test-unit test-qemu test-rust test-tasks test-exceptions test-payload test-repro ## Run every automated test (build, unit, QEMU, Rust kernel, task experiment, exception reports, Phase 2 payload, reproducibility)
 
 test-build: build $(QEMU_OUT)/hosted_probe.o $(LINK_CHECKED) ## Check the freestanding build: link inputs, symbols, ELF attributes, no system calls
 	@mkdir -p $(LOGS)
@@ -501,6 +520,15 @@ test-tasks: $(TASKS_ELFS) | need-qemu need-arm ## Run the emulator-only task exp
 	@n=$$($(ARM_OBJDUMP) -d $(QEMU_OUT)/tasks-many-1k.elf | grep -cE '\s(svc|swi|smc|hvc)\s' || true); \
 	  if [ "$$n" = 1 ]; then echo "PASS build-tasks-one-svc (only the semihosting exit; the context switch makes no system call)"; \
 	  else echo "FAIL build-tasks-one-svc: found $$n"; exit 1; fi
+
+test-exceptions: $(EXC_ELFS) | need-qemu need-arm ## Run the emulator-only exception reports (a step toward ROADMAP 3a): an undefined instruction, a data abort and a prefetch abort, each reported with its kind and address, then a halt
+	@mkdir -p $(LOGS)
+	@QEMU_MEM=64M tests/qemu/run.sh qemu-exc-undefined-instruction $(QEMU_OUT)/exc-undef.elf $(LOGS)/exc-undef.log 1 \
+	    "exception: as expected (undefined instruction at the expected pc); halted"
+	@QEMU_MEM=64M tests/qemu/run.sh qemu-exc-data-abort $(QEMU_OUT)/exc-dabt.elf $(LOGS)/exc-dabt.log 1 \
+	    "exception: as expected (data abort at the expected pc, fault address and status: synchronous external abort, a read); halted"
+	@QEMU_MEM=64M tests/qemu/run.sh qemu-exc-prefetch-abort $(QEMU_OUT)/exc-pabt.elf $(LOGS)/exc-pabt.log 1 \
+	    "exception: as expected (prefetch abort at the expected pc, fault address and status: synchronous external abort); halted"
 
 test-payload: $(PAYLOAD_BIN) $(PAYLOAD_IMG) $(PAYLOAD_INVALID_IMG) $(PAYLOAD_OUT)/kstart.o tests/boot/run_payload.py tests/boot/read_bootimg.py tests/boot/check_negative_img.py tests/boot/serrano_v1.py tests/boot/payload_hosted_libc.rs $(FIXTURE)/hosted_std.rs tests/build/check_image_integrity.sh | need-qemu need-arm need-rust ## Boot the Phase 2 payload in QEMU (paint the framebuffers, inject MDP4 values and a fault), and check the handoff, the packer, the negative-test image, the frozen hashes and reproducibility
 	@mkdir -p $(LOGS) $(PAYLOAD_OUT)/neg
