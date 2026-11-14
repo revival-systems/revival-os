@@ -1,11 +1,11 @@
-# Phase 2 write plan, method A (`RECOVERY` only): DRAFT v3.1
+# Phase 2 write plan, method A (`RECOVERY` only): DRAFT v3.2
 
 **This is a draft. It approves nothing.**
 
 - **No command in this document may be run** until an approved write-plan issue exists ([AGENTS.md](../../AGENTS.md#hardware-safety-contract), rule 1).
 - **The issue is opened by the implementer when the reviewer's task says so.** This file is the proposed text of that issue. The reviewer reviews it, and **the owner approves the finished plan**.
 - Every `heimdall flash` line below is a proposal. Until the issue is approved, the only commands allowed on the phone are the read-only ones in the [Phase 0 checklist](../phase-0/hardware-verification-checklist.md#rules-for-this-checklist) (rule 5).
-- Written 2026-11-11 from the repository's documents and public sources, revised the same day (v2), and revised on 2026-11-14 (v3) with the recorded Phase 0 facts and the decisions below. v3.1, the same day, marks the reviewer's confirmed wordings as decided and adds the two-minute wait at the lock screen. **No device was touched and no flash command was run to write it.**
+- Written 2026-11-11 from the repository's documents and public sources, revised the same day (v2), and revised on 2026-11-14 (v3) with the recorded Phase 0 facts and the decisions below. v3.1, the same day, marks the reviewer's confirmed wordings as decided and adds the two-minute wait at the lock screen. **No device was touched and no flash command was run to write it.** v3.2, the same evening, records E-16 and E-17: the read-only PIT read from the write host, which is a command the [Phase 0 checklist](../phase-0/hardware-verification-checklist.md#allowed) allows. No flash command was run.
 
 **Phase:** 2, first bare-metal boot ([ROADMAP.md](../../ROADMAP.md#phase-2--first-bare-metal-boot)). **Method:** A, decided by the former orchestrator on 2026-11-11 ([PR #10 comment](https://github.com/revival-systems/revival-os/pull/10#issuecomment-6792632937), decision B). **Partition:** `RECOVERY`, and no other.
 
@@ -78,9 +78,9 @@ The 2026-11-11 decisions were recorded by the former orchestrator in the [PR #12
 | --- | --- | --- |
 | What the option does | "`--no-reboot` causes the device to remain in download mode after the action is completed. If you wish to perform another action whilst remaining in download mode, then the following action must specify the `--resume` flag." | Source: the output of `heimdall help` from the installed Heimdall v2.1.0 (Ubuntu package `heimdall-flash` 2.1.0-1build1), under the `flash` action. |
 | What is sent to the phone | With `--no-reboot`, Heimdall ends the session and does not send the reboot request. Without it, Heimdall sends the reboot request and the phone restarts, normally into Android. | Source for the original project: Heimdall [`BridgeManager.cpp:558-612`](https://github.com/Benjamin-Dobell/Heimdall/blob/3997d5cc607e6c603c6e7c0d07e42e9868c62af2/heimdall/source/BridgeManager.cpp#L558-L612) and [`FlashAction.cpp:458`](https://github.com/Benjamin-Dobell/Heimdall/blob/3997d5cc607e6c603c6e7c0d07e42e9868c62af2/heimdall/source/FlashAction.cpp#L458), `:570`. The installed 2.1.0 is a maintained fork whose source could not be fetched, so for 2.1.0 this is an Inference from the identical help text. |
-| What the phone shows | "The device will continue to display `Downloading... Do not turn off target!!` even after the process is complete." | Community: LineageOS wiki, [`recovery_install_samloader_rs.md:70`](https://github.com/LineageOS/lineage_wiki/blob/bc00760c9307ebf166ccfbfd933ad957d342067d/_includes/templates/recovery_install_samloader_rs.md#L70). **Unknown** on this phone until the PIT read from the write host (E-17) is photographed 10 seconds after Heimdall exits. |
+| What the phone shows | "The device will continue to display `Downloading... Do not turn off target!!` even after the process is complete." | Community: LineageOS wiki, [`recovery_install_samloader_rs.md:70`](https://github.com/LineageOS/lineage_wiki/blob/bc00760c9307ebf166ccfbfd933ad957d342067d/_includes/templates/recovery_install_samloader_rs.md#L70). **On this phone:** after the PIT read from the write host with `--no-reboot` (E-17, 2026-11-14), the phone stayed on the Download-mode screen, photographed 10 seconds after Heimdall exited (owner-confirmed, [write-host PIT read](../evidence/phase-2/2026-11-14-write-host-pit-read.md)). The screen's text was not transcribed. |
 | Why the option exists | "It's mostly in place so you can manually boot straight into recovery mode after a flash (rather than booting up normally)." The manual adds: "You can still safely reboot your phone manually (with the power button) after executing `--no-reboot` commands." | Source: Heimdall [`Linux/README:162-164`](https://github.com/Benjamin-Dobell/Heimdall/blob/8709370bc48310604dfd4407538f650b3cc4f0ae/Linux/README#L162-L164), `:217-218`; the installed `heimdall(1)` manual page has the second sentence. |
-| How to leave from there | Remove the battery, then hold the recovery keys from power-off. LineageOS gives the same route: "Manually reboot into recovery, this may require pulling the device's battery out and putting it back in". | Recorded: the battery exit from an idle Download mode works 3 of 3 (F6, owner-confirmed, [checklist results](../evidence/phase-0/2026-11-13-linux-retest.md#checklist-results)). Exit after a `--no-reboot` session on the write host: **Open**, shown by E-17. Community: LineageOS wiki, same file, line 71. Recovery keys: [gt-i9195.md](../hardware/gt-i9195.md#download-mode-and-flashing-tools). |
+| How to leave from there | Remove the battery, then hold the recovery keys from power-off. LineageOS gives the same route: "Manually reboot into recovery, this may require pulling the device's battery out and putting it back in". | Recorded: the battery exit from an idle Download mode works 3 of 3 (F6, owner-confirmed, [checklist results](../evidence/phase-0/2026-11-13-linux-retest.md#checklist-results)). Exit after a `--no-reboot` session on the write host: recorded by E-17 on 2026-11-14. After the cable was unplugged and the battery removed, the screen went dark, and the phone recovered and works normally (owner-confirmed, [write-host PIT read](../evidence/phase-2/2026-11-14-write-host-pit-read.md#steps-e-17)). Community: LineageOS wiki, same file, line 71. Recovery keys: [gt-i9195.md](../hardware/gt-i9195.md#download-mode-and-flashing-tools). |
 
 What follows for the plan:
 
@@ -109,7 +109,7 @@ The stock image is Recorded: [firmware evidence](../evidence/phase-0/2026-11-13-
 | PIT partition name, as Heimdall takes it | `RECOVERY` | Recorded: [partition map](../evidence/phase-0/2026-11-13-readonly/partition-map.md), from the Windows PIT read (F5). |
 | PIT identifier | `14` | Recorded, same file. |
 | Size | 20,480 sectors of 512 bytes = 10,485,760 bytes, starting at sector 241,664 | Recorded, same file. Linux agrees: `recovery` is `mmcblk0p14`, 10,240 KiB ([by-name](../evidence/phase-0/2026-11-13-linux/by-name.txt), [partitions](../evidence/phase-0/2026-11-13-linux/partitions.txt)). |
-| PIT read from the write host | Expected PIT SHA-256 `1ec0d73501ca5b956b80b85583f9b578ea819e961e8fba3ccc1784b195f51432` (the Windows read) | **Open: E-17.** Not done yet; the 2026-11-14 attempt was skipped because the phone was not connected. |
+| PIT read from the write host | PIT SHA-256 `1ec0d73501ca5b956b80b85583f9b578ea819e961e8fba3ccc1784b195f51432`, equal to the Windows read | Recorded (E-17), 2026-11-14: `RECOVERY` is identifier 14, 20,480 blocks, from block 241,664 ([write-host PIT read](../evidence/phase-2/2026-11-14-write-host-pit-read.md)). |
 
 Heimdall refuses a name that is not in the phone's PIT (Source for the original project: [`FlashAction.cpp:220-224`](https://github.com/Benjamin-Dobell/Heimdall/blob/3997d5cc607e6c603c6e7c0d07e42e9868c62af2/heimdall/source/FlashAction.cpp#L220-L224); Inference for 2.1.0). Each test image is 6,160 bytes, far below the partition size, so `--skip-size-check` is never used. Whether bytes of `RECOVERY` beyond the image's length are changed by the transfer is **Unknown**; the plan does not depend on it.
 
@@ -202,10 +202,10 @@ Blockers 7 to 10 are not open: 7 is decided (method A), 8 and 9 are the reviewed
   Evidence: order (b), invalid image first; at most four host writes ([2026-11-11 decisions](https://github.com/revival-systems/revival-os/pull/12#issuecomment-6796999441), items 1 and 3).
 - [ ] **E-15. Rule 4 is amended by a reviewed change.**
   Closed by: a later reviewed change to [AGENTS.md](../../AGENTS.md#hardware-safety-contract) rule 4, made **after** the owner's statement for E-4. **It is not made in this pull request.** Until it is effective, rule 4's current wording binds ([2026-11-11 decisions](https://github.com/revival-systems/revival-os/pull/12#issuecomment-6796999441), item 2; reviewer decision, 2026-11-14).
-- [ ] **E-16. The write host is the Ubuntu development host used for the 2026-11-13 Phase 0 re-test, with the cable and USB port used for E-17, and `heimdall version` prints `v2.1.0`.** Whether Heimdall needs `sudo` for USB access is recorded in E-17; the writes use the same form.
+- [x] **E-16. The write host is the Ubuntu development host used for the 2026-11-13 Phase 0 re-test, with the cable and USB port used for E-17, and `heimdall version` prints `v2.1.0`.** Whether Heimdall needs `sudo` for USB access is recorded in E-17; the writes use the same form.
   Closed by: the owner.
-  Evidence: the `make doctor` output on the day, and E-17's record.
-- [ ] **E-17. The PIT has been read from the write host.** Read-only, with the owner at the phone in Download mode:
+  Evidence: [write-host PIT read](../evidence/phase-2/2026-11-14-write-host-pit-read.md#host-cable-and-port-e-16), 2026-11-14. The host is the one of the 2026-11-13 re-test. The cable is the same as on 2026-11-13, in the left front USB port (owner-confirmed). `heimdall version` prints `v2.1.0`, and `make doctor` exits 0 (measured). Heimdall needs no `sudo`, so the writes run without it.
+- [x] **E-17. The PIT has been read from the write host.** Read-only, with the owner at the phone in Download mode:
 
   ```sh
   heimdall download-pit --output "$EV0/private/pit-linux.bin" --no-reboot
@@ -216,6 +216,12 @@ Blockers 7 to 10 are not open: 7 is decided (method A), 8 and 9 are the reviewed
   After Heimdall exits, the owner waits 10 seconds, photographs the screen, then unplugs the cable and removes the battery.
   Closed by: the owner performs it; the implementer records it.
   Evidence: the hash equals the Windows PIT; the `RECOVERY` entry reads identifier 14, 20,480 blocks; Heimdall's complete output, whose lines become step D4's expected lines; the photograph, which answers what the phone shows after `--no-reboot` on this host. The PIT file and the photograph stay outside Git. Any line starting `ERROR` stops it.
+  **Recorded 2026-11-14** ([write-host PIT read](../evidence/phase-2/2026-11-14-write-host-pit-read.md)):
+  - Heimdall exited 0, with no `ERROR` or `WARNING` line.
+  - The hash equals the Windows PIT, and `RECOVERY` reads identifier 14, 20,480 blocks (measured).
+  - Heimdall's session lines are recorded there for D4.
+  - The phone stayed on the Download-mode screen, and the photograph was taken (owner-confirmed).
+  - After the battery exit, the screen went dark and the phone recovered (owner-confirmed).
 
 ## 3. Host and tools
 
@@ -282,7 +288,7 @@ For W1 and W2, and for W3 or W4 if their condition applies.
 | D5 | Wait until the shell prompt has returned. Wait 10 more seconds without touching the phone or the cable, then photograph the phone's screen. | What E-17's photograph showed after `--no-reboot`. | The phone restarts by itself. If Android then appears: "If Android starts", A1–A2, then stop and report. Run no trial and no S2 until the owner and the reviewer have answered. |
 | D6 | Only after the photograph: unplug the cable, remove the battery and wait 10 seconds. | The screen goes dark. | — |
 
-The upload and end-of-session messages named in D4 are the original project's (Source: [`FlashAction.cpp:255-260`](https://github.com/Benjamin-Dobell/Heimdall/blob/3997d5cc607e6c603c6e7c0d07e42e9868c62af2/heimdall/source/FlashAction.cpp#L255-L260), `BridgeManager.cpp:560` and `:586`); for the installed 2.1.0 their wording is an Inference until E-17 records the real session lines. A line that is none of the expected ones and does not start `ERROR` is recorded and reported; the write is not repeated because of it.
+The upload and end-of-session messages named in D4 are the original project's (Source: [`FlashAction.cpp:255-260`](https://github.com/Benjamin-Dobell/Heimdall/blob/3997d5cc607e6c603c6e7c0d07e42e9868c62af2/heimdall/source/FlashAction.cpp#L255-L260), `BridgeManager.cpp:560` and `:586`); E-17 recorded the installed 2.1.0's session lines on this host, with no `WARNING` line ([write-host PIT read](../evidence/phase-2/2026-11-14-write-host-pit-read.md#heimdall-210-session-lines-on-this-host)). The upload lines are not part of a PIT read, so for 2.1.0 their wording stays an Inference. A line that is none of the expected ones and does not start `ERROR` is recorded and reported; the write is not repeated because of it.
 
 ### Transfer failure
 
@@ -573,12 +579,13 @@ Everything this draft leaves open, in one place.
 
 | Item | Status | Resolved by |
 | --- | --- | --- |
-| PIT read from the write host; what the phone shows after `--no-reboot` there; Heimdall 2.1.0's exact session lines | Open | E-17 |
+| PIT read from the write host; what the phone shows after `--no-reboot` there; Heimdall 2.1.0's exact session lines | Recorded, 2026-11-14 | E-17 ([write-host PIT read](../evidence/phase-2/2026-11-14-write-host-pit-read.md)) |
+| Heimdall 2.1.0's wording of the upload lines of a flash | Inference | The first write (D4) |
 | The write-plan issue; the owner's Knox statement; both approvals | Open | E-3, E-4, E-5 |
 | Rule 4 amendment | Open | E-15, a later reviewed change |
 | The commit on `main` to build from | Open | E-11 |
 | The five phone-only questions accepted as open | Open | E-10 |
-| The write host, cable and port | Open | E-16 |
+| The write host, cable and port | Recorded, 2026-11-14 | E-16 ([write-host PIT read](../evidence/phase-2/2026-11-14-write-host-pit-read.md#host-cable-and-port-e-16)) |
 | Does this phone's Android actually rewrite `RECOVERY`? | Assumed yes (E-13) | The rescue check (S2) |
 | Rescue by W4 | Untested | Only if section 9 requires it |
 | Signing-chain verification of the stock images | Not done | Not needed for this plan; recorded as a limit |
