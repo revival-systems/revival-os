@@ -8,11 +8,11 @@
 
 The project's goals are only partly written down. [ARCHITECTURE.md](../../ARCHITECTURE.md#engineering-standards) covers bounded resources, recovery, portability, security by default and "measured performance". [ADR 0001](0001-rust-and-arm-assembly.md#memory-strategy) covers the memory strategy. Nothing states the headline goals, gives a number to hold to, plans for many tasks at once, or leaves room for original ideas. The roadmap has no milestone for tasks or scheduling.
 
-This record writes the owner's goals down, says what each means in engineering terms here, and says how each will be measured. It sets no number that has not been measured.
+This record writes the owner's goals down, says what each means in engineering terms here, and says how each will be measured. It invents no number: its figures are measurements, and its only targets are the owner's (thousands of tasks) and the reviewer's proposed first proof point (1,000 tasks).
 
 ## The figures that exist today
 
-Every figure below was measured; nothing in this record is a target.
+Every figure in this table was measured; none of them is a target.
 
 | Figure | Value | Source |
 | --- | --- | --- |
@@ -33,7 +33,7 @@ No figure exists yet for the phone's speed, the cost of a task, a context switch
 
 ### The owner's goals
 
-1. **Very small.** One of the smallest operating systems that does real work. The owner named tiny operating systems written in assembly language as the inspiration.
+1. **Very small.** One of the smallest operating systems that does real work. The owner named tiny assembly-language systems as the inspiration.
 2. **Very fast and efficient.** High performance on old hardware.
 3. **Secure.**
 4. **Scalable.** Many pieces of work at once, from dozens up to thousands of tasks or threads, and able to move to other devices.
@@ -53,10 +53,10 @@ No figure exists yet for the phone's speed, the cost of a task, a context switch
 
 #### 2. Very fast and efficient
 
-- **In engineering terms:** the time and energy each operation costs on the GT-I9195, measured on the GT-I9195. "Fast" is a figure per operation: boot to first output, a context switch, an interrupt's latency, a system call later. "Efficient" means work per joule and memory per task.
-- **What implements it today:** nothing measures speed yet. The [engineering standard "measured performance"](../../ARCHITECTURE.md#engineering-standards) requires every figure to be measured on the device and recorded with its commit; the release build is optimised (`-C opt-level=2`).
-- **How it is measured:** on the phone, by a cycle counter or a timer read before and after the operation, repeated, with the spread recorded; boot-to-output latency from video, as the write-plan draft records it. In QEMU, only instruction counts and code bytes are measured. **Emulator timing is not phone timing** ([TESTING.md](../TESTING.md#test-tiers)).
-- **Where its number is set:** a budget per operation is set before the phase that adds the operation starts, from the first measurement on the phone: boot latency from Phase 2, switch and interrupt costs before Phase 3's sub-milestones 3d and 3g.
+- **In engineering terms:** the time and energy each operation costs on the GT-I9195, measured on the GT-I9195. "Fast" is a figure per operation: boot to first output, a context switch, an interrupt's latency, a system call later. "Efficient" means work per joule, and memory per task (goal 4).
+- **What implements it today:** nothing measures speed or energy yet. The [engineering standard "measured performance"](../../ARCHITECTURE.md#engineering-standards) requires latency, throughput, memory, CPU, energy and storage figures to be measured on the device and recorded with their commit; the release build is optimised (`-C opt-level=2`, [Makefile](../../Makefile)).
+- **How it is measured:** time on the phone, by a cycle counter or a timer read before and after the operation, repeated, with the spread recorded; boot-to-output latency from video, as the write-plan draft records it ("key release to picture", [section 11](../phase-2/write-plan-draft.md#11-evidence)). Energy on the phone, as the power drawn from the battery supply, measured externally, at idle and under a named load ([ROADMAP Phase 9](../../ROADMAP.md#phase-9--hardening-and-portability) already plans "measured idle and recording power"). In QEMU, only instruction counts and code bytes are measured. **Emulator timing is not phone timing** ([TESTING.md](../TESTING.md#test-tiers)).
+- **Where its number is set:** each time budget comes from that operation's first measurement on the phone, and is set before the next phase starts (roadmap rule 5). Boot latency is first measured in Phase 2 and budgeted before Phase 3 starts. Interrupt and switch times are first measured on the phone in 3d and 3g, and budgeted before Phase 4 starts; emulator runs may come first, inside Phase 3, but give instruction counts only. Energy is first measured as Phase 9 plans; its budget is set in the rule-5 review after that measurement, and nothing sets one before then.
 
 #### 3. Secure
 
@@ -67,48 +67,52 @@ No figure exists yet for the phone's speed, the cost of a task, a context switch
 
 #### 4. Scalable
 
-- **In engineering terms:** two kinds of growth. **Work:** one more task costs a small, fixed amount of memory: a bounded stack plus a bounded arena, with no general heap. Running out of tasks is an error that is reported, never undefined behaviour. **Devices:** a second device means a new port, not a rewrite ([ARCHITECTURE.md](../../ARCHITECTURE.md#portability)).
+- **In engineering terms:** two kinds of growth. **Work:** one more task costs a small, fixed amount of memory, with no general heap: its stack, the guard region below that stack, its control block, and its arena if it has one (none unless a concrete requirement justifies it, as [ADR 0001](0001-rust-and-arm-assembly.md#memory-strategy) decides). These are its **bytes per task**. Running out of tasks is an error that is reported, never undefined behaviour. **Devices:** a second device means a new port, not a rewrite ([ARCHITECTURE.md](../../ARCHITECTURE.md#portability)).
 - **What implements it today:** for work, nothing; there is no task or scheduler code. For devices, the layering of `arch/`, `soc/` and `board/` and the platform contract ([ARCHITECTURE.md](../../ARCHITECTURE.md#layers-and-dependency-rules)), still a proposal.
-- **How it is measured:** bytes per task (stack plus control block), the largest task count that runs, and the cost of one switch, all from a test that can fail. For devices: what a second port has to change (Phase 9).
-- **Where its number is set:** the owner's target is thousands of tasks. The reviewer proposes **1,000 tasks on this phone** as the first proof point, shown by measurement. Its sub-milestone is ROADMAP 3g (provisional), and its numbers are set before Phase 3 starts, from the emulator experiment that comes first and then from the phone.
+- **How it is measured:** bytes per task (as defined above); the largest task count, which is the memory reserved for tasks divided by that figure, shown by a run; and the cost of one switch. Each comes from a test that can fail. For devices: what a second port has to change (Phase 9).
+- **Where its number is set:** the owner's target is thousands of tasks. The reviewer proposes **1,000 tasks on this phone** as the first proof point, shown by measurement: that is the task-count criterion of ROADMAP 3g (provisional), confirmed or changed when Phase 3 is refined. Before Phase 3 starts (rule 5), only build-time figures can be set: the task count, and a bytes-per-task budget, which a build measures the same way whether it runs in QEMU or on the phone. The switch's time on the phone is first measured in 3g and budgeted before Phase 4 starts (goal 2).
 
 #### 5. Maintainable
 
 - **In engineering terms:** a new contributor can find where a thing lives, change it, and know from the tests whether the change is right. Small modules with documented interfaces, one logical change per commit, assembly only where Rust cannot work (each file says why), and documentation that is checked.
-- **What implements it today:** `make check` (lint, documentation links and anchors, every test) before every push ([AGENTS.md](../../AGENTS.md#git)); the [module boundaries](../../ARCHITECTURE.md#layers-and-dependency-rules); `-D warnings`; the documentation checker ([tests/docs/check_docs.py](../../tests/docs/check_docs.py)); each assembly file's statement of why it is not Rust ([kstart.S](../../tests/qemu/virt-armv7/kstart.S)).
+- **What implements it today:** `make check` (lint, documentation links and anchors, every test) before every push ([AGENTS.md](../../AGENTS.md#git)); the proposed [module boundaries](../../ARCHITECTURE.md#layers-and-dependency-rules) (not yet code); `-D warnings` ([Makefile](../../Makefile)); the documentation checker ([tests/docs/check_docs.py](../../tests/docs/check_docs.py)); each assembly file's statement of why it is not Rust ([kstart.S](../../tests/qemu/virt-armv7/kstart.S)).
 - **How it is measured:** `make check` passes on a clean export, and how long it takes; lines of Rust and of assembly per module, and the count of `unsafe` blocks, recorded with each phase's evidence.
-- **Where its number is set:** these counts are recorded from Phase 3 on; a budget, if one is wanted, is set before Phase 3 starts.
+- **Where its number is set:** these counts are recorded with each phase's evidence, starting from the Phase 1 and Phase 2 code; a budget, if one is wanted, is set from those records before Phase 4 starts.
 
 #### 6. Built from the ground up, with room to invent
 
 - **In engineering terms:** no Linux, Android or hosted C library at run time ([ARCHITECTURE.md](../../ARCHITECTURE.md#goals)), and the project's own research may produce its own designs. An original idea is welcome when it serves goals 1 to 5 and survives an experiment that could have shown it wrong.
-- **What implements it today:** the image contains only the project's code and Rust's `core` and `compiler_builtins`, which the link checks enforce; this decision-record process.
+- **What implements it today:** the `-nostdlib` link in the [Makefile](../../Makefile) (`RUST_LINK_BASE`), so the Rust images contain only the project's code and Rust's `core` and `compiler_builtins`. The negative tests `build-rust-rejects-std`, `build-rust-rejects-libc`, `payload-rejects-std` and `payload-rejects-libc` show that a `std` or C-library reference is rejected, and `build-rust-symbols` and `payload-symbols` require zero undefined symbols. The exact-inputs check (`build-link-map`, [tests/build/check_link.py](../../tests/build/check_link.py)) covers the probe and allocator images, not yet the Rust images. And this decision-record process ([the index](README.md)).
 - **How it is measured:** each original idea gets **its own decision record** that names the research it comes from, the goal it serves, and an **experiment that can fail**, with the experiment's result. Nothing is called novel without a source check: a search of prior work, cited in that record.
 - **Where its number is set:** in that record, as the experiment's own pass or fail criterion.
 
 #### 7. The memory rule: the stack first, a heap only when necessary
 
 - **In engineering terms:** as [ADR 0001](0001-rust-and-arm-assembly.md#memory-strategy) decides: the native Rust stack for calls and locals, statically reserved fixed-capacity regions for lasting data, no general-purpose heap allocator, and bounded arenas (bump allocation with a capacity check before every advance) only when a concrete requirement justifies them. The idea comes from Goose's separate data region; the unchecked advance does not ([what not to inherit](0001-rust-and-arm-assembly.md#what-to-learn-from-goose-and-what-not-to-inherit)).
-- **What implements it today:** the Phase 1 kernel and the Phase 2 payload use only the stack and static data; neither links an allocator (`nm -u` is empty for both).
-- **How it is measured:** statically reserved bytes per image (`.data`, `.bss`, stacks); stack depth per task, by painting the stack and finding the deepest overwritten word; that no allocator symbol is linked.
+- **What implements it today:** the Phase 1 kernel ([kernel.rs](../../tests/qemu/virt-armv7/kernel.rs)) and the Phase 2 payload ([payload.rs](../../boot/samsung-serranolte/payload.rs)) use only the stack and static data, and both link scripts reserve a fixed 64 KiB stack ([link.ld](../../tests/qemu/virt-armv7/link.ld), [boot/samsung-serranolte/link.ld](../../boot/samsung-serranolte/link.ld)). Neither crate uses `alloc` or defines a `#[global_allocator]`, and `arm-none-eabi-nm` lists no allocator symbol (`__rust_alloc`, `__rdl_alloc`, `malloc`) in either image.
+- **How it is measured:** statically reserved bytes per image (`.data`, `.bss`, stacks); stack depth per task, by painting the stack and finding the deepest overwritten word; and that no allocator symbol is defined in the image (a check of defined symbols; `nm -u` lists only undefined ones).
 - **Where its number is set:** a memory budget per image is set before Phase 3 starts, inside the RAM the phone reports (about 1.3 GiB).
 
 #### 8. A real-world system, not a demo
 
 - **In engineering terms:** the measure of success is a job done on the real phone: the standalone camera of ROADMAP Phase 7, capturing, storing and serving video to the iPhone app with no server. Emulator results never count as hardware results ([roadmap rule 1](../../ROADMAP.md#rules-for-every-phase)).
-- **What implements it today:** the roadmap's phases, each with pass criteria, physical verification and recovery evidence; the Phase 0 baseline on the owner's GT-I9195.
+- **What implements it today:** the phases of [ROADMAP.md](../../ROADMAP.md), each with pass criteria, physical verification and recovery evidence; the Phase 0 baseline on the owner's GT-I9195 ([hardware evidence](../evidence/phase-0/2026-11-13-hardware-summary.md), [addendum](../evidence/phase-0/2026-11-13-linux-retest.md)).
 - **How it is measured:** each phase's pass criteria, on the device, with recorded evidence ([TESTING.md](../TESTING.md#recording-evidence)).
 - **Where its number is set:** in each phase's criteria, refined before that phase starts (roadmap rule 5).
 
 ### Rules for the numbers
 
-- **Only measured figures.** A number in this project is a measurement with its source, or a budget derived from one. Where no measurement exists, the record says "budget set before Phase N starts" and names the measurement (roadmap rule 5).
-- **A budget is enforced by a test.** Once set, a budget becomes a test under `make check` that fails when it is exceeded, in the style of `payload-frozen` ([Makefile](../../Makefile), `test-payload` part (f)): for example, a check that fails when the image's loadable bytes grow past the budget. Raising a budget is a reviewed change with its reason.
+- **Only measured figures.** A size, memory or performance figure in this project is a measurement with its source, or a budget derived from one. Where no measurement exists, the record says "budget set before Phase N starts" and names the measurement (roadmap rule 5). Trial counts and other test parameters are set in review under rule 5, as the roadmap's criteria already are.
+- **A budget is enforced where it is measured.**
+  - **Build-time budgets** (an image's loadable and flat bytes, statically reserved bytes, bytes per task): each becomes a test under `make check` that fails when it is exceeded, in the style of `payload-frozen` ([Makefile](../../Makefile), `test-payload` part (f)): for example, a check that fails when the image's loadable bytes grow past the budget.
+  - **Phone-measured budgets** (latency, switch and interrupt time, energy): checked in that phase's device procedure, which reports expected and measured values (as Phase 3's observable test already does), and recorded as evidence in the device tier of [TESTING.md](../TESTING.md#recording-evidence).
+  - **Emulator guards:** an instruction-count check, if one is added to `make check`, is labelled as an emulator figure and never stands for a phone time.
+  - Raising any budget is a reviewed change with its reason.
 - **Each figure names its tier.** Emulator figures and phone figures are kept apart and labelled.
 
 ### Tasks: one more task costs a small, fixed amount
 
-A task's cost must be known before it is created: a bounded stack plus a bounded arena, sized when the system is built, so that the largest task count is a division and not a guess. The owner's target is thousands of tasks. The first proof point proposed by the reviewer is 1,000 tasks on the phone, shown by measurement. Which kinds of work need a stack of their own and which can be cheaper (run-to-completion jobs, stackless state machines) is an open question for the task-model experiment and its own record.
+A task's cost must be known before it is created: its bytes per task (stack, guard region, control block, and an arena only if a requirement justifies one), sized when the system is built, so that the largest task count is a division and not a guess. The owner's target is thousands of tasks. The first proof point proposed by the reviewer is 1,000 tasks on the phone, shown by measurement. Which kinds of work need a stack of their own and which can be cheaper (run-to-completion jobs, stackless state machines) is an open question for the task-model experiment and its own record.
 
 ### Room to invent
 
@@ -126,7 +130,7 @@ Nothing is called novel until that check is done.
 - **Small against fast.** Inlining, unrolling and lookup tables make code faster and bigger. Each such change records both its size and its speed, and the trade is decided by the numbers.
 - **Thousands of tasks against no general heap.** Without a heap, every task's memory is reserved in advance, so the task count is bounded by the memory set aside. Per-task cost must be small, and the cheapest kind of task that does the job is preferred.
 - **Security checks against speed.** Bounds checks, stack guards, MMU guard pages and privilege changes cost cycles and memory. An MMU guard page also forces stacks to whole 4 KiB pages on ARMv7. Each check's cost is measured, so keeping or dropping it is a decision, not an accident.
-- **The hardware bounds all of it.** Two cores and about 1.3 GiB of usable RAM, as measured. Every budget is set inside those figures, from measurements on this phone.
+- **The hardware bounds all of it.** Two cores and about 1.3 GiB of usable RAM, as measured. Every memory budget fits inside that RAM, and every time and energy budget comes from measurements on this phone.
 
 ## Consequences
 
