@@ -483,7 +483,7 @@ test-rust: $(KERNEL_ELFS) $(FIXTURE)/hosted_std.rs $(FIXTURE)/hosted_libc.rs tes
 	    --emit link -o $(RUSTNEG)/kernel-hosted-libc.elf $(FIXTURE)/hosted_libc.rs
 	@tests/build/check_image_integrity.sh $(QEMU_OUT)/kernel-heartbeat.elf $(RUSTNEG)
 
-test-tasks: $(TASKS_ELFS) | need-qemu need-arm ## Run the emulator-only task experiment (ADR 0003): 1,000 and 10,000 tasks, a full table, a stack overrun, tasks that return; 1,000 and 100,000 run-to-completion jobs, a full queue, a job that overruns the runner's stack
+test-tasks: $(TASKS_ELFS) | need-qemu need-arm ## Run the emulator-only task experiment (ADR 0003): 1,000 and 10,000 tasks, a full table, a stack overrun, a yield too deep for a switch, an overrun found at a task's exit, tasks that return, registers held across switches; 1,000 and 100,000 run-to-completion jobs, a full queue, a job that overruns the runner's stack
 	@mkdir -p $(LOGS)
 	@tests/qemu/run.sh qemu-tasks-1000 $(QEMU_OUT)/tasks-many-1k.elf $(LOGS)/tasks-many-1k.log 0 \
 	    "tasks: PASS many (1000 tasks x 100 yields)"
