@@ -24,7 +24,7 @@ All of it is emulator test fixture code next to the Phase 1 kernel, in [tests/qe
 
 | File | What it is |
 | --- | --- |
-| [tasks.rs](../../tests/qemu/virt-armv7/tasks.rs) | `#![no_std]` Rust, no heap, no allocator. The task table, the stack arena, spawn, round-robin `yield_now`, task exit, the stack checks, the job queue and its runner, and the nine test cases (eleven images) |
+| [tasks.rs](../../tests/qemu/virt-armv7/tasks.rs) | `#![no_std]` Rust, no heap, no allocator. The task table, the stack arena, spawn, round-robin `yield_now`, task exit, the stack checks, the job queue and its runner, and the ten test cases (twelve images) |
 | [switch.S](../../tests/qemu/virt-armv7/switch.S) | The only new assembly: `ctx_switch` (4 instructions), which cannot be Rust because Rust can neither name r4–r11 nor replace the stack pointer, and `task_trampoline` (3 instructions). The trampoline is assembly only because of the frame chosen here: `spawn` leaves the entry function and its argument in r4 and r5. A Rust entry shim that read them from the task's slot would need no assembly; that is an open choice |
 | [tasks.ld](../../tests/qemu/virt-armv7/tasks.ld) | The Phase 1 link layout plus the task arena, and RAM up to what a flat 32-bit image can address |
 | [tasks_oracle.py](../../tests/qemu/tasks_oracle.py) | Computes, independently, the order checksum that strict round robin must produce |
@@ -53,6 +53,7 @@ All of it is emulator test fixture code next to the Phase 1 kernel, in [tests/qe
   - if the step returns "again", it queues the job at the tail.
 - **The order matches the tasks:** that FIFO order is the order in which round robin runs the tasks, so the same oracle checks both models. 1,000 jobs of 100 steps give the same order checksum as 1,000 tasks of 100 yields, `0x4d4c5bc0`.
 - **Limits are errors here too:** a full queue refuses a job, and a step that overruns the runner's stack is reported right after that step, before the next job runs.
+- **One condition:** a job that is not done is queued again into the entry its own pop freed. That cannot be refused as long as no step queues a job itself, which holds here. A step that fans out would take the freed entry, and the runner would then end the run; a design that keeps fan-out would run the step in place at the head and advance it afterwards.
 
 ## Tests
 
@@ -67,9 +68,10 @@ All under `make check`, each run bounded by the QEMU time limit. They are listed
 | `qemu-tasks-stack-pointer` | A task that yields from inside a frame too deep to leave room for a switch, without writing past its slot, is reported by the stack-pointer check at that yield, to the same standard |
 | `qemu-tasks-overrun-at-exit` | A task that overruns its slot and then returns without yielding is reported by the check at its exit, to the same standard |
 | `qemu-tasks-return` | 64 tasks that return are ended and reclaimed; a second wave of 64 runs in the same slots; a spawn from inside a task is refused |
+| `qemu-tasks-registers` | 64 tasks each hold eight values, a seed and a counter across 50 yields, more live values than there are free callee-saved registers, so the compiler keeps them in r4–r11; every value is unchanged after every switch |
 | `qemu-jobs-1000` | 1,000 jobs × 100 steps on one runner: exactly 100,000 steps and the same order checksum as 1,000 tasks; the queue is empty and the runner has ended |
 | `qemu-jobs-100000` | 100,000 jobs × 10 steps, to the same standard |
-| `qemu-jobs-queue-full` | Job 65 into a 64-entry queue is refused, and the 64 jobs then run to the expected total |
+| `qemu-jobs-queue-full` | Job 65 into a 64-entry queue is refused, and the 64 jobs then run to the expected total and order checksum (an independent review found that the total alone would not see a refusal that overwrote a queued job) |
 | `qemu-jobs-stack-overrun` | A step that overruns the runner's 512-byte stack is reported right after that step: one step ran before it, and the next job is still queued |
 | `build-tasks-symbols` | Every symbol that `kstart.o` and `switch.o` reference, weak ones included, is defined in the image, and none is undefined. (Its first version only counted `nm -u` lines, which this link always leaves empty: a strong undefined reference fails the link, and a weak one is resolved to 0 and dropped from the symbol table. An independent review found that; this version fails on a weak `task_exited` left undefined.) |
 | `build-tasks-one-svc` | One system-call instruction, the semihosting exit: the switch makes none |
@@ -80,6 +82,7 @@ All under `make check`, each run bounded by the QEMU time limit. They are listed
 | --- | --- |
 | `yield_now` skips the next task | `qemu-tasks-1000`, `-10000`, `-table-full`, `-return`, and the three overrun tests (their iteration count) |
 | `ctx_switch` does not save r11 | every QEMU test of the task and job cases |
+| `ctx_switch` saves r12 in place of r9 (the frame keeps its size) | `qemu-tasks-registers` only: no other test keeps a value in r9 across a switch |
 | `spawn` puts the new task at the head of the ring, not the tail | `qemu-tasks-1000`, `-10000` (the order checksum) |
 | The worker runs one iteration too few | `qemu-tasks-1000`, `-10000`, `-table-full` |
 | No capacity check in `spawn` | `qemu-tasks-table-full` only |
@@ -93,6 +96,7 @@ All under `make check`, each run bounded by the QEMU time limit. They are listed
 | A system call added to `ctx_switch` | every QEMU test of the task and job cases, and `build-tasks-one-svc` (2 found) |
 | `task_exited` renamed, its reference in `switch.S` made weak (the link then succeeds with the call going to address 0) | `build-tasks-symbols` (`task_exited` missing), and the cases in which a task returns |
 | Jobs: no queue-full check in `push` | `qemu-jobs-queue-full` only |
+| Jobs: a refused `push` overwrites the oldest queued job (and still reports "full") | `qemu-jobs-queue-full` only (the order checksum) |
 | Jobs: the runner skips its stack check after a step | `qemu-jobs-stack-overrun` only |
 | Jobs: a job queued again skips a step | `qemu-jobs-1000`, `-100000`, `-queue-full` |
 | Jobs: the ring's tail does not wrap | `qemu-jobs-1000`, `-100000`, `-queue-full` |
@@ -117,7 +121,7 @@ All are from this pull request's code, built by the Makefile's own rule. Each fi
 | The whole capacity-1,000 image, loadable: `.text` 11,688 + `.rodata` 4,368 + `.ARM.exidx` 8 + `.data` 48 | 16,112 bytes | `arm-none-eabi-size -A` (part 3). Most of it is the test cases' reporting and Rust core's panic-message formatting, not the scheduler |
 | The same image, reserved: the task table (8,000 bytes, plus 4 bytes of test counter in `.bss`), the scheduler's stack, the arena (1,001 slots of 256 bytes) | 8,004 + 65,536 + 256,256 bytes | The same |
 
-**The largest task count that ran.** Case "many", 256-byte stacks, all tasks spawned before the run and every iteration checked:
+**The largest task count that ran.** Case "many", 256-byte stacks, all tasks spawned before the run and every iteration checked. (A later run of `make measure-tasks` on this pull request's final code gave the same counts, instructions and bytes; host seconds varied by up to about 15 %, for example 17.05 s for the 12,000,000-task run.)
 
 | Tasks | Yields each | QEMU RAM | Result | Host seconds |
 | --- | --- | --- | --- | --- |
@@ -150,10 +154,10 @@ These are instruction counts on the emulated CPU. Cycles on the phone's Krait co
 | --- | --- | --- |
 | One queued job | **12 bytes** (a step function and two words of state) | "cost per queued job" in each job run's log |
 | The runner, shared by every job | 8 + 512 = 520 bytes; its deepest stack use 64 bytes | The same line |
-| Jobs that ran, 12 bytes each | 1,000 × 100 steps (0.09 s), 100,000 × 10 (0.25 s), 1,000,000 × 4 (0.60 s), **10,000,000** × 2 (2.91 s, 512 MiB of QEMU RAM) | Part 4's table; host seconds, not phone time |
-| One job step | **104 instructions**: the runner's pop, push and loop 45, its stack check (`yield_now` with one task) 36, the step itself 23 (an indirect call and the same bookkeeping as the worker task's 9) | Part 4's trace difference over 2,000 extra steps |
+| Jobs that ran, 12 bytes each | 1,000 × 100 steps (0.09 s), 100,000 × 10 (0.25 s), 1,000,000 × 4 (0.60 s), 10,000,000 × 2 (2.91 s, 512 MiB of QEMU RAM); and, in a separate run, **20,000,000** × 2 | Part 4's table, host seconds, not phone time; the 20,000,000-job run by the same Makefile rule (`TASKS_CFG_jobs-20m='jobs_many 4 512 2 20000000'`, `QEMU_MEM=512M`) |
+| One job step | **104 instructions**: the runner 45 (its loop, the queue's pop and push, and the indirect call to the step); the yield after the step 36 (one task, so no switch: the stack checks, as a task's yield has them, and the return); the step itself 23 (its frame, constants and the same bookkeeping as the worker task's 9) | Part 4's trace difference over 2,000 extra steps |
 
-The job sweep stops at 10,000,000 because the queue is a Rust static, and compiling a larger one needs more memory than the build host has, as the arena did before it moved to the linker script. At 12 bytes a job, the 3 GiB the image can address would hold over 200 million queued jobs, a division, not a run.
+The job sweep in `make measure-tasks` stops at 10,000,000 by choice, not at a limit. The queue is a Rust static, so the build needs host memory in proportion: about 0.8 GB for 10,000,000 jobs and 1.5 GB for the 20,000,000-job run, which also passed. (A first version of this record said the build host's memory set the limit at 10,000,000; an independent review showed otherwise, and both builds were measured again here.) At 12 bytes a job, the 3 GiB the image can address would hold over 200 million queued jobs, a division, not a run.
 
 **The two models side by side** (capacity 1,000, the same work per step):
 
@@ -162,7 +166,7 @@ The job sweep stops at 10,000,000 because the queue is a Rust static, and compil
 | Stackful task | 264 bytes (256-byte stack) | 57: the yield 48 (of it, the stack checks 22), the work 9 |
 | Run-to-completion job | 12 bytes, plus one 520-byte runner for all | 104: the queue 45, the stack check 36, the step 23 |
 
-Jobs cost 22 times less memory per unit. In this implementation they cost nearly twice the instructions per step: the queue operations and a stack check after every step cost more than the context switch they replace.
+Jobs cost 22 times less memory per unit. In this implementation they cost nearly twice the instructions per step: the queue's pop and push with the indirect call (45) and a yield after every step that switches nowhere but still runs the stack checks (36) cost more than the 48-instruction yield a task makes, which runs the same checks.
 
 ## Recommendation, for which kind of work
 
@@ -184,7 +188,7 @@ These are recommendations for the reviewer, from emulator measurements only.
 - **Stackless state machines** are not measured yet (above).
 - **A cheaper job path:** the stack check per batch instead of per step, and queue operations without bounds checks, each measured against the 104 instructions here.
 - **The calling contract** of `yield_now` and `run` (above) is documented, not checked.
-- **Coverage left:** no test keeps values in r9 and r10 across a switch, so a switch that stopped saving those two would not be caught (r11 and the others are). The task-case parameters live in the Makefile and are not a prerequisite of the images, so an edited parameter needs a clean build (`make measure-tasks` deletes each image before building it).
+- **Coverage left:** `yield_now`'s own prologue saves r4, r10 and r11 in this build, so a switch that stopped saving those three is not observable through any test here (`ctx_switch` saving r12 in place of r10 passes them all); the registers case covers r5 to r9. The AAPCS still requires `ctx_switch` to save all of r4–r11, because another caller could rely on them. (The task-case parameters were not a prerequisite of the images, so an edited parameter needed a clean build; each image now depends on a stamp file holding its parameters.)
 
 ## Consequences
 

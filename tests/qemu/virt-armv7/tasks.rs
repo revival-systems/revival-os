@@ -39,7 +39,7 @@
 //!   RT_JOBS    queue capacity and jobs queued (job cases)
 //!   RT_EXPECT  order checksum from tests/qemu/tasks_oracle.py (the "many"
 //!              cases)
-//! and one case cfg: tcase_many, tcase_full, tcase_return; with
+//! and one case cfg: tcase_many, tcase_full, tcase_return, tcase_registers; with
 //! tgroup_overflow, tcase_overflow, tcase_overflow_sp or tcase_overflow_exit;
 //! or, with tmodel_jobs, tcase_jobs_many, tcase_jobs_full, tcase_jobs_overflow.
 //!
@@ -76,7 +76,7 @@ const fn parse_dec(s: &str) -> usize {
 }
 
 /// A 32-bit `0x...` number from the build (lower-case), checked at compile time.
-#[cfg(any(tcase_many, tcase_jobs_many))]
+#[cfg(any(tcase_many, tcase_jobs_many, tcase_jobs_full))]
 const fn parse_hex(s: &str) -> u32 {
     let b = s.as_bytes();
     assert!(b.len() > 2 && b.len() <= 10 && b[0] == b'0' && b[1] == b'x', "expected 0x and 1 to 8 hex digits");
@@ -98,7 +98,7 @@ const MAX_TASKS: usize = parse_dec(env!("RT_TASKS"));
 const STACK_BYTES: usize = parse_dec(env!("RT_STACK"));
 #[cfg(not(tcase_return))]
 const YIELDS: u32 = parse_dec(env!("RT_YIELDS")) as u32;
-#[cfg(any(tcase_many, tcase_jobs_many))]
+#[cfg(any(tcase_many, tcase_jobs_many, tcase_jobs_full))]
 const EXPECT_ORDER: u32 = parse_hex(env!("RT_EXPECT"));
 #[cfg(tmodel_jobs)]
 const MAX_JOBS: usize = parse_dec(env!("RT_JOBS"));
@@ -948,6 +948,82 @@ fn case() -> i32 {
     }
 }
 
+/// Holds eight opaque values, its seed and its counter across every yield:
+/// more live values than there are free callee-saved registers, so the
+/// compiler keeps them in r4-r11 (and the stack) across ctx_switch. After
+/// each yield every value must be unchanged; a switch that stopped saving
+/// any of r4-r11 corrupts one of them.
+#[cfg(tcase_registers)]
+extern "C" fn holder(arg: usize) {
+    let seed = arg as u32;
+    let a = black_box(seed ^ 0x1111_1111);
+    let b = black_box(seed ^ 0x2222_2222);
+    let c = black_box(seed ^ 0x3333_3333);
+    let d = black_box(seed ^ 0x4444_4444);
+    let e = black_box(seed ^ 0x5555_5555);
+    let f = black_box(seed ^ 0x6666_6666);
+    let g = black_box(seed ^ 0x7777_7777);
+    let h = black_box(seed ^ 0x0888_8888);
+    let mut i = 0u32;
+    while i < YIELDS {
+        yield_now();
+        let ok = a == seed ^ 0x1111_1111
+            && b == seed ^ 0x2222_2222
+            && c == seed ^ 0x3333_3333
+            && d == seed ^ 0x4444_4444
+            && e == seed ^ 0x5555_5555
+            && f == seed ^ 0x6666_6666
+            && g == seed ^ 0x7777_7777
+            && h == seed ^ 0x0888_8888;
+        if !ok {
+            puts("tasks: FAIL registers: a value held across a switch changed in task ");
+            put_dec(seed as usize);
+            putc(b'\n');
+            // SAFETY: semihosting exit.
+            unsafe { rt_exit(1) }
+        }
+        // SAFETY: see Global.
+        unsafe { (*STATS.ptr()).total += 1 };
+        i = black_box(i + 1);
+    }
+}
+
+/// MAX_TASKS holders interleaved: every value survives every switch.
+#[cfg(tcase_registers)]
+fn case() -> i32 {
+    header("registers");
+    let mut k = 0;
+    while k < MAX_TASKS {
+        if let Err(err) = spawn(holder, k) {
+            puts("tasks: FAIL spawn refused: ");
+            puts(err.name());
+            putc(b'\n');
+            return 1;
+        }
+        k += 1;
+    }
+    if !run() {
+        report_fault();
+        return 1;
+    }
+    // SAFETY: scheduler context after run().
+    let total = unsafe { (*STATS.ptr()).total };
+    report_cost(MAX_TASKS);
+    if total == MAX_TASKS as u32 * YIELDS && free_count() == MAX_TASKS {
+        puts("tasks: PASS registers (");
+        put_dec(MAX_TASKS);
+        puts(" tasks each held 8 values across ");
+        put_dec(YIELDS as usize);
+        puts(" switches; none changed)\n");
+        0
+    } else {
+        puts("tasks: FAIL registers: total ");
+        put_dec(total as usize);
+        putc(b'\n');
+        1
+    }
+}
+
 // ---- the second experiment: run-to-completion jobs on a bounded queue -------
 
 /// One queued job: the step to run and its state. A step returns true to run
@@ -1031,7 +1107,9 @@ extern "C" fn job_runner(_arg: usize) {
         };
         let again = step(job.id, job.iter);
         yield_now();
-        // pop() freed an entry, so this push cannot be refused.
+        // pop() freed an entry, so this push cannot be refused, as long as no
+        // step queues a job itself (none does here; a step that fans out would
+        // take the freed entry, and this re-queue would then end the run).
         if again && push(Job { step: job.step, id: job.id, iter: job.iter + 1 }).is_err() {
             puts("tasks: FAIL a job could not be queued again\n");
             // SAFETY: semihosting exit.
@@ -1143,7 +1221,8 @@ fn case() -> i32 {
 }
 
 /// A full queue refuses one more job, and the refusal changes nothing: the
-/// queued jobs run to the expected total.
+/// queued jobs run to the expected total, in the expected order (a refusal
+/// that overwrote a queued job would keep the total but change the order).
 #[cfg(tcase_jobs_full)]
 fn case() -> i32 {
     jobs_header("jobs full");
@@ -1166,10 +1245,19 @@ fn case() -> i32 {
         return 1;
     }
     // SAFETY: scheduler context after run().
-    let (total, order) = unsafe { ((*STATS.ptr()).total, (*STATS.ptr()).order) };
+    let (total, order, ended) = unsafe { ((*STATS.ptr()).total, (*STATS.ptr()).order, (*SCHED.ptr()).ended) };
     let want = MAX_JOBS as u32 * YIELDS;
+    puts("tasks: total ");
+    put_dec(total as usize);
+    puts(" (want ");
+    put_dec(want as usize);
+    puts("), order ");
+    put_hex(order);
+    puts(" (want ");
+    put_hex(EXPECT_ORDER);
+    puts(")\n");
     report_job_cost();
-    if total == want && queued() == 0 && free_count() == MAX_TASKS {
+    if total == want && order == EXPECT_ORDER && queued() == 0 && ended == 1 && free_count() == MAX_TASKS {
         puts("tasks: PASS jobs full (job ");
         put_dec(MAX_JOBS + 1);
         puts(" of ");
@@ -1178,9 +1266,7 @@ fn case() -> i32 {
         put_dec(MAX_JOBS);
         puts(" jobs then ran ");
         put_dec(total as usize);
-        puts(" steps, order ");
-        put_hex(order);
-        puts(")\n");
+        puts(" steps in the expected order)\n");
         0
     } else {
         puts("tasks: FAIL jobs full: total ");

@@ -15,10 +15,11 @@
 #      insn_profile.py divides the difference by the extra yields, which
 #      cancels start-up and reporting.
 #   3. Code and image bytes, from nm and size.
-#   4. Run-to-completion jobs (the second experiment): the largest job count
-#      that runs (12 bytes a job; the queue is a Rust static, so the build
-#      host's memory, not QEMU's, bounds this sweep), and instructions per job
-#      step, by the same trace difference.
+#   4. Run-to-completion jobs (the second experiment): job counts up to
+#      10,000,000 (12 bytes a job; the sweep stops there by choice, and a
+#      10,000,000-job build takes about 0.8 GB of host memory because the
+#      queue is a Rust static), and instructions per job step, by the same
+#      trace difference.
 #
 # Every image is built by the Makefile's own rule ($(QEMU_OUT)/tasks-%.elf),
 # with an ad-hoc TASKS_CFG_<name>, so it is built exactly as the tested ones.

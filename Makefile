@@ -97,7 +97,7 @@ RUSTNEG        := $(OUT)/rust-negative
 # bounded queue) run every job on one runner task. tests/qemu/measure_tasks.sh
 # builds more cases through the same rule.
 TASKS_LD                := $(FIXTURE)/tasks.ld
-TASKS_CASES             := many-1k many-10k full overflow overflow-sp overflow-exit return jobs-1k jobs-100k jobs-full jobs-overflow
+TASKS_CASES             := many-1k many-10k full overflow overflow-sp overflow-exit return registers jobs-1k jobs-100k jobs-full jobs-overflow
 TASKS_ELFS              := $(TASKS_CASES:%=$(QEMU_OUT)/tasks-%.elf)
 TASKS_CFG_many-1k       := many 1000 512 100
 TASKS_CFG_many-10k      := many 10000 256 10
@@ -106,6 +106,7 @@ TASKS_CFG_overflow      := overflow 4 512 4
 TASKS_CFG_overflow-sp   := overflow_sp 4 512 4
 TASKS_CFG_overflow-exit := overflow_exit 4 512 4
 TASKS_CFG_return        := return 64 256 1
+TASKS_CFG_registers     := registers 64 256 50
 TASKS_CFG_jobs-1k       := jobs_many 4 512 100 1000
 TASKS_CFG_jobs-100k     := jobs_many 4 512 10 100000
 TASKS_CFG_jobs-full     := jobs_full 4 512 3 64
@@ -250,14 +251,23 @@ $(QEMU_OUT)/switch.o: $(FIXTURE)/switch.S | need-arm
 # "many" cases get their expected order checksum from the Python oracle; the
 # job cases also get --cfg tmodel_jobs and RT_JOBS, the overflow cases
 # --cfg tgroup_overflow.
-$(QEMU_OUT)/tasks-%.elf: $(FIXTURE)/tasks.rs $(QEMU_OUT)/kstart.o $(QEMU_OUT)/switch.o $(TASKS_LD) tests/qemu/tasks_oracle.py | need-rust need-arm
+# Each case's parameters in a stamp file, rewritten only when they change, so
+# that editing a TASKS_CFG_<case> rebuilds that image and nothing else (the
+# stamp is checked on every run; its time changes only with its content).
+.PHONY: tasks-cfg-check
+tasks-cfg-check: ;
+$(QEMU_OUT)/tasks-%.cfg: tasks-cfg-check
+	@mkdir -p $(@D)
+	@printf '%s\n' '$(TASKS_CFG_$*)' | cmp -s - $@ 2>/dev/null || printf '%s\n' '$(TASKS_CFG_$*)' > $@
+
+$(QEMU_OUT)/tasks-%.elf: $(FIXTURE)/tasks.rs $(QEMU_OUT)/kstart.o $(QEMU_OUT)/switch.o $(QEMU_OUT)/tasks-%.cfg $(TASKS_LD) tests/qemu/tasks_oracle.py | need-rust need-arm
 	@mkdir -p $(@D)
 	@test -n "$(TASKS_CFG_$*)" || { echo "no TASKS_CFG_$* for $@"; exit 1; }
 	set -- $(TASKS_CFG_$*); \
 	jobs=$${5:-0}; model=; case "$$1" in jobs_*) model='--cfg tmodel_jobs';; overflow*) model='--cfg tgroup_overflow';; esac; \
 	expect=0x0; case "$$1" in \
 	  many) expect=$$($(PYTHON) -I tests/qemu/tasks_oracle.py $$2 $$4);; \
-	  jobs_many) expect=$$($(PYTHON) -I tests/qemu/tasks_oracle.py $$jobs $$4);; \
+	  jobs_many|jobs_full) expect=$$($(PYTHON) -I tests/qemu/tasks_oracle.py $$jobs $$4);; \
 	esac; \
 	RT_TASKS=$$2 RT_STACK=$$3 RT_YIELDS=$$4 RT_JOBS=$$jobs RT_EXPECT=$$expect \
 	$(RUSTC) $(RUST_FLAGS) $(RUST_LINK_BASE) -C link-arg=-Wl,-T,$(TASKS_LD) \
@@ -489,12 +499,14 @@ test-tasks: $(TASKS_ELFS) | need-qemu need-arm ## Run the emulator-only task exp
 	    "tasks: FAULT found by the guard-word check at the task's exit (task 1, 3 iterations before it); no task resumed"
 	@tests/qemu/run.sh qemu-tasks-return $(QEMU_OUT)/tasks-return.elf $(LOGS)/tasks-return.log 0 \
 	    "tasks: PASS return (wave 1: 64 tasks returned and 64 slots reclaimed; spawn from a running task refused; wave 2: 64 tasks in the same slots returned)"
+	@tests/qemu/run.sh qemu-tasks-registers $(QEMU_OUT)/tasks-registers.elf $(LOGS)/tasks-registers.log 0 \
+	    "tasks: PASS registers (64 tasks each held 8 values across 50 switches; none changed)"
 	@tests/qemu/run.sh qemu-jobs-1000 $(QEMU_OUT)/tasks-jobs-1k.elf $(LOGS)/tasks-jobs-1k.log 0 \
 	    "tasks: PASS jobs many (1000 jobs x 100 steps)"
 	@tests/qemu/run.sh qemu-jobs-100000 $(QEMU_OUT)/tasks-jobs-100k.elf $(LOGS)/tasks-jobs-100k.log 0 \
 	    "tasks: PASS jobs many (100000 jobs x 10 steps)"
 	@tests/qemu/run.sh qemu-jobs-queue-full $(QEMU_OUT)/tasks-jobs-full.elf $(LOGS)/tasks-jobs-full.log 0 \
-	    "tasks: PASS jobs full (job 65 of 64 refused; the 64 jobs then ran 192 steps"
+	    "tasks: PASS jobs full (job 65 of 64 refused; the 64 jobs then ran 192 steps in the expected order)"
 	@tests/qemu/run.sh qemu-jobs-stack-overrun $(QEMU_OUT)/tasks-jobs-overflow.elf $(LOGS)/tasks-jobs-overflow.log 1 \
 	    "tasks: FAULT found after the overrunning job's step, before the next job ran"
 	@export LC_ALL=C; \
@@ -602,7 +614,7 @@ clean: ## Remove the build directory (sources are never touched)
 
 # ---- measurements (not tests, not part of check) ---------------------------
 
-measure-tasks: | need-qemu need-arm need-rust ## Measure the task experiment (ADR 0003): task counts up to QEMU's RAM, instructions per switch, bytes. Prints figures; slow; not part of check
+measure-tasks: | need-qemu need-arm need-rust ## Measure the task experiment (ADR 0003): task counts up to QEMU's RAM, instructions per switch, bytes, job counts and instructions per job step. Prints figures; slow; not part of check
 	@MAKE='$(MAKE)' tests/qemu/measure_tasks.sh $(OUT)/measure
 
 # ---- interactive (not tests) ----------------------------------------------
