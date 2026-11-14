@@ -97,7 +97,7 @@ RUSTNEG        := $(OUT)/rust-negative
 # bounded queue) run every job on one runner task. tests/qemu/measure_tasks.sh
 # builds more cases through the same rule.
 TASKS_LD                := $(FIXTURE)/tasks.ld
-TASKS_CASES             := many-1k many-10k full overflow overflow-sp overflow-exit return registers jobs-1k jobs-100k jobs-full jobs-overflow
+TASKS_CASES             := many-1k many-10k full overflow overflow-sp overflow-exit overflow-moat return registers jobs-1k jobs-100k jobs-full jobs-overflow
 TASKS_ELFS              := $(TASKS_CASES:%=$(QEMU_OUT)/tasks-%.elf)
 TASKS_CFG_many-1k       := many 1000 512 100
 TASKS_CFG_many-10k      := many 10000 256 10
@@ -105,6 +105,7 @@ TASKS_CFG_full          := full 64 256 3
 TASKS_CFG_overflow      := overflow 4 512 4
 TASKS_CFG_overflow-sp   := overflow_sp 4 512 4
 TASKS_CFG_overflow-exit := overflow_exit 4 512 4
+TASKS_CFG_overflow-moat := overflow_moat 4 512 4
 TASKS_CFG_return        := return 64 256 1
 TASKS_CFG_registers     := registers 64 256 50
 TASKS_CFG_jobs-1k       := jobs_many 4 512 100 1000
@@ -497,6 +498,8 @@ test-tasks: $(TASKS_ELFS) | need-qemu need-arm ## Run the emulator-only task exp
 	    "tasks: FAULT found by the stack-pointer check at the task's yield (task 1, 3 iterations before it); no task resumed"
 	@tests/qemu/run.sh qemu-tasks-overrun-at-exit $(QEMU_OUT)/tasks-overflow-exit.elf $(LOGS)/tasks-overflow-exit.log 1 \
 	    "tasks: FAULT found by the guard-word check at the task's exit (task 1, 3 iterations before it); no task resumed"
+	@tests/qemu/run.sh qemu-tasks-fault-leaves-stack $(QEMU_OUT)/tasks-overflow-moat.elf $(LOGS)/tasks-overflow-moat.log 1 \
+	    "tasks: FAULT found by the stack-pointer check in the lowest slot; the failed stack was left untouched: guard word intact, moat unchanged"
 	@tests/qemu/run.sh qemu-tasks-return $(QEMU_OUT)/tasks-return.elf $(LOGS)/tasks-return.log 0 \
 	    "tasks: PASS return (wave 1: 64 tasks returned and 64 slots reclaimed; spawn from a running task refused; wave 2: 64 tasks in the same slots returned)"
 	@tests/qemu/run.sh qemu-tasks-registers $(QEMU_OUT)/tasks-registers.elf $(LOGS)/tasks-registers.log 0 \

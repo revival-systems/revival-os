@@ -16,9 +16,11 @@
 //! - a full table refuses `spawn` with `SpawnError::TableFull`;
 //! - `spawn` from a running task is refused with `SpawnError::FromTask`;
 //! - every switch away from a task checks the guard word at the bottom of its
-//!   stack slot, and that its stack pointer leaves room for the switch frame
-//!   above that word. A failed check switches straight to the scheduler's own
-//!   stack, which reports the fault and exits 1 without resuming any task;
+//!   stack slot, and that its stack pointer leaves room for the switch above
+//!   that word. The checks run in switch.S, before anything is written to the
+//!   task's stack, and read sp itself. A failed check leaves for the
+//!   scheduler's own stack without writing to the failed one; the scheduler
+//!   reports the fault and exits 1 without resuming any task;
 //! - a task whose entry function returns is ended, and its slot is reclaimed.
 //!
 //! Limit of the guard word: it catches an overrun that writes over it. A frame
@@ -40,7 +42,8 @@
 //!   RT_EXPECT  order checksum from tests/qemu/tasks_oracle.py (the "many"
 //!              cases)
 //! and one case cfg: tcase_many, tcase_full, tcase_return, tcase_registers; with
-//! tgroup_overflow, tcase_overflow, tcase_overflow_sp or tcase_overflow_exit;
+//! tgroup_overflow, tcase_overflow, tcase_overflow_sp, tcase_overflow_exit or
+//! tcase_overflow_moat;
 //! or, with tmodel_jobs, tcase_jobs_many, tcase_jobs_full, tcase_jobs_overflow.
 //!
 //! Calling contract: spawn and run only from the scheduler context (spawn
@@ -48,14 +51,14 @@
 //! running task, and task_exited only through task_trampoline. The test cases
 //! keep to this; yield_now and run do not check it themselves, so the code
 //! that builds on this experiment (ROADMAP 3g) must, as spawn does.
-//! The context switch is the only assembly (switch.S); kstart.S (Phase 1)
-//! supplies the entry, the vectors and the semihosting exit.
+//! The context switch and the stack checks are the only assembly (switch.S,
+//! which says why); kstart.S (Phase 1) supplies the entry, the vectors and the
+//! semihosting exit.
 
 #![no_std]
 #![no_main]
 
 use core::cell::UnsafeCell;
-use core::hint::black_box;
 use core::panic::PanicInfo;
 use core::ptr::{read_volatile, write_volatile};
 
@@ -124,8 +127,11 @@ extern "C" {
     /// switch.S: save this context's r4-r11 and lr on its stack, store sp in
     /// `*save`, load `next_sp` and resume the context saved there.
     fn ctx_switch(save: *mut usize, next_sp: usize);
-    /// switch.S: first code of a new task; calls entry(arg), then task_exited.
+    /// switch.S: first code of a new task; calls entry(arg), then checks the
+    /// stack and goes on to task_exited.
     fn task_trampoline();
+    /// switch.S: the stack checks, then yield_next.
+    fn task_yield();
 }
 
 fn putc(b: u8) {
@@ -172,7 +178,9 @@ fn put_dec(v: usize) {
 
 // ---- the task table and the stack arena ----------------------------------
 
-/// Shared state of a single-core, interrupts-off program.
+/// Shared state of a single-core, interrupts-off program. Transparent, so a
+/// `#[no_mangle]` Global is the value itself for switch.S.
+#[repr(transparent)]
 struct Global<T>(UnsafeCell<T>);
 // SAFETY: one CPU core, IRQ and FIQ masked by kstart.S, and control moves
 // between tasks only through ctx_switch calls: no two accesses overlap.
@@ -194,8 +202,9 @@ const GUARD: u32 = 0x5354_4b47; // "GKTS" in memory order
 const PAINT: u32 = 0xa5a5_a5a5;
 /// Words in a ctx_switch frame: r4-r11 and lr (switch.S).
 const FRAME_WORDS: usize = 9;
-/// Room a switch needs below the yielding function's locals: the 36-byte
-/// frame plus slack. A stack pointer closer than this to the guard faults.
+/// Room a switch needs above the guard word, from the stack pointer at the
+/// check: what yield_next or task_exited push, plus ctx_switch's 36-byte
+/// frame, plus slack. A stack pointer closer than this to the guard faults.
 const SWITCH_RESERVE: usize = 64;
 
 /// One task-table entry: everything the scheduler keeps per task.
@@ -260,8 +269,7 @@ struct Sched {
     live: u32,
     /// Tasks whose entry function returned.
     ended: u32,
-    /// The scheduler context's stack pointer while tasks run.
-    main_sp: usize,
+    /// The fault that ended the last run, if any (from TASK_CHECK).
     fault: Fault,
 }
 
@@ -272,8 +280,48 @@ static SCHED: Global<Sched> = Global::new(Sched {
     free: NONE,
     live: 0,
     ended: 0,
-    main_sp: 0,
     fault: Fault { kind: FaultKind::None, task: NONE, value: 0, addr: 0 },
+});
+
+/// The running task's stack limits, the scheduler's saved stack pointer and
+/// the record of a failed check, shared with switch.S, which reads and writes
+/// it at the offsets asserted below.
+#[repr(C)]
+struct TaskCheck {
+    /// The running task's slot base: the address of its guard word.
+    base: usize,
+    guard: u32,
+    reserve: usize,
+    /// The scheduler context's stack pointer while tasks run (run()).
+    main_sp: usize,
+    /// Written by switch.S on a failure: 1 guard word, 2 stack pointer.
+    kind: u32,
+    /// The guard word read, or the stack pointer.
+    value: usize,
+    /// The guard word's address.
+    addr: usize,
+}
+
+const _: () = assert!(
+    core::mem::offset_of!(TaskCheck, base) == 0
+        && core::mem::offset_of!(TaskCheck, guard) == 4
+        && core::mem::offset_of!(TaskCheck, reserve) == 8
+        && core::mem::offset_of!(TaskCheck, main_sp) == 12
+        && core::mem::offset_of!(TaskCheck, kind) == 16
+        && core::mem::offset_of!(TaskCheck, value) == 20
+        && core::mem::offset_of!(TaskCheck, addr) == 24,
+    "TaskCheck offsets must match switch.S"
+);
+
+#[no_mangle]
+static TASK_CHECK: Global<TaskCheck> = Global::new(TaskCheck {
+    base: 0,
+    guard: GUARD,
+    reserve: SWITCH_RESERVE,
+    main_sp: 0,
+    kind: 0,
+    value: 0,
+    addr: 0,
 });
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -376,82 +424,68 @@ fn run() -> bool {
         if (*s).live == 0 {
             return true;
         }
+        let c = TASK_CHECK.ptr();
         let head = (*t)[(*s).tail as usize].next;
         (*s).prev = (*s).tail;
         (*s).current = head;
-        ctx_switch(&raw mut (*s).main_sp, (*t)[head as usize].sp);
-        // Back on the scheduler's stack: the last task ended, or a fault.
+        (*c).base = slot_base(head);
+        ctx_switch(&raw mut (*c).main_sp, (*t)[head as usize].sp);
+        // Back on the scheduler's stack: the last task ended, or a check in
+        // switch.S failed, with `current` still the task whose stack failed.
+        if (*c).kind != 0 {
+            let kind = if (*c).kind == 1 { FaultKind::GuardWord } else { FaultKind::StackPointer };
+            (*s).fault = Fault { kind, task: (*s).current, value: (*c).value, addr: (*c).addr };
+        }
         (*s).current = NONE;
         (*s).tail = NONE;
         (*s).fault.kind == FaultKind::None
     }
 }
 
-/// Checks the running task's stack before control leaves it. On failure it
-/// does not return: the scheduler reports the fault and resumes no task.
-#[inline(always)]
-fn check_stack(cur: u32) {
-    let base = slot_base(cur);
-    // SAFETY: base is the start of the running task's slot in ARENA.
-    let guard = unsafe { read_volatile(base as *const u32) };
-    if guard != GUARD {
-        fault(cur, FaultKind::GuardWord, guard as usize, base);
-    }
-    let probe = 0u32;
-    let sp = black_box(&probe) as *const u32 as usize;
-    if sp < base + 4 + SWITCH_RESERVE {
-        fault(cur, FaultKind::StackPointer, sp, base);
-    }
-}
-
-/// Leaves a task whose stack check failed: records the fault and switches to
-/// the scheduler's stack for good.
-#[cold]
-#[inline(never)]
-fn fault(cur: u32, kind: FaultKind, value: usize, addr: usize) -> ! {
-    // SAFETY: see Global. main_sp holds the scheduler context saved by run().
-    unsafe {
-        let s = SCHED.ptr();
-        (*s).fault = Fault { kind, task: cur, value, addr };
-        let mut dead: usize = 0;
-        ctx_switch(&raw mut dead, (*s).main_sp);
-        rt_exit(3) // not reached: run() never resumes a faulted task
-    }
-}
-
 /// Gives the CPU to the next task in the ring (round robin). Only a running
-/// task may call it (the calling contract in the header).
-#[inline(never)]
+/// task may call it (the calling contract in the header). The stack checks
+/// run first, in switch.S (task_yield); then yield_next.
+#[inline(always)]
 fn yield_now() {
-    // SAFETY: see Global. Called from a running task, so `current` is a live
+    // SAFETY: called from a running task, whose slot base is TASK_CHECK.base.
+    unsafe { task_yield() }
+}
+
+/// The Rust half of a yield, entered from task_yield (switch.S) by a tail
+/// branch once the stack checks have passed: picks the next task and
+/// switches to it. It returns to the task that called yield_now.
+#[no_mangle]
+pub extern "C" fn yield_next() {
+    // SAFETY: see Global. Reached from a running task, so `current` is a live
     // task below MAX_TASKS, and every ring index is below MAX_TASKS.
     unsafe {
         let s = SCHED.ptr();
         let t = TCBS.ptr();
         let cur = (*s).current;
-        check_stack(cur);
         let next = (*t)[cur as usize].next;
         if next == cur {
             return;
         }
         (*s).prev = cur;
         (*s).current = next;
+        (*TASK_CHECK.ptr()).base = slot_base(next);
         ctx_switch(&raw mut (*t)[cur as usize].sp, (*t)[next as usize].sp);
     }
 }
 
-/// Called by task_trampoline when a task's entry function returns: ends the
-/// task, frees its slot and switches to the next task, or to the scheduler
-/// after the last one. Runs on the ended task's stack until that switch; no
-/// spawn can claim the slot first, because spawn is refused while tasks run.
+/// Called by task_trampoline, after its stack checks, when a task's entry
+/// function returns: ends the task, frees its slot and switches to the next
+/// task, or to the scheduler after the last one. Runs on the ended task's
+/// stack until that switch; no spawn can claim the slot first, because spawn
+/// is refused while tasks run.
 #[no_mangle]
 pub extern "C" fn task_exited() -> ! {
     // SAFETY: see Global.
     unsafe {
         let s = SCHED.ptr();
         let t = TCBS.ptr();
+        let c = TASK_CHECK.ptr();
         let cur = (*s).current;
-        check_stack(cur);
         let next = (*t)[cur as usize].next;
         let prev = (*s).prev;
         (*t)[cur as usize] = Tcb { sp: 0, next: (*s).free };
@@ -461,10 +495,11 @@ pub extern "C" fn task_exited() -> ! {
         let mut dead: usize = 0;
         if (*s).live == 0 {
             (*s).current = NONE;
-            ctx_switch(&raw mut dead, (*s).main_sp);
+            ctx_switch(&raw mut dead, (*c).main_sp);
         } else {
             (*t)[prev as usize].next = next;
             (*s).current = next;
+            (*c).base = slot_base(next);
             ctx_switch(&raw mut dead, (*t)[next as usize].sp);
         }
         rt_exit(3) // not reached: an ended task is never resumed
@@ -741,7 +776,7 @@ fn case() -> i32 {
 #[inline(never)]
 fn smash_stack() {
     let mut buf = [0u32; STACK_BYTES / 4];
-    let p = black_box(&mut buf) as *mut [u32; STACK_BYTES / 4] as *mut u32;
+    let p = core::hint::black_box(&mut buf) as *mut [u32; STACK_BYTES / 4] as *mut u32;
     let mut i = 0;
     while i < STACK_BYTES / 4 {
         // SAFETY: inside `buf`; that `buf` itself overruns the slot is the
@@ -749,7 +784,7 @@ fn smash_stack() {
         unsafe { write_volatile(p.add(i), 0x0bad_57ac) };
         i += 1;
     }
-    black_box(&buf);
+    core::hint::black_box(&buf);
 }
 
 #[cfg(tcase_overflow)]
@@ -764,16 +799,16 @@ extern "C" fn overflower(_arg: usize) {
 
 /// Yields from inside a frame that leaves less room than a switch needs above
 /// the guard word, without writing it: only the stack-pointer check can see it.
-#[cfg(tcase_overflow_sp)]
+#[cfg(any(tcase_overflow_sp, tcase_overflow_moat))]
 #[inline(never)]
 fn yield_from_deep_frame() {
     let deep = core::mem::MaybeUninit::<[u32; (STACK_BYTES - 96) / 4]>::uninit();
-    black_box(&deep);
+    core::hint::black_box(&deep);
     yield_now(); // the stack-pointer check in this switch must stop the task
-    black_box(&deep);
+    core::hint::black_box(&deep);
 }
 
-#[cfg(tcase_overflow_sp)]
+#[cfg(any(tcase_overflow_sp, tcase_overflow_moat))]
 extern "C" fn deep_yielder(_arg: usize) {
     yield_now();
     yield_from_deep_frame();
@@ -793,7 +828,7 @@ extern "C" fn smash_and_return(_arg: usize) {
 /// Task 1 of 3 (tasks 0 and 2 are workers) misuses its stack. The fault must
 /// be the expected kind, in task 1, found at its next switch: after exactly 3
 /// iterations (two of task 0, one of task 2), with no task resumed after it.
-#[cfg(tgroup_overflow)]
+#[cfg(any(tcase_overflow, tcase_overflow_sp, tcase_overflow_exit))]
 fn overflow_case(case: &str, culprit: extern "C" fn(usize), want: FaultKind, found_by: &str) -> i32 {
     header(case);
     if spawn(worker, 0).is_err() || spawn(culprit, 1).is_err() || spawn(worker, 2).is_err() {
@@ -833,6 +868,69 @@ fn case() -> i32 {
 #[cfg(tcase_overflow_exit)]
 fn case() -> i32 {
     overflow_case("overflow at exit", smash_and_return, FaultKind::GuardWord, "the guard-word check at the task's exit")
+}
+
+/// The pattern the moat is painted with before the moat case runs.
+#[cfg(tcase_overflow_moat)]
+const MOAT_PAINT: u32 = 0x4d4f_4154;
+
+/// The culprit in the lowest slot (task 0; tasks 1 and 2 are workers) yields
+/// from a frame too deep for a switch. The check must stop it, and leaving
+/// the failed stack must not write to it: afterwards the culprit's guard word
+/// is intact and the moat, the unused slot below the lowest task, unchanged.
+#[cfg(tcase_overflow_moat)]
+fn case() -> i32 {
+    header("overflow, lowest slot");
+    let moat = arena_start();
+    let mut a = moat;
+    while a < moat + STACK_BYTES {
+        // SAFETY: inside the arena's moat, which no task uses.
+        unsafe { write_volatile(a as *mut u32, MOAT_PAINT) };
+        a += 4;
+    }
+    if spawn(deep_yielder, 0).is_err() || spawn(worker, 1).is_err() || spawn(worker, 2).is_err() {
+        puts("tasks: FAIL spawn\n");
+        return 1;
+    }
+    if run() {
+        puts("tasks: FAIL overflow, lowest slot: the run ended without a fault\n");
+        return 1;
+    }
+    report_fault();
+    // SAFETY: scheduler context after run().
+    let (total, f) = unsafe { ((*STATS.ptr()).total, (*SCHED.ptr()).fault) };
+    // SAFETY: reads inside the arena.
+    let guard = unsafe { read_volatile(slot_base(0) as *const u32) };
+    let mut changed = 0usize;
+    let mut highest = 0usize;
+    a = moat;
+    while a < moat + STACK_BYTES {
+        // SAFETY: inside the arena's moat.
+        if unsafe { read_volatile(a as *const u32) } != MOAT_PAINT {
+            changed += 1;
+            highest = a;
+        }
+        a += 4;
+    }
+    puts("tasks: after the fault: task 0's guard word reads ");
+    put_hex(guard);
+    puts(", moat words changed ");
+    put_dec(changed);
+    if changed > 0 {
+        puts(" (the highest at ");
+        put_hex(highest as u32);
+        puts(", now ");
+        // SAFETY: inside the arena's moat.
+        put_hex(unsafe { read_volatile(highest as *const u32) });
+        puts(")");
+    }
+    puts(", iterations before the fault ");
+    put_dec(total as usize);
+    putc(b'\n');
+    if f.kind == FaultKind::StackPointer && f.task == 0 && total == 2 && guard == GUARD && changed == 0 {
+        puts("tasks: FAULT found by the stack-pointer check in the lowest slot; the failed stack was left untouched: guard word intact, moat unchanged\n");
+    }
+    1
 }
 
 /// Task k yields k % 4 times, then returns (k % 4 == 0 returns at once).
@@ -956,14 +1054,14 @@ fn case() -> i32 {
 #[cfg(tcase_registers)]
 extern "C" fn holder(arg: usize) {
     let seed = arg as u32;
-    let a = black_box(seed ^ 0x1111_1111);
-    let b = black_box(seed ^ 0x2222_2222);
-    let c = black_box(seed ^ 0x3333_3333);
-    let d = black_box(seed ^ 0x4444_4444);
-    let e = black_box(seed ^ 0x5555_5555);
-    let f = black_box(seed ^ 0x6666_6666);
-    let g = black_box(seed ^ 0x7777_7777);
-    let h = black_box(seed ^ 0x0888_8888);
+    let a = core::hint::black_box(seed ^ 0x1111_1111);
+    let b = core::hint::black_box(seed ^ 0x2222_2222);
+    let c = core::hint::black_box(seed ^ 0x3333_3333);
+    let d = core::hint::black_box(seed ^ 0x4444_4444);
+    let e = core::hint::black_box(seed ^ 0x5555_5555);
+    let f = core::hint::black_box(seed ^ 0x6666_6666);
+    let g = core::hint::black_box(seed ^ 0x7777_7777);
+    let h = core::hint::black_box(seed ^ 0x0888_8888);
     let mut i = 0u32;
     while i < YIELDS {
         yield_now();
@@ -984,7 +1082,7 @@ extern "C" fn holder(arg: usize) {
         }
         // SAFETY: see Global.
         unsafe { (*STATS.ptr()).total += 1 };
-        i = black_box(i + 1);
+        i = core::hint::black_box(i + 1);
     }
 }
 
