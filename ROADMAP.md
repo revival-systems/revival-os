@@ -164,6 +164,7 @@ Sources: Revival Server issues [#120](https://github.com/revival-systems/revival
 - **3d.** A periodic timer interrupt through the QGIC2 interrupt controller.
 - **3e.** Watchdog petting, plus a crash record that survives a watchdog reset.
 - **3f.** Bounded pools and arenas with exhaustion handling.
+- **3g (provisional, rule 5).** Tasks and scheduling: a bounded task table, a context switch, and the measured cost per task (bytes) and per switch. The task-count target comes from [ADR 0002](docs/decisions/0002-design-goals.md#4-scalable).
 
 **Observable test:** A test screen or UART log reports each sub-milestone's checks with expected and measured values. Timer accuracy is compared against host time over at least 10 minutes.
 
