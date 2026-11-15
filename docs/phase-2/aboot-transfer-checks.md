@@ -1,75 +1,77 @@
 # What the stock bootloader (aboot) checks at transfer and at start
 
-**Draft, for the reviewer.** Task R-2, P3. Host-only study; nothing touched the phone. No part of the firmware and no disassembly listing is in this file.
+**Draft, for the reviewer.** Task R-2 P3, corrected in the R-3 second pass. Host-only study; nothing touched the phone. No part of the firmware and no disassembly listing is in this file.
 
-## Purpose
+> **Correction (R-3 second pass).** The first version of this note made four claims that this pass found wrong or unproven and corrects below: (1) it said `0x88e0c048` "sets the Knox warranty bit"; it is a **coloured display print** (`0xff0000` is red text). (2) it gave no condition for `SECURE CHECK FAIL`; the condition is traced here. (3) it marked Q1 Measured without describing the fallback `0x88e10018`; it is described here. (4) it placed `0x88e1450c` and `0x88e13f7a` "in" the 0x88e14630 loader; both lie in **earlier, separate functions**, corrected here. The main R-2 result stands: a recovery image whose first 8 bytes are not `ANDROID!` returns −1 before the write. The second pass adds the decisive point for W2: an **unsigned image with valid `ANDROID!` magic is written to recovery** (the signature failure does not block the Odin write).
 
-W1 showed that this bootloader can refuse an image at the transfer; write plan v4 assumed it would not. This note records, from the bootloader's own code, what it checks when Download/Odin mode writes a partition and what it checks when it starts a boot image, and whether `payload.img` passes each check.
+## Input, integrity, method
 
-## Input and integrity
+`aboot.mbn`, private BL archive, measured on host: 788,104 bytes, SHA-256 `b85597465b90fc1868122981607dba4d79000e879561a2bd78ad73cc8a4071b2` (checked first; equals the task's value). Not in this repo.
 
-`aboot.mbn`, from the private BL archive, measured on the host: 788,104 bytes, SHA-256 `b85597465b90fc1868122981607dba4d79000e879561a2bd78ad73cc8a4071b2` (checked first; equals the value named in the task). The firmware itself is not in this repository.
+**Load address (Measured), two ways that agree.** (1) 40-byte header, `image_dest_ptr` (0x0C) = **0x88e00000**; consistent (`image_dest_ptr+code_size 0xbd460 = signature_ptr 0x88ebd460`). (2) 10 of 10 A4 string virtual addresses occur as literal words. VA(fileoff F) = `0x88e00000 + F − 0x28`. **Disassembly:** `arm-none-eabi-objdump` (repo toolchain, no install) as ARM and Thumb; the entry at 0x88e00000 is an ARM vector table, the handlers are **Thumb-2** (decode as code in Thumb, nonsense in ARM). Labels: *Measured* (code shows it), *Inference* (basis named), *not established*.
 
-## Method
+## S1 — `0x88e0c048` is a coloured display print (Measured)
 
-**Load address, found two ways that agree (Measured).**
+`0x88e0c048(color, fmt, …)` saves `r0` as a colour, runs `vsnprintf(buf,256,fmt,args)` (`0x88e1aa04`), then `bl 0x88e0bf00(color, buf, 1)`. `0x88e0bf00` is the framebuffer text renderer (character-cell geometry, screen width 960, framebuffer global `0x88ec1724`). So the argument is a **text colour**: `0xff0000` = red, `0xffff00` = yellow. It does **not** touch the warranty bit. The real warranty write is the separate call `0x88e0bb94` (→ `0x88e0b914`, an eMMC/command path, command `0xf7`); its exact target (RPMB / a partition / a fuse) is **not established** here.
 
-1. The 40-byte header at the start of the file (ten little-endian `uint32`: `image_id`, `header_version`, `image_src`, **`image_dest_ptr`**, `image_size`, `code_size`, `signature_ptr`, `signature_size`, `cert_chain_ptr`, `cert_chain_size` — the Qualcomm/Little-Kernel `mbn`/boot header used by `lk` `aboot`). `image_dest_ptr` (offset 0x0C) = **0x88e00000**. The header is internally consistent: `image_dest_ptr + code_size` = 0x88e00000 + 0xbd460 = 0x88ebd460 = `signature_ptr`, and `signature_ptr + signature_size` = `cert_chain_ptr`.
-2. From the code: for each of the ten A4 strings, the 32-bit little-endian value `load_address + file_offset − header_size(0x28)` occurs in the file as a literal word (a pointer in a literal pool). **10 of 10** string virtual addresses are present as literals, which fixes the load address at 0x88e00000. A string at file offset F is therefore at VA `0x88e00000 + F − 0x28`.
+## The Download/Odin write handler — recovery path (Measured)
 
-**Disassembly.** `arm-none-eabi-objdump` (the repo's installed toolchain) as ARM and as Thumb, with the VA base above. The entry at 0x88e00000 is an ARM branch-vector table; the Download/Odin and boot handlers decode cleanly as **Thumb-2** and as nonsense in ARM, so they are Thumb. Raw listings are kept in the private scratch directory only.
+Entry `~0x88e10420`. It fetches the partition entry (`0x88e07d78`), then dispatches by name. The **signed-partition name list** at 0x88e10756 is `sbl1, sbl2, sbl3, rpm, aboot, tz, boot, recovery, modem`. `"recovery"` matches (strncmp at 0x88e107c4) → 0x88e108c4 → (not "modem") → **0x88e107f8, the signature-verify region**. Order for recovery:
 
-**Labels:** *Measured* = the code shows it at the cited address; *Inference* = reasoned, basis named; *not established* = not determined from the code.
+1. **Signature verify.** 0x88e107f8 prints `SECURE : Signature verification...`; it treats the **last 256 bytes** of the image as the signature (`r9 = size − 256`, `r8 = buf + r9`), hashes the rest (`0x88e0a374`→`0x88e0936c`), verifies (`0x88e0a378`→`0x88e084a0`) at 0x88e1081a. `0x88e1081e cmp r0,#0; bne 0x88e108fe`.
+   - verify **ok** (`r0≠0`) → 0x88e108fe prints `SECURE : Signature verification succeed`, calls `0x88e0fa6c(name, 0)`, `b 0x88e10836`.
+   - verify **fails** (`r0==0`, e.g. unsigned) → 0x88e10822 prints `SECURE : Signature verification failed`, calls `0x88e0fa6c(name, 1)`.
+2. **`0x88e0fa6c(name, flag)` (Measured).** It keys on the name: `strncmp(name,"boot",4)` / `strncmp(name,"recovery",8)` (pools 0x88e0faf4/0x88e0faf8). For `recovery` it reads a stored flag (`0x88e07f5c`), sets bit 1 (`orr r6,r5,#2` at 0x88e0fab0), writes it back (`0x88e07f0c`) and **returns 0**. So at 0x88e10830 `cmp r0,#0; bne 0x88e1094a` the branch is **not** taken for recovery — `SECURE CHECK FAIL` is **not** reached. (Its message is `[Final]Secure check fail : %s`.)
+3. **Magic check (Q1, Measured).** `0x88e105ae strcmp(name,"recovery")` → `memcmp(image, "ANDROID!", 8)` at 0x88e105c2 (length 8). If equal → accept (0x88e104d4). If not → fallback `0x88e10018`; if that also fails → `ODIN : image is not a boot image` (0x88e105d8), **return −1, no write**. (Boot is the mirror at 0x88e104b2/0x88e104c8.)
+4. **0x88e104d4 → 0x88e10560, in order (Measured).** `bl`s: `0x88e1b27c` strcmp (0x88e104ee, a name flag), `0x88e0fc84` setup (0x88e104fc), `0x88e1b27c` strcmp (0x88e1052e), **`0x88e1327c` the write (0x88e10560)**. Conditionals: `0x88e104e6 bcc 0x88e10922` (**size** > partition → `ODIN : size too large`, return −6); `0x88e10504 beq 0x88e105e4`, `0x88e10514 beq 0x88e1073a`, `0x88e1053c bne 0x88e10602`, `0x88e10542 beq 0x88e1068e`, `0x88e10550 beq 0x88e106ac` (sub-handlers for sparse/fota modes). No signature call and no branch to 0x88e1094a in this range. After `0x88e1327c` returns 0 → `ODIN : partition '%s' updated` (0x88e1058a), return 0.
 
-**Deviation:** the task named `arm-none-eabi-objdump`; it is already present in the repo toolchain (`~/.local/share/revival-os/toolchains/arm-gnu-toolchain-…/bin`), so no package was installed.
+**Q2 — refusals, with conditions (Measured).** `ODIN : image is not a boot image` (−1): recovery/boot, when `memcmp(first 8,"ANDROID!")` ≠ 0 **and** fallback fails. `ODIN : size too large` (−6): any partition, when image sectors > partition sectors (0x88e104e6). `[Final]Secure check fail : %s` (0x88e1094a, −5): reached **only** from 0x88e10832 when `0x88e0fa6c(name,1)` ≠ 0 — which for `recovery`/`boot` is **not** the case (it returns 0). So **for recovery, the signature-verify failure does not refuse the image**; it prints "Signature verification failed", records a flag, and proceeds.
 
-## The Download/Odin write handler (Thumb, entry ~0x88e10480)
+**Q3 — write only after checks (Measured).** The write is `bl 0x88e1327c` (0x88e10560); success prints `ODIN : partition '%s' updated`. The magic reject (−1) and the size reject (−6) return before 0x88e10560. A magic-refused image is not written. **But a valid-magic unsigned image reaches 0x88e10560 and is written** (recovery).
 
-The handler receives the uploaded image into a RAM buffer (its pointer is the global read via literal 0x88e106dc) and dispatches by partition name.
+**Q4 — phone's reply (Measured in part).** The handler returns 0 (success) or a negative code (−1 magic, −5 secure-fail, −6 oversize, −4 write-fail) to its Odin caller. The exact USB bytes sent to the host are **not established** (the Odin response path was not traced). Host-side, a refusal shows as Heimdall's "Failed to confirm end of file transfer sequence!" (Heimdall source, not this firmware).
 
-**Q1 — what is tested before "ODIN : image is not a boot image" is printed, for which partitions (Measured).**
-For a partition named **"boot"**: 0x88e104b2 `strcmp(name,"boot")`; if equal, 0x88e104c8–0x88e104cc do `memcmp(image, "ANDROID!", 8)` — the **first 8 bytes** of the received image against the literal `ANDROID!` (length 8 set at 0x88e104c6). For a partition named **"recovery"** (gating string at pool 0x88e10704 = VA 0x88e36a00 = `"recovery"`): 0x88e105ae `strcmp(name,"recovery")`; if equal, 0x88e105be–0x88e105c2 do the same `memcmp(image,"ANDROID!",8)`. On a mismatch a fallback routine 0x88e10018 is tried (0x88e105ce); only if it also fails does the handler load "ODIN : image is not a boot image" (VA 0x88e3b3b0, at 0x88e105d8), print it (0x88e1a504), set the return to −1 (0x88e105de) and return. **So the test is `memcmp(first 8 bytes, "ANDROID!")`, made for the `boot` and `recovery` partitions; the string prints only when the magic does not match and the fallback also fails.**
+## S3 — the fallback `0x88e10018` (Measured)
 
-**Q2 — other refusals between transfer-end and the write (Measured, with one limit).**
-- **Size:** 0x88e104dc–0x88e104e6 compares the image size against the partition size; if too large it prints "ODIN : size too large" (0x88e10922) and returns −6. Applies to any partition that reaches this stage, RECOVERY included.
-- **Secure check (signature):** the "SECURE CHECK FAIL : %s" path at 0x88e1094a sets the Knox warranty bit (call 0x88e0c048 with 0xff0000) and returns −5 — the signature check of a locked bootloader. **Whether it is enforced for a RECOVERY write on this build is not established** (it depends on the write/verify routine 0x88e1327c and the lock state, not fully traced here).
-- A write failure returns −4 (0x88e1092e).
+It tests the image's **word[0] == 0xe1a00000** (0x88e10028 `cmn #0x1e600000`) **and word[0x20] == 0xea000002** (0x88e10036) — the bare ARM-kernel/zImage markers. payload.img (`ANDROID!…`, word[0x20] = tags 0x80200100) fails it; payload-invalid.img fails both this and the `ANDROID!` test → "image is not a boot image".
 
-**Q3 — is flash written only after the tests pass? Can a refused image have changed RECOVERY? (Measured.)**
-The write is the call to 0x88e1327c at 0x88e10560; the success line "ODIN : partition '%s' updated" (VA 0x88e3b44c) prints only after it returns 0 (0x88e10560 → 0x88e1058a). The magic test (0x88e104c8 / 0x88e105be) runs **before** the size test (0x88e104dc) and the write (0x88e10560), and its reject path returns −1 **without** reaching 0x88e10560. **A magic-refused image is therefore not written and cannot have changed RECOVERY.** (Download mode still cannot read the partition back; this is an argument from the write path, not a read-back.)
+## S4 — the write routine and the cert magic (Measured)
 
-**Q4 — what the phone returns on refusal and on success (Measured in part; USB bytes not established).**
-The handler returns 0 on success and a negative status on refusal (−1 bad magic, −5 secure-check fail, −6 oversize, −4 write fail) to its Odin caller. The exact bytes the phone then sends to the host over USB were **not established** (the Odin/USB response path was not traced). On the host side a refusal appears as no valid end-of-transfer acknowledgement — Heimdall's "Failed to confirm end of file transfer sequence!" (known from Heimdall's source, not from this firmware).
+The data is tested **before** the write call: signature at 0x88e0a378, image magic at 0x88e104c8/0x88e105be, and a **28-byte header magic** in the function at **0x88e1323c** — it copies 28 bytes and compares word[0] against **0xed26ff3a** (Qualcomm signed-image/cert magic); mismatch → `Invalid Magic Code! 0x%8x` (0x88e13262), return −1. `0x88e1323c` is called from the Odin path (e.g. 0x88e10694). `0x88e1327c` itself is the block write of the already-checked image; its internals were not traced (it is reached only after the checks above). Whether `0x88e1327c` re-checks after writing is **not established**.
 
-## The start (boot) path (Thumb, loader ~0x88e14630)
+## S5 — the start (boot)
 
-**Q5 — checks on the RECOVERY image before the jump, and the warranty bit (Measured, with limits).**
-The loader reads the image to 0x88eff000, then: a gate 0x88e0e2a4 (0x88e14636) selects a verify path; on one branch it does `memcmp(image,"ANDROID!",8)` (0x88e14642–0x88e1464a) and, if the magic is wrong, prints "ERROR: Invalid boot image header" (via 0x88e1482a, VA 0x88e3c254) and fails. A **page-size** check prints "ERROR: Invalid boot image pagesize" (0x88e14786, VA 0x88e3c82c). A **signature** path (0x88e04b84 at 0x88e146b2) relates to "ERROR: Cannot read boot image signature" (0x88e13f7a, 0x88e147f6) and the secure check; "Invalid Magic Code! 0x%8x" (VA 0x88e3bf38) is referenced by a related routine at 0x88e13262. **"Set Warranty Bit : %s"** (VA 0x88e3b378) is referenced in this path at 0x88e1450c — a non-Samsung-signed image loaded here sets the warranty bit; **whether the start then continues or halts after setting it is not established** here. The jump to the kernel is the call at 0x88e146a2 (0x88e1392c), reached only after the magic (and, on the secure branch, the signature) checks.
+- **(a) `0x88e0e2a4` (Measured).** On this build it is literally `movs r0,#1; bx lr` — returns the constant **1**. So at the loader 0x88e1463c `beq` is not taken and this build follows the **0x88e1463e branch**: `memcmp(image@0x88eff000, "ANDROID!", 8)` (0x88e14642/0x88e1464a); bad magic → `ERROR: Invalid boot image header` (0x88e1482a). Whether the other branch (0x88e146b2 → `0x88e04b84`) enforces a signature is **not established** (this build does not take it).
+- **(b) The warranty-at-boot function (Measured; corrected placement).** `0x88e1450c` lies in a function at **~0x88e144xx**, *before* the 0x88e14630 loader. It is reached when a magic compare at 0x88e144c0 (word vs `0x574f4c44`) selects the custom/not-enforcing path. It prints `Set Warranty Bit : %s` in yellow (`0x88e0c048`, 0x88e1451e), then calls the real setter **`0x88e0bb94`** (0x88e14522) and `0x88e0bc28`, sets a flag, and **`b 0x88e14084` — it continues** (does not stop). So setting the warranty bit at boot is followed by continuing the boot, not a halt. Its exact entry/callers were not fully traced (**not established** beyond the above).
+- **(c) `ERROR: Cannot read boot image signature`** is referenced at 0x88e13f7a and 0x88e147f6, in the signature-reading functions (`~0x88e13exx` and the 0x88e146b2 branch); on this build the boot gate (a) skips the 0x88e146b2 branch, so whether either prints here at boot is **not established**.
 
-## Q6 — payload.img against each test
+## S6 — SEANDROID / ENFORCING (Measured)
 
-| Test (where) | payload.img | payload-invalid.img (W1) | stock recovery.img | Predicted for payload.img |
-| --- | --- | --- | --- | --- |
-| Odin magic: first 8 bytes == `ANDROID!` (0x88e104c8 / 0x88e105be) | `ANDROID!` (Measured) | `INVALID!` (Measured) | `ANDROID!` (Measured) | **PASS** |
-| Odin size ≤ partition (0x88e104dc) | 6,160 B (Measured) | 6,160 B | 8,935,696 B | **PASS** (RECOVERY = 10,485,760 B) |
-| Boot page-size (0x88e14786) | 2048 (Measured) | 2048 | 2048 (Measured) | **PASS** (matches stock) |
-| Signature / secure check (0x88e1094a Odin; 0x88e04b84 boot) | unsigned, Revival OS build | unsigned | Samsung-signed (sha `0e30955962…`) | **CANNOT PREDICT** — enforcement for a RECOVERY write/boot on this locked build not established |
+`SEANDROIDENFORCE` exists as a string (VA 0x88ebcbec), referenced via a literal pool at 0x88e0fe94 (function `~0x88e0fdc4`). The specific messages the reviewer recalled — `RECOVERY IS NOT SEANDROID ENFORCING` and `Set Warranty Bit : recovery` — **do not exist** in this build (searched case-insensitively; only `SEANDROIDENFORCE` and the format `Set Warranty Bit : %s` are present). **payload.img ends with the 16-byte `SEANDROIDENFORCE` trailer and no 256-byte signature.** The Odin recovery write treats the last 256 bytes as the signature, so payload.img's tail verifies as a **failed** signature → `SECURE : Signature verification failed` → `0x88e0fa6c(recovery,1)=0` → the image is still **written** (it is not refused for lacking a signature). What the boot path does with the trailer specifically is **not established** (the 0x88e0fdc4 user was not fully traced).
 
-Shared header fields (Measured): both images use `kernel_addr` 0x80208000, `tags_addr` 0x80200100, `page_size` 2048. payload.img: magic `ANDROID!`, kernel 1,636 B, total 6,160 B. The only field that made W1 fail is the 8-byte magic (`INVALID!` vs `ANDROID!`).
+## S7 — payload.img against each test found
 
-## Q7 — what the study predicts W1 showed, vs the read-only checks
+| Test (where) | What it checks | payload.img | Predicted result |
+| --- | --- | --- | --- |
+| Odin signature (0x88e0a378) | last 256 bytes as a signature over the rest | unsigned (16-byte `SEANDROIDENFORCE` trailer, no sig) | **fails verify, but not refused** — prints "Signature verification failed"; `0x88e0fa6c(recovery,1)=0` → proceeds (Measured) |
+| Odin magic (0x88e105be) | first 8 bytes == `ANDROID!` | `ANDROID!` | **PASS** (W1's `INVALID!` failed here) (Measured) |
+| Odin size (0x88e104e6) | image sectors ≤ partition sectors | 6,160 B vs RECOVERY 10,485,760 B | **PASS** (Measured) |
+| Odin write (0x88e10560) | writes the buffered image | — | **WRITTEN** — payload.img is written to recovery (Measured, from the path above) |
+| Odin warranty bit on this write | — | — | **not established** — `0x88e0bb94` was not seen on the recovery Odin-write path (it is on the boot path and the system/persist entry path) |
+| Boot magic (0x88e1464a) | first 8 bytes == `ANDROID!` | `ANDROID!` | **PASS** (Measured) |
+| Boot signature enforcement (0x88e146b2/0x88e04b84) | — | — | **cannot predict** — this build's gate `0x88e0e2a4`=1 skips that branch; its enforcement not established |
+| Boot warranty bit (0x88e144xx) | custom/not-enforcing → set & continue | unsigned | **Inference:** likely set at boot, then boot continues (the function sets it and `b 0x88e14084`); exact trigger condition not established |
 
-**Prediction (from the code).** W1 wrote `payload-invalid.img` (magic `INVALID!`) to `recovery`. The magic test `memcmp(first 8, "ANDROID!")` fails and the fallback fails, so the handler prints "ODIN : image is not a boot image", returns −1 and does **not** write. Because the magic test runs **before** the secure/signature check, the warranty-bit step is not reached, so `KNOX WARRANTY VOID` should still read `0x0` after W1 and the Download screen should show a failed/aborted write, not a success.
+**What would have to be known** to close the two unpredictable rows: whether the Odin recovery write sets the warranty bit (trace `0x88e0bb94` reachability on that path), and what the boot path does for an unsigned-but-valid-magic recovery image given `0x88e0e2a4`=1 (trace the 0x88e1463e branch to the jump).
 
-**Agreement with Part B:** the owner's transcriptions of the W1 screens are **not yet recorded** (Part B is pending), so this prediction is not yet checked against them. To be completed when Part B is in; any disagreement will be stated here.
+## Q7 — prediction vs Part B
+
+Updated from the above. W1 wrote `payload-invalid.img` (`INVALID!`, unsigned) to recovery: signature verify fails → `SECURE : Signature verification failed`, then the magic check fails (`INVALID!` ≠ `ANDROID!`) and the fallback fails → `ODIN : image is not a boot image`, −1, **no write**. So the phone's Download screen most likely showed **`SECURE : Signature verification failed`** followed by **`ODIN : image is not a boot image`**, and no "partition updated". Whether the warranty bit changed at W1 is **not established** (the setter was not on this path, but this is not proof it was untouched). Part B transcriptions are not yet recorded, so this is not yet checked against them; any disagreement will be recorded here when Part B is in.
 
 ## Sources (exact addresses)
 
-- **Load address:** header offset 0x0C (`image_dest_ptr` = 0x88e00000); consistency `0x88e00000 + 0xbd460 = 0x88ebd460`; 10 of 10 A4 string VAs present as literals.
-- **Odin handler:** 0x88e10480 (entry); 0x88e104b2, 0x88e104c8, 0x88e104cc, 0x88e104d2 (boot magic); 0x88e105ae, 0x88e105be, 0x88e105c2, 0x88e105c8, 0x88e105d8 (recovery magic + reject); 0x88e10018 (fallback); 0x88e104dc, 0x88e10922 (size); 0x88e1094a (secure-check fail); 0x88e10560, 0x88e1327c (write); 0x88e1058a (success). Helpers: `memcmp` 0x88e1b204, `strcmp` 0x88e1b27c, print 0x88e1a504.
-- **Boot loader:** 0x88e14630 (entry); 0x88e14636/0x88e0e2a4 (gate); 0x88e14642/0x88e1464a (boot magic); 0x88e1482a (invalid header); 0x88e14786 (pagesize); 0x88e146b2/0x88e04b84, 0x88e13f7a, 0x88e147f6 (signature); 0x88e13262 (invalid magic code); 0x88e1450c (Set Warranty Bit); 0x88e146a2/0x88e1392c (jump).
-- **String virtual addresses:** `ANDROID!` 0x88e3b288; `ODIN : image is not a boot image` 0x88e3b3b0; `ODIN : size too large` 0x88e3b3d4; `ODIN : partition '%s' updated` 0x88e3b44c; `SECURE CHECK FAIL : %s` 0x88e3b314; `Set Warranty Bit : %s` 0x88e3b378; `Invalid Magic Code! 0x%8x` 0x88e3bf38; `ERROR: Invalid boot image header` 0x88e3c254; `ERROR: Invalid boot image pagesize` 0x88e3c82c; `ERROR: Cannot read boot image signature` 0x88e3c32c.
+Odin: entry 0x88e10420; name list 0x88e10756 (`sbl1…modem`); recovery→verify 0x88e107c4/0x88e108c4/0x88e107f8; hash 0x88e0a374→0x88e0936c; verify 0x88e0a378→0x88e084a0 (0x88e1081a); succeed/fail 0x88e108fe/0x88e10822; `0x88e0fa6c` (names at 0x88e0faf4=`boot`,0x88e0faf8=`recovery`); SECURE CHECK FAIL 0x88e10832→0x88e1094a; magic 0x88e104c8(boot)/0x88e105be(recovery); fallback 0x88e10018 (0xe1a00000 / 0xea000002); size 0x88e104e6→0x88e10922; write 0x88e10560→0x88e1327c; success 0x88e1058a; cert magic 0x88e1323c (0xed26ff3a)→0x88e13262. Print: `0x88e0c048`→`0x88e1aa04`+`0x88e0bf00`; warranty setter `0x88e0bb94`→`0x88e0b914`. Boot: loader 0x88e14630; gate `0x88e0e2a4`(=1); boot magic 0x88e1464a→"Invalid boot image header" 0x88e1482a; warranty-at-boot ~0x88e144xx (print 0x88e1451e, set 0x88e14522, continue `b 0x88e14084`); "Cannot read boot image signature" 0x88e13f7a/0x88e147f6. Strings: `SECURE : Signature verification…/succeed/failed` 0x88e3affc/0x88e3b020/0x88e3b04c; `[Final]Secure check fail : %s` 0x88e3b390; `SEANDROIDENFORCE` 0x88ebcbec.
 
 ## Limits
 
-Nothing here touched the phone. No firmware and no disassembly listing is in this repository. Where the code could not be followed to a definite answer — the secure-check enforcement for a RECOVERY write, the continue/halt after the warranty bit, the Odin USB response bytes — this note says "not established" rather than guessing, and does not fill the gap from any outside paper.
+Nothing touched the phone. No firmware and no disassembly listing is in this repo. Items marked "not established" were not followed to a definite answer and are not filled from any outside paper.
