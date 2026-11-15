@@ -2,7 +2,9 @@
 
 - **Performed by:** the owner, at the phone and in the owner's own terminal: every physical step and every command that contacts the phone. The implementer (Claude Code on the Ubuntu write host) prepared each step from the plan, checked the host-only results and read the session log.
 - **Plan:** [write plan v4](../../phase-2/write-plan-draft.md) at commit `301a9574d509e104de7dcda4bdf22e3fcaecafc5` on `main`, approved in [issue #23](https://github.com/revival-systems/revival-os/issues/23) by the reviewer and the owner, with the reviewer's five clarifications. Phase 2, method A, `RECOVERY` only.
-- **Result: stopped at step D4 of W1.** Both runs of the W1 command ended with `ERROR: RECOVERY upload failed!`. The stop report is the [comment on issue #23](https://github.com/revival-systems/revival-os/issues/23#issuecomment-6886465423). Whether and how the session continues is the reviewer's and the owner's decision.
+- **Result: W1 failed; the plan stopped at step D4.** All three runs of the W1 command ended with `ERROR: RECOVERY upload failed!`. The stop report is the [comment on issue #23](https://github.com/revival-systems/revival-os/issues/23#issuecomment-6886465423); a [correction](https://github.com/revival-systems/revival-os/issues/23#issuecomment-6887493736) followed once the full logs were read. Writes are suspended on the issue until an amendment is approved there. Whether and how the session continues is the reviewer's and the owner's decision.
+
+> **Correction (2026-11-15).** The first commit of this file (`40013f3`) recorded two W1 runs and stated that Android had not been started since W1. That was wrong. The completed session log (which ends `Script done … 01:29:41`) and this host's kernel log (`journalctl`) show **three** runs of the W1 command, and that the phone was booted into Android and then flashed a third time **after** the stop report was posted (01:17:32). This file now records all three runs and the post-stop events, each with its source. The device's serial number, which is visible in the kernel log, is not reproduced here.
 
 All times are CET. P1 to P5 ran on 2026-11-14, the rest on 2026-11-15.
 
@@ -10,10 +12,10 @@ All times are CET. P1 to P5 ran on 2026-11-14, the rest on 2026-11-15.
 
 | Item | Value |
 | --- | --- |
-| Date | 2026-11-14 23:02 to 2026-11-15 01:15 |
+| Date | 2026-11-14 23:02 to 2026-11-15 01:29 |
 | Who | The owner performed the steps; the implementer read the results |
 | Phase | 2 |
-| Steps run | P1–P5, then W1: D0–D4; then the transfer-failure procedure F-4 to F-7 |
+| Steps run | P1–P5, then W1 (D0–D4), which failed; then the transfer-failure procedure F-4 to F-7. After the stop report, and outside the approved plan: an Android boot and a third run of the W1 command |
 | Steps not run | D5, D6; T1–T7; S1–S5; W2, W3, W4; the A steps |
 
 ## 2. Device
@@ -44,10 +46,14 @@ The GT-I9195 of the [Phase 0 record](../phase-0/2026-11-13-linux-retest.md), wit
 | D2 | 00:39 | The status lines below, identical to F2 ([section 10](../../phase-2/write-plan-draft.md#10-knox)); no reactivation-lock line. Photographed | Owner-confirmed |
 | D3 | before 00:45:27 | `lsusb`: `04e8:685d` (Download mode); `heimdall detect`: `Device detected` | Measured |
 | — | 00:45:27–00:51:48 | The session log ended and was restarted with `-a` three times. No command that contacts the phone ran while it was stopped | Measured |
-| D4, W1 | 00:51:48–00:54:52 | `heimdall flash --RECOVERY build/boot-serrano/payload-invalid.img --no-reboot`, from the clone's root, **run twice**, one run after the other. Both runs printed the output below. `echo "exit=$?"` after the second run: `exit=1` | Measured |
-| D4 | — | The download bar on the phone ran to 100 % | Owner-confirmed |
+| D4, W1 | from 00:51:48 (pts/4) | `heimdall flash --RECOVERY build/boot-serrano/payload-invalid.img --no-reboot`, from the clone's root. **Run three times in all** (see section 6). The "Resetting device" step of each run is timed from the kernel log: run 1 at 00:53:31, run 2 at 00:54:46. Each printed the output below. `echo "exit=$?"` after run 2: `exit=1` | Measured (session + kernel log) |
+| D4 | — | The download bar on the phone ran to 100 % on each run | Owner-confirmed |
 | F-4, F-5 | about 01:07–01:15 | Two photographs at least 5 minutes apart, the same: the Download-mode screen | Owner-confirmed |
-| F-6 | before 01:15:41 | Cable unplugged, battery removed. The exact time was not given | Owner-confirmed |
+| F-6 | 01:15:20 | Cable unplugged (kernel log: USB disconnect). Battery removed; the exact time was not given | Measured (unplug); owner-confirmed (battery) |
+| Stop report | 01:17:32 | Posted as a comment on issue #23. Everything below happened **after** this and is outside the approved plan | Measured |
+| — (after the stop) | 01:27:38–01:27:56 | The phone came up in Android (kernel log: USB `04e8:6860`, Manufacturer SAMSUNG), then disconnected | Measured (kernel log) |
+| — (after the stop) | 01:28:35 | Download mode re-entered (kernel log: USB `04e8:685d`) | Measured (kernel log) |
+| W1, run 3 (after the stop) | 01:28:45 | The W1 command recalled from the shell history and run a third time, in the same terminal, as a fresh Heimdall session; the same output. Cable unplugged at 01:29:14; the session log closes at 01:29:41 | Measured (session + kernel log) |
 
 Trials: none. No trial was run, so none counted and none showed the pass picture.
 
@@ -67,7 +73,7 @@ WRITE PROTECTION: Enable
 
 No status lines have been read since W1.
 
-**Heimdall's output**, the same in both runs. The copyright banner is left out.
+**Heimdall's output**, identical in all three runs. The copyright banner is left out.
 
 ```text
 Heimdall v2.1.0
@@ -98,32 +104,34 @@ Ending session...
 Releasing device interface...
 ```
 
-- No line starts `WARNING`. There is no `RECOVERY upload successful` line and no `Rebooting device...` line. No other partition is named.
-- One session line differs from the lines E-17 recorded on this host ([write-host PIT read](2026-11-14-write-host-pit-read.md#heimdall-210-session-lines-on-this-host)): `Detecting device...` where E-17 has `Waiting for device...`. Every other line before the upload is the same.
+- No line starts `WARNING`. There is no `RECOVERY upload successful` line and no `Rebooting device...` line. No other partition is named. The bootloader's success line `ODIN : partition '%s' updated` did not appear.
+- One session line differs from the lines E-17 recorded on this host ([write-host PIT read](2026-11-14-write-host-pit-read.md#heimdall-210-session-lines-on-this-host)): `Detecting device...` where E-17 has `Waiting for device...`. Every other line before the upload is the same. (E-17's command was a detect with no `--wait`, which prints `Waiting for device...`; `flash` prints `Detecting device...`. The binary holds both strings.)
 
 ## 5. Failures, recovery and state
 
 | Failure | What was done | Label |
 | --- | --- | --- |
-| W1 ended with `ERROR: Failed to confirm end of file transfer sequence!` and `ERROR: RECOVERY upload failed!` (D4 stop) | STOP. Transfer-failure procedure: F-4 photograph, F-5 a second photograph at least 5 minutes later (the same screen), F-6 cable unplugged, then battery removed. F-7: no trial, no further write | Measured (output); owner-confirmed (F-4 to F-6) |
-| The W1 command was run a second time after the first run failed. The plan says a failed write is never repeated | Recorded. Not run a third time | Measured |
+| W1 ended with `ERROR: Failed to confirm end of file transfer sequence!` and `ERROR: RECOVERY upload failed!` (D4 stop) | STOP. Transfer-failure procedure: F-4 photograph, F-5 a second photograph at least 5 minutes later (the same screen), F-6 cable unplugged, then battery removed. F-7: no trial, no further write under the plan | Measured (output); owner-confirmed (F-4 to F-6) |
+| The W1 command was run a second time right after the first failed, and a third time after the stop report. The plan says a failed write is never repeated | Recorded. All three runs count against the four approved writes (reviewer's ruling, 2026-11-15) | Measured |
+| After the stop report, the phone was booted into Android and then returned to Download mode for the third run | Recorded from the kernel log. Outside the approved plan | Measured (kernel log) |
 | P4's first run was made outside the empty folder | P4 run again in the empty folder; the first clone was not used | Measured |
 
 **State afterwards:**
 
-- The battery is out and the cable is unplugged.
-- `RECOVERY`: **unknown** (F-7). The transfer reached 100 % on the host and on the phone's bar, and the end of the transfer was not confirmed. Download mode cannot read a partition back.
-- The phone stayed on the Download-mode screen after both runs. Android has not been started since W1, and no recovery-key start has been tried.
+- The last event in the logs is a USB disconnect at 01:29:14; the session log closes at 01:29:41. The phone's current physical state (battery in or out, and what the screen shows) is **not** established here; it is to be confirmed in the read-only checks that follow.
+- `RECOVERY`: **unknown** (F-7). Each transfer reached 100 % on the host and on the phone's bar, and the end of the transfer was not confirmed; the bootloader's success line `ODIN : partition '%s' updated` never appeared. Download mode cannot read a partition back, so the content of `RECOVERY` cannot be established from this session.
+- Android started once after the stop (01:27:38–01:27:56) and reached far enough to enumerate over USB. What it displayed is not recorded here.
 
 ## 6. Writes
 
-| Write | Image | Time | Exit status | Result |
+| Write | Image | Time (reset step, kernel log) | Exit status | Result |
 | --- | --- | --- | --- | --- |
-| W1, first run | `payload-invalid.img`, `34dc91c6…4d7b` | 00:51:48–00:54:52 | Not entered | `ERROR: RECOVERY upload failed!` |
-| W1, second run | the same | the same window, after the first | `exit=1` | `ERROR: RECOVERY upload failed!` |
+| W1, run 1 | `payload-invalid.img`, `34dc91c6…4d7b` | 00:53:31 | Not entered | `ERROR: RECOVERY upload failed!` |
+| W1, run 2 | the same | 00:54:46 | `exit=1` | `ERROR: RECOVERY upload failed!` |
+| W1, run 3 (after the stop report) | the same | 01:28:45 | Not entered | `ERROR: RECOVERY upload failed!` |
 
-Both runs named `RECOVERY` only. **Nothing else was written:** no other partition, and no other image. W2, W3 and W4 were not run.
+All three runs named `RECOVERY` only. **Nothing else was written by any run:** no other partition, and no other image. W2, W3 and W4 were not run. The reviewer has ruled that all three runs count against the four approved writes.
 
 ## Not committed
 
-Private, outside every repository: the session log, the owner's video and photographs, and the implementer's notes. No identifier, photograph or log is in this file.
+Private, outside every repository: the session log, the host kernel log, the owner's video and photographs, and the implementer's notes. No identifier, serial number, photograph or log is in this file.
