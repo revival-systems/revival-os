@@ -66,7 +66,7 @@ The data is tested **before** the write call: signature at 0x88e0a378, image mag
 
 ## Q7 — prediction vs Part B
 
-Updated from the above. W1 wrote `payload-invalid.img` (`INVALID!`, unsigned) to recovery: signature verify fails → `SECURE : Signature verification failed`, then the magic check fails (`INVALID!` ≠ `ANDROID!`) and the fallback fails → `ODIN : image is not a boot image`, −1, **no write**. So the phone's Download screen most likely showed **`SECURE : Signature verification failed`** followed by **`ODIN : image is not a boot image`**, and no "partition updated". Whether the warranty bit changed at W1 is **not established** (the setter was not on this path, but this is not proof it was untouched). Part B transcriptions are not yet recorded, so this is not yet checked against them; any disagreement will be recorded here when Part B is in.
+Updated from the above. W1 wrote `payload-invalid.img` (`INVALID!`, unsigned) to recovery: signature verify fails → `SECURE : Signature verification failed`, then the magic check fails (`INVALID!` ≠ `ANDROID!`) and the fallback fails → `ODIN : image is not a boot image`, −1, **no write**. So the phone's Download screen most likely showed **`SECURE : Signature verification failed`** followed by **`ODIN : image is not a boot image`**, and no "partition updated". Whether the warranty bit changed at W1 is **not established** (the setter was not on this path, but this is not proof it was untouched). Part B was cancelled (reviewer, 2026-11-15). The prediction is not checked against the phone's screen: no photograph or video of the night exists (Owner-stated).
 
 ## Sources (exact addresses)
 
