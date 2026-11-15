@@ -4,6 +4,8 @@ The owner explicitly requested uploading this firmware to the internal GitHub
 repository on 2026-11-13, as a specific exception to AGENTS.md's firmware-storage
 rule. This does not authorize other vendor uploads or any phone write.
 
+Since 2026-11-15 the repository is public ([AGENTS.md](../../AGENTS.md#hardware-safety-contract), rule 7).
+
 Verified phone: GT-I9195, active CSC **ROM (Romania)**, bootloader/AP/baseband
 `I9195XXSCQAN`, CSC firmware `I9195OXXCNK2`.
 

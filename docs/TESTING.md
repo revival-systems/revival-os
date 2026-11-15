@@ -149,7 +149,7 @@ The owner made two exceptions on 2026-11-13 ([AGENTS.md](../AGENTS.md#hardware-s
 - **Rescue firmware:** the GT-I9195 rescue firmware for the installed build, in Git LFS under [`firmware/GT-I9195/`](../firmware/GT-I9195/README.md).
 - **Redacted photographs:** photographs of the device and its screens under `docs/evidence/`, with every identifier blacked out and the image metadata stripped, as in [the Phase 0 addendum](evidence/phase-0/2026-11-13-linux-retest.md#owner-photographs).
 
-Everything else stays out of the repository: no other vendor files, and never an IMEI, serial number, MAC address, account name, personal photo or unredacted photograph. The repository must never be public while its history or Git LFS storage holds vendor firmware. It is internal on purpose, so that the owner's other agents and machines can read it; the owner decided this on 2026-11-14.
+Everything else stays out of the repository: no other vendor files, and never an IMEI, serial number, MAC address, account name, personal photo or unredacted photograph. The repository is public. The owner decided this on 2026-11-15, so that standard GitHub-hosted Actions runs cost nothing; it replaces the owner's decision of 2026-11-14 that the repository is internal. Three consequences, which the reviewer stated to the owner on 2026-11-15: anyone can read every file, issue, pull request and commit, including each commit's author name and e-mail address; anyone can download the rescue firmware from Git LFS; and every such download counts against the organization's Git LFS quota. Check every file, photograph, issue text and pull-request text for identifiers before it is pushed or posted.
 
 ### Phase 0 summary template
 
