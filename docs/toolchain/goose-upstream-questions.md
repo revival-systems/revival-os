@@ -2,7 +2,7 @@
 
 **Status: draft, not sent.** Posting it needs the owner's authorization, as do the choice of venue and the wording. Prepared 2026-11-08 from the [dependency map](goose-runtime-dependency-map.md), and revised the same day when question 1 gained a concrete case ([finding 8](goose-runtime-dependency-map.md#32-bit-findings)).
 
-The message must stand on its own: this repository is internal, so it links nothing in it.
+The message must stand on its own: it links nothing in this repository.
 
 ## Already answered upstream, so not asked again
 

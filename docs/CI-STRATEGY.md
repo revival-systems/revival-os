@@ -55,8 +55,8 @@ Ordinary pull requests rely on the local `make check`, with its output quoted in
 | Repeated manual runs | Concurrency cancels the older run on the same branch |
 | Scheduled (cron) workflows | None, and none to be added without approval |
 | Artifact and cache storage | None configured |
-| Git LFS storage and downloads: the 907 MB GT-I9195 rescue firmware under `firmware/GT-I9195/` | Do not download it again without a reason: fetch, clone and check out with `GIT_LFS_SKIP_SMUDGE=1` and use the private local copy. Adding large files to Git LFS, artifacts or caches needs approval ([AGENTS.md](../AGENTS.md#ci-and-cost-rules)). |
-| Internal and private repositories use the plan's Actions minutes | The repository is `internal`. Its minutes come from the organization's plan, and use beyond the plan is billed when the spending limit allows it. |
+| Git LFS storage and downloads: the 907 MB GT-I9195 rescue firmware under `firmware/GT-I9195/` | Do not download it again without a reason: fetch, clone and check out with `GIT_LFS_SKIP_SMUDGE=1` and use the private local copy. Adding large files to Git LFS, artifacts or caches needs approval ([AGENTS.md](../AGENTS.md#ci-and-cost-rules)). The repository is public, so anyone can download these files, and each download counts against the organization's quota (Source: https://docs.github.com/en/billing/concepts/product-billing/git-lfs). |
+| Repository visibility | The repository is public since 2026-11-15 (owner's decision, AGENTS.md rule 7). Standard GitHub-hosted runners are free in public repositories; larger runners are always billed (Source: https://docs.github.com/en/billing/managing-billing-for-github-actions/about-billing-for-github-actions). The workflow uses a standard runner. If the repository becomes internal or private again, runs use the plan's minutes. |
 | Workflow settings alone do not guarantee zero cost | **The organization's Actions spending limit must be checked in GitHub's billing settings by an owner.** It could not be checked from here. |
 
 ## Security checks that stay
