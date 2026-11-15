@@ -49,7 +49,7 @@ The GT-I9195 of the [Phase 0 record](../phase-0/2026-11-13-linux-retest.md), wit
 | D3 | before 00:45:27 | `lsusb`: `04e8:685d` (Download mode); `heimdall detect`: `Device detected` | Measured |
 | — | 00:45:27–00:51:48 | The session log ended and was restarted with `-a` three times. The host kernel log shows no device reset between 00:44:13 and 00:53:31, so no Heimdall session ran while the log was stopped; it also records a USB disconnect at 00:45:59 and a reconnect at 00:46:02 | Measured (kernel log) |
 | D4, W1 | from 00:51:48 (pts/4) | `heimdall flash --RECOVERY build/boot-serrano/payload-invalid.img --no-reboot`, from the clone's root. **Run three times in all** (see section 6). The "Resetting device" step of each run is timed from the kernel log: run 1 at 00:53:31, run 2 at 00:54:46. Each printed the output below. `echo "exit=$?"` after run 2: `exit=1` | Measured (session + kernel log) |
-| D4 | — | The owner watched the phone's download bar reach 100 % on the runs the owner reported (runs 1 and 2). Whether it also reached 100 % on run 3 is to be confirmed (Part B, B1) | Owner-confirmed (runs 1–2) |
+| D4 | — | The owner watched the phone's download bar reach 100 % on the runs the owner reported (runs 1 and 2). Whether it also reached 100 % on run 3 is not established | Owner-confirmed (runs 1–2) |
 | F-4, F-5 | about 01:07–01:15 | Two photographs at least 5 minutes apart, the same: the Download-mode screen | Owner-confirmed |
 | F-6 | 01:15:20 | Cable unplugged (kernel log: USB disconnect). Battery removed; the exact time was not given | Measured (unplug); owner-confirmed (battery) |
 | Stop report | 01:17:32 | Posted as a comment on issue #23. Everything below happened **after** this and is outside the approved plan | Measured |
@@ -120,8 +120,8 @@ Releasing device interface...
 
 **State afterwards:**
 
-- The last event in the logs is a USB disconnect at 01:29:14; the session log closes at 01:29:41. The phone's current physical state (battery in or out, and what the screen shows) is **not** established here; it is to be confirmed in the read-only checks that follow.
-- `RECOVERY`: **unknown** (F-7). Each transfer reached 100 % on the host; the owner watched the phone's bar reach 100 % on runs 1 and 2, and whether it did on run 3 is to be confirmed (Part B, B1). The end of the transfer was not confirmed. Heimdall does not print the phone's messages and nobody transcribed the phone's screen, so whether the bootloader's success line `ODIN : partition '%s' updated` appeared is not recorded. Download mode cannot read a partition back, so the content of `RECOVERY` cannot be established from this session.
+- The last event in the logs is a USB disconnect at 01:29:14; the session log closes at 01:29:41. The phone's current physical state at the end of the session (battery in or out, and what the screen showed) is **not** established here, and Part B — the read-only checks that would have confirmed it — was cancelled (reviewer, 2026-11-15); the owner has since stated that the phone starts and works normally (section 8).
+- `RECOVERY`: **unknown** (F-7). Each transfer reached 100 % on the host; the owner watched the phone's bar reach 100 % on runs 1 and 2, and whether it did on run 3 is not established. The end of the transfer was not confirmed. Heimdall does not print the phone's messages and nobody transcribed the phone's screen, so whether the bootloader's success line `ODIN : partition '%s' updated` appeared is not recorded. Download mode cannot read a partition back, so the content of `RECOVERY` cannot be established from this session.
 - Android started once after the stop (01:27:38–01:27:56) and reached far enough to enumerate over USB. What it displayed is not recorded here.
 
 ## 6. Writes
@@ -159,7 +159,17 @@ The line numbers are from the copy examined here; the one-line passages are quot
 
 **What this shows (Measured):** a run of W1 sleeps 3 seconds after the handshake, then waits for the phone to confirm the end of the transfer for at most the timeout above, retrying the read a small number of times. Six seconds is far shorter than either the 120000 ms or the 30000 ms wait, and the few short retry pauses do not fill it either.
 
-**Inference:** Heimdall did not wait out a timeout. The phone answered the end of the transfer quickly, with something Heimdall does not accept as the acknowledgement. That is consistent with the phone refusing the image; a transport fault would more likely show as a timeout or as repeated retries. This is still not proof: the phone's screen and the recovery-key check (Part B) decide.
+**Inference:** Heimdall did not wait out a timeout. The phone answered the end of the transfer quickly, with something Heimdall does not accept as the acknowledgement. That is consistent with the phone refusing the image; a transport fault would more likely show as a timeout or as repeated retries. This is still not proof, and Part B — the phone's screen and the recovery-key check that would have decided it — was cancelled (reviewer, 2026-11-15); no photograph or video of the night exists (Owner-stated), so it is not checked against the phone (section 8).
+
+## 8. Closing: Part B not carried out (2026-11-15)
+
+**Part B was not carried out.** The reviewer cancelled it on 2026-11-15, with its questions B1 to B4; nothing further is asked of the owner about the night of 2026-11-14 to 15.
+
+**Owner-stated, relayed by the reviewer, 2026-11-15:** the owner has no photograph and no video of that night; the phone was in Download mode during the attempts; the owner has started the phone since, and it works normally.
+
+With Part B cancelled, every item this file left "to be confirmed (Part B …)" is now **not established** and will not be checked against the phone: whether the download bar reached 100 % on run 3, and the phone's physical state at the end of the session.
+
+The bootloader study ([pull request #26](https://github.com/revival-systems/revival-os/pull/26)) shows **from the code** that a recovery image whose first eight bytes are not `ANDROID!` is refused before the write; `payload-invalid.img`'s magic is `INVALID!`. That this is what the phone did at W1 stays an **Inference**: no one transcribed the phone's screen, and no photograph or video exists (Owner-stated).
 
 ## Not committed
 
