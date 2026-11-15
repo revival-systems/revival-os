@@ -5,6 +5,8 @@
 - **Result: W1 failed; the plan stopped at step D4.** All three runs of the W1 command ended with `ERROR: RECOVERY upload failed!`. The stop report is the [comment on issue #23](https://github.com/revival-systems/revival-os/issues/23#issuecomment-6886465423); a [correction](https://github.com/revival-systems/revival-os/issues/23#issuecomment-6887493736) followed once the full logs were read. Writes are suspended on the issue until an amendment is approved there. Whether and how the session continues is the reviewer's and the owner's decision.
 
 > **Correction (2026-11-15).** The first commit of this file (`40013f3`) recorded two W1 runs and stated that Android had not been started since W1. That was wrong. The completed session log (which ends `Script done … 01:29:41`) and this host's kernel log (`journalctl`) show **three** runs of the W1 command, and that the phone was booted into Android and then flashed a third time **after** the stop report was posted (01:17:32). This file now records all three runs and the post-stop events, each with its source. The device's serial number, which is visible in the kernel log, is not reproduced here.
+>
+> **Further corrections (2026-11-15, midday).** After the reviewer's review of the first correction, four statements were corrected to what the sources establish: the bootloader's on-phone success line (Heimdall does not print the phone's messages, and no one transcribed the screen); E-17's command (a `heimdall download-pit`, not a detect); the idle-log window (bounded by the kernel log rather than asserted); and the 100 % download bar (owner-confirmed only for the runs the owner reported). The timing of run 2 is added as section 7.
 
 All times are CET. P1 to P5 ran on 2026-11-14, the rest on 2026-11-15.
 
@@ -45,9 +47,9 @@ The GT-I9195 of the [Phase 0 record](../phase-0/2026-11-13-linux-retest.md), wit
 | D0, D1 | before 00:39 | Video started; the warning screen, then the download screen | Owner-confirmed |
 | D2 | 00:39 | The status lines below, identical to F2 ([section 10](../../phase-2/write-plan-draft.md#10-knox)); no reactivation-lock line. Photographed | Owner-confirmed |
 | D3 | before 00:45:27 | `lsusb`: `04e8:685d` (Download mode); `heimdall detect`: `Device detected` | Measured |
-| — | 00:45:27–00:51:48 | The session log ended and was restarted with `-a` three times. No command that contacts the phone ran while it was stopped | Measured |
+| — | 00:45:27–00:51:48 | The session log ended and was restarted with `-a` three times. The host kernel log shows no device reset between 00:44:13 and 00:53:31, so no Heimdall session ran while the log was stopped; it also records a USB disconnect at 00:45:59 and a reconnect at 00:46:02 | Measured (kernel log) |
 | D4, W1 | from 00:51:48 (pts/4) | `heimdall flash --RECOVERY build/boot-serrano/payload-invalid.img --no-reboot`, from the clone's root. **Run three times in all** (see section 6). The "Resetting device" step of each run is timed from the kernel log: run 1 at 00:53:31, run 2 at 00:54:46. Each printed the output below. `echo "exit=$?"` after run 2: `exit=1` | Measured (session + kernel log) |
-| D4 | — | The download bar on the phone ran to 100 % on each run | Owner-confirmed |
+| D4 | — | The owner watched the phone's download bar reach 100 % on the runs the owner reported (runs 1 and 2). Whether it also reached 100 % on run 3 is to be confirmed (Part B, B1) | Owner-confirmed (runs 1–2) |
 | F-4, F-5 | about 01:07–01:15 | Two photographs at least 5 minutes apart, the same: the Download-mode screen | Owner-confirmed |
 | F-6 | 01:15:20 | Cable unplugged (kernel log: USB disconnect). Battery removed; the exact time was not given | Measured (unplug); owner-confirmed (battery) |
 | Stop report | 01:17:32 | Posted as a comment on issue #23. Everything below happened **after** this and is outside the approved plan | Measured |
@@ -104,8 +106,8 @@ Ending session...
 Releasing device interface...
 ```
 
-- No line starts `WARNING`. There is no `RECOVERY upload successful` line and no `Rebooting device...` line. No other partition is named. The bootloader's success line `ODIN : partition '%s' updated` did not appear.
-- One session line differs from the lines E-17 recorded on this host ([write-host PIT read](2026-11-14-write-host-pit-read.md#heimdall-210-session-lines-on-this-host)): `Detecting device...` where E-17 has `Waiting for device...`. Every other line before the upload is the same. (E-17's command was a detect with no `--wait`, which prints `Waiting for device...`; `flash` prints `Detecting device...`. The binary holds both strings.)
+- No line starts `WARNING`. There is no `RECOVERY upload successful` line and no `Rebooting device...` line. No other partition is named. Heimdall prints only its own messages, not the phone's, and nobody transcribed the phone's screen, so whether the bootloader's success line `ODIN : partition '%s' updated` appeared on the phone is not recorded here.
+- One session line differs from the lines E-17 recorded on this host ([write-host PIT read](2026-11-14-write-host-pit-read.md#heimdall-210-session-lines-on-this-host)): `Detecting device...` where E-17 has `Waiting for device...`. Every other line before the upload is the same. (E-17's command was `heimdall download-pit`, which printed `Waiting for device...`; W1's `heimdall flash` printed `Detecting device...`. The installed binary holds both strings; which command prints which line is not explained here.)
 
 ## 5. Failures, recovery and state
 
@@ -119,7 +121,7 @@ Releasing device interface...
 **State afterwards:**
 
 - The last event in the logs is a USB disconnect at 01:29:14; the session log closes at 01:29:41. The phone's current physical state (battery in or out, and what the screen shows) is **not** established here; it is to be confirmed in the read-only checks that follow.
-- `RECOVERY`: **unknown** (F-7). Each transfer reached 100 % on the host and on the phone's bar, and the end of the transfer was not confirmed; the bootloader's success line `ODIN : partition '%s' updated` never appeared. Download mode cannot read a partition back, so the content of `RECOVERY` cannot be established from this session.
+- `RECOVERY`: **unknown** (F-7). Each transfer reached 100 % on the host; the owner watched the phone's bar reach 100 % on runs 1 and 2, and whether it did on run 3 is to be confirmed (Part B, B1). The end of the transfer was not confirmed. Heimdall does not print the phone's messages and nobody transcribed the phone's screen, so whether the bootloader's success line `ODIN : partition '%s' updated` appeared is not recorded. Download mode cannot read a partition back, so the content of `RECOVERY` cannot be established from this session.
 - Android started once after the stop (01:27:38–01:27:56) and reached far enough to enumerate over USB. What it displayed is not recorded here.
 
 ## 6. Writes
@@ -131,6 +133,33 @@ Releasing device interface...
 | W1, run 3 (after the stop report) | the same | 01:28:45 | Not entered | `ERROR: RECOVERY upload failed!` |
 
 All three runs named `RECOVERY` only. **Nothing else was written by any run:** no other partition, and no other image. W2, W3 and W4 were not run. The reviewer has ruled that all three runs count against the four approved writes.
+
+## 7. Timing of W1 run 2 (added 2026-11-15)
+
+Run 2 ended within about six seconds of its start. This bears on why W1 failed, so it is recorded here with its sources and its labels.
+
+| Fact | Value | Label and source |
+| --- | --- | --- |
+| Run 2 "Resetting device" (USB reset) | 00:54:46 | Measured — host kernel log |
+| Last time the session log was written for run 2 | 00:54:52 | Recorded — the implementer's stop-time note, made while the session was stopped (the log was later appended for run 3) |
+| Elapsed, reset to end | about 6 seconds | Measured, from the two times above |
+| A 3-second sleep after the session handshake | `usleep(3000000)` | Measured — disassembly of the installed `heimdall` v2.1.0 (`/usr/bin/heimdall`), a `usleep` call site at file offset 0x988c |
+| The end-of-transfer wait is set to 120000 ms only when the device reports a non-zero packet size | a store of `0x1d4c0` (120000) guarded by a test-and-branch on the device-reported value | Measured — same binary, offsets 0x9870–0x98ab: a compare and a `test` on the reported value, then `movl $0x1d4c0,…`; when the value is zero the code branches past the store |
+| The default wait | 30000 ms (30 seconds) | Inference for this binary — from the upstream source below; the installed binary may differ, though the disassembly matches it at the points checked |
+
+Upstream source cited, with its exact address and the passage used. Repository `Benjamin-Dobell/Heimdall` (github.com/Benjamin-Dobell/Heimdall), file `heimdall/source/BridgeManager.cpp`:
+
+- line 75: `kFileTransferSequenceTimeoutDefault = 30000 // 30 seconds`
+- line 367: `fileTransferSequenceTimeout = kFileTransferSequenceTimeoutDefault;`
+- lines 523–529: `unsigned int deviceDefaultPacketSize = beginSessionResponse.GetResult();` … `Sleep(3000); // Give the user time to read the message.` … `if (deviceDefaultPacketSize != 0) … { fileTransferSequenceTimeout = 120000; // 2 minutes! … }`
+- line 1221: `success = ReceivePacket(fileTransferResponse, fileTransferSequenceTimeout);`
+- line 1227: `Interface::PrintError("Failed to confirm end of file transfer sequence!\n");`
+
+The line numbers are from the copy examined here; the one-line passages are quoted so they can be found if the numbering has drifted. These passages are the upstream project's, labelled **Inference** for the installed 2.1.0 binary, except the 3-second sleep and the conditional 120000 ms store, which the disassembly shows directly (**Measured**).
+
+**What this shows (Measured):** a run of W1 sleeps 3 seconds after the handshake, then waits for the phone to confirm the end of the transfer for at most the timeout above, retrying the read a small number of times. Six seconds is far shorter than either the 120000 ms or the 30000 ms wait, and the few short retry pauses do not fill it either.
+
+**Inference:** Heimdall did not wait out a timeout. The phone answered the end of the transfer quickly, with something Heimdall does not accept as the acknowledgement. That is consistent with the phone refusing the image; a transport fault would more likely show as a timeout or as repeated retries. This is still not proof: the phone's screen and the recovery-key check (Part B) decide.
 
 ## Not committed
 
