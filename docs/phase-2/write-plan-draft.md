@@ -120,7 +120,7 @@ W1 ran on 2026-11-14 to 15 and is now closed. What it established, each with its
 
 ## 1. What is written
 
-Only `RECOVERY` is written, with these images. The two test images are built at the commit named in the issue (E-11). Their hashes come from a clean export; `make check` checks both (test `payload-frozen` pins `payload.img`; the invalid image is reproducible byte for byte). v5 writes `payload.img` only; `payload-invalid.img` is deleted before the session (section 3).
+Only `RECOVERY` is written, with these images. The two test images are built at the commit named in the issue (E-11). Their hashes come from a clean export; `make check` checks both (test `payload-frozen` pins `payload.img`; the invalid image is reproducible byte for byte). Of the two test images, v5 writes `payload.img` only; `payload-invalid.img` is deleted before the session (section 3).
 
 | Image | Size | SHA-256 |
 | --- | --- | --- |
@@ -156,7 +156,7 @@ Read from the headers on the host ([stock images](../evidence/phase-0/2026-11-13
 | Kernel | 6,699,384 bytes at `0x80208000` | 1,636 bytes at `0x80208000` |
 | Tags, second stage, page size | `0x80200100`; none at `0x81100000`; 2,048 bytes | the same |
 
-**v5.** From the code, the bootloader verifies the last 256 bytes of a recovery image as a signature at the transfer, and it writes the image even when that verification fails (Measured from the code, [#26](https://github.com/revival-systems/revival-os/blob/d5589ffe7dd8194cc2ce2d6e49c6ac334235e647/docs/phase-2/aboot-transfer-checks.md); not observed on the phone). What the start does with an unsigned image is not established.
+**v5.** From the code, the bootloader verifies the last 256 bytes of a recovery image as a signature at the transfer, and, if the image's magic is `ANDROID!`, it writes the image even when that verification fails (Measured from the code, [#26](https://github.com/revival-systems/revival-os/blob/d5589ffe7dd8194cc2ce2d6e49c6ac334235e647/docs/phase-2/aboot-transfer-checks.md); not observed on the phone). What the start does with an unsigned image is not established.
 
 ### The writes
 
@@ -280,9 +280,11 @@ Blockers 7 to 10 are not open: 7 is decided (method A), 8 and 9 are the reviewed
 
 ```sh
 # Host only. Nothing here contacts the phone.
+unset TMPDIR              # a long TMPDIR breaks a test's socket path
 cd "$(mktemp -d)"         # a new, empty directory
 export GIT_LFS_SKIP_SMUDGE=1   # for the clone and the checkout: the firmware is not downloaded
 git clone https://github.com/revival-systems/revival-os.git && cd revival-os
+pwd                       # records where the clone is
 git checkout <commit named in the approved issue>
 git status --short        # must print nothing
 make check                # must exit 0 and print: PASS payload-frozen (payload.bin 8ee519ae…, payload.img bde09074…)
@@ -355,11 +357,11 @@ Heat, smell or swelling overrides F-1 to F-5: unplug and remove the battery at o
 
 ### The WS check
 
-Immediately after WS, with the battery just removed (D6). It shows that `RECOVERY` starts a working stock recovery after WS, and it rehearses the rescue write's result. One start only, with the recovery keys (T1 and T2 of "One trial"; no filming window and no row reading).
+Immediately after WS, with the battery just removed (D6). It shows that `RECOVERY` starts a working stock recovery after WS, and it rehearses the rescue write's result. One start with the recovery keys (T1 and T2 of "One trial"; no filming window and no row reading), repeated once only under WS-1's rule.
 
 | Step | Action | Expected | Stop if |
 | --- | --- | --- | --- |
-| WS-1 | With the cable unplugged, insert the battery and hold the recovery keys as in T2. | The stock recovery menu. | Anything other than the stock recovery menu: remove the battery, stop and report. **W2 is not attempted.** If Android's boot animation appears instead (the recovery keys were not taken): do not remove the battery; follow A1 and A2, then repeat WS-1 once. A second miss: stop and report. |
+| WS-1 | With the cable unplugged, insert the battery and hold the recovery keys as in T2. | The stock recovery menu. | Android's boot animation appears (the recovery keys were not taken): do not remove the battery; follow A1 and A2, then repeat WS-1 once. A second miss: stop and report; W2 is not attempted. Any other screen that is not the stock recovery menu: remove the battery, stop and report; **W2 is not attempted.** |
 | WS-2 | Photograph the stock recovery menu and transcribe its header, as in checklist E1. | The menu's header text, as recorded in E1. | — |
 | WS-3 | Select **reboot system now** and nothing else. Let Android reach the lock screen, then wait two minutes, touching nothing. Power off from Android's own menu. Remove the battery and wait 10 seconds. | Android reaches the lock screen; the phone powers off; the screen goes dark. | Any unexpected screen or prompt, or Android does not reach the lock screen: remove the battery, stop and report. W2 is not attempted. |
 
