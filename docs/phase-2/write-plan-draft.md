@@ -120,15 +120,15 @@ W1 ran on 2026-11-14 to 15 and is now closed. What it established, each with its
 
 ## 1. What is written
 
-Only `RECOVERY` is written, with these images. The two test images are built at the commit named in the issue (E-11). Their hashes come from a clean export; `make check` checks both (test `payload-frozen` pins `payload.img`; the invalid image is reproducible byte for byte).
+Only `RECOVERY` is written, with these images. The two test images are built at the commit named in the issue (E-11). Their hashes come from a clean export; `make check` checks both (test `payload-frozen` pins `payload.img`; the invalid image is reproducible byte for byte). v5 writes `payload.img` only; `payload-invalid.img` is deleted before the session (section 3).
 
 | Image | Size | SHA-256 |
 | --- | --- | --- |
 | `build/boot-serrano/payload.img` | 6,160 bytes | `bde09074c1e7f48ac04be318bba9905228fc26ad077e94ab9ded5dc00bb1ce02` |
-| `build/boot-serrano/payload-invalid.img` | 6,160 bytes | `34dc91c64811346a3766e71044c2260340fadec0a0ea327e4126a1ef7a584d7b` |
-| Stock `recovery.img` of the installed build `I9195XXSCQAN` / `I9195OXXCNK2` (rescue only, W4) | 8,935,696 bytes | `0e3095596253b713cf89da85a0293ad78651253c41805b90d397899dfa6b79c6` |
+| `build/boot-serrano/payload-invalid.img` (W1, closed; not written in v5) | 6,160 bytes | `34dc91c64811346a3766e71044c2260340fadec0a0ea327e4126a1ef7a584d7b` |
+| Stock `recovery.img` of the installed build `I9195XXSCQAN` / `I9195OXXCNK2` (WS, and W4 as rescue) | 8,935,696 bytes | `0e3095596253b713cf89da85a0293ad78651253c41805b90d397899dfa6b79c6` |
 
-The stock image is Recorded: [firmware evidence](../evidence/phase-0/2026-11-13-firmware-rescue.md) and its [re-verification on Ubuntu](../evidence/phase-0/2026-11-13-linux-retest.md#firmware-re-verified-on-ubuntu), where the copy inside Samsung's AP package is byte-identical to the standalone image. **W4 uses the private copy** in `~/revival-firmware/gt-i9195/I9195XXSCQAN_I9195OXXCNK2/recovery.img`, after a hash check (section 3). The Git LFS copy under `firmware/GT-I9195/` is not downloaded again for this plan.
+The stock image is Recorded: [firmware evidence](../evidence/phase-0/2026-11-13-firmware-rescue.md) and its [re-verification on Ubuntu](../evidence/phase-0/2026-11-13-linux-retest.md#firmware-re-verified-on-ubuntu), where the copy inside Samsung's AP package is byte-identical to the standalone image. **WS and W4 use the private copy** in `~/revival-firmware/gt-i9195/I9195XXSCQAN_I9195OXXCNK2/recovery.img`, after a hash check (section 3). The Git LFS copy under `firmware/GT-I9195/` is not downloaded again for this plan.
 
 **Merge state.** The payload ([PR #10](https://github.com/revival-systems/revival-os/pull/10)), the trial kit ([PR #11](https://github.com/revival-systems/revival-os/pull/11)) and the Phase 0 evidence ([PR #14](https://github.com/revival-systems/revival-os/pull/14)) are merged into `main` (reviewer decision, 2026-11-14). The two images are unchanged by those merges. Once this plan is final, the issue names the commit on `main` to build from (E-11).
 
@@ -141,7 +141,7 @@ The stock image is Recorded: [firmware evidence](../evidence/phase-0/2026-11-13-
 | Size | 20,480 sectors of 512 bytes = 10,485,760 bytes, starting at sector 241,664 | Recorded, same file. Linux agrees: `recovery` is `mmcblk0p14`, 10,240 KiB ([by-name](../evidence/phase-0/2026-11-13-linux/by-name.txt), [partitions](../evidence/phase-0/2026-11-13-linux/partitions.txt)). |
 | PIT read from the write host | PIT SHA-256 `1ec0d73501ca5b956b80b85583f9b578ea819e961e8fba3ccc1784b195f51432`, equal to the Windows read | Recorded (E-17), 2026-11-14: `RECOVERY` is identifier 14, 20,480 blocks, from block 241,664 ([write-host PIT read](../evidence/phase-2/2026-11-14-write-host-pit-read.md)). |
 
-Heimdall refuses a name that is not in the phone's PIT (Source for the original project: [`FlashAction.cpp:220-224`](https://github.com/Benjamin-Dobell/Heimdall/blob/3997d5cc607e6c603c6e7c0d07e42e9868c62af2/heimdall/source/FlashAction.cpp#L220-L224); Inference for 2.1.0). Each test image is 6,160 bytes, far below the partition size, so `--skip-size-check` is never used. Whether bytes of `RECOVERY` beyond the image's length are changed by the transfer is **Unknown**; the plan does not depend on it.
+Heimdall refuses a name that is not in the phone's PIT (Source for the original project: [`FlashAction.cpp:220-224`](https://github.com/Benjamin-Dobell/Heimdall/blob/3997d5cc607e6c603c6e7c0d07e42e9868c62af2/heimdall/source/FlashAction.cpp#L220-L224); Inference for 2.1.0). Each test image is 6,160 bytes and the stock image is 8,935,696 bytes, both below the partition size, so `--skip-size-check` is never used. Whether bytes of `RECOVERY` beyond the image's length are changed by the transfer is **Unknown**; the plan does not depend on it.
 
 ### Known differences from the stock images
 
@@ -155,6 +155,8 @@ Read from the headers on the host ([stock images](../evidence/phase-0/2026-11-13
 | Command line | `console=null androidboot.hardware=qcom user_debug=31` | empty |
 | Kernel | 6,699,384 bytes at `0x80208000` | 1,636 bytes at `0x80208000` |
 | Tags, second stage, page size | `0x80200100`; none at `0x81100000`; 2,048 bytes | the same |
+
+**v5.** From the code, the bootloader verifies the last 256 bytes of a recovery image as a signature at the transfer, and it writes the image even when that verification fails (Measured from the code, [#26](https://github.com/revival-systems/revival-os/blob/d5589ffe7dd8194cc2ce2d6e49c6ac334235e647/docs/phase-2/aboot-transfer-checks.md); not observed on the phone). What the start does with an unsigned image is not established.
 
 ### The writes
 
@@ -259,7 +261,7 @@ Blockers 7 to 10 are not open: 7 is decided (method A), 8 and 9 are the reviewed
   - After the battery exit, the screen went dark and the phone recovered (owner-confirmed).
 - [x] **E-18. Pull requests #24 and #26 are merged (R-4).** The W1 record (#24) and the bootloader study (#26) that v5 relies on are on `main`.
   Closed by: the reviewer's task R-5.
-  Evidence: the merge commits `9561db1d477c772399a6530be29135f389cdfb31` (#24) and `63d0a6a81ce74afdd14b9ab6cbf52c340e130e99` (#26) on `main`. v5 cites them by absolute GitHub URL at their head commits ("What W1 showed", sections 6, 7, 10, and Sources); both head commits are on `main`.
+  Evidence: the merge commits `9561db1d477c772399a6530be29135f389cdfb31` (#24) and `63d0a6a81ce74afdd14b9ab6cbf52c340e130e99` (#26) on `main`. v5 cites them by absolute GitHub URL at their head commits ("What W1 showed", sections 1, 4, 6 and 10, and Sources); both head commits are on `main`.
 
 ## 3. Host and tools
 
@@ -278,6 +280,7 @@ Blockers 7 to 10 are not open: 7 is decided (method A), 8 and 9 are the reviewed
 
 ```sh
 # Host only. Nothing here contacts the phone.
+cd "$(mktemp -d)"         # a new, empty directory
 export GIT_LFS_SKIP_SMUDGE=1   # for the clone and the checkout: the firmware is not downloaded
 git clone https://github.com/revival-systems/revival-os.git && cd revival-os
 git checkout <commit named in the approved issue>
@@ -289,13 +292,14 @@ find build -name 'payload-invalid.img'   # must print nothing
 ls build/boot-serrano/*.img              # must print build/boot-serrano/payload.img only
 sha256sum build/boot-serrano/payload.img
 sha256sum ~/revival-firmware/gt-i9195/I9195XXSCQAN_I9195OXXCNK2/recovery.img
+heimdall version          # must print v2.1.0
 ```
 
 - At the commit the issue names (E-11), `make check` prints the number of PASS lines the issue names for that commit, and no FAIL line.
 - The two `sha256sum` lines must equal the values of W2 and WS in section 1, compared character by character against the issue, not against this draft.
 - Nothing is rebuilt between this check and the write. If `make` is run again for any reason, the check is run again.
 
-**Stop** if the commit, the tree, any test or any hash differs, or if either `find` prints anything, or the `ls` prints anything but `build/boot-serrano/payload.img`. A different hash means a different image, which this plan does not cover.
+**Stop** if the commit, the tree, any test or any hash differs, or if either `find` prints anything, or the `ls` prints anything but `build/boot-serrano/payload.img`, or if `heimdall version` prints anything but `v2.1.0`. A different hash means a different image, which this plan does not cover.
 
 ## 4. Procedure for the owner
 
@@ -355,7 +359,7 @@ Immediately after WS, with the battery just removed (D6). It shows that `RECOVER
 
 | Step | Action | Expected | Stop if |
 | --- | --- | --- | --- |
-| WS-1 | With the cable unplugged, insert the battery and hold the recovery keys as in T2. | The stock recovery menu. | Anything other than the stock recovery menu: remove the battery, stop and report. **W2 is not attempted.** |
+| WS-1 | With the cable unplugged, insert the battery and hold the recovery keys as in T2. | The stock recovery menu. | Anything other than the stock recovery menu: remove the battery, stop and report. **W2 is not attempted.** If Android's boot animation appears instead (the recovery keys were not taken): do not remove the battery; follow A1 and A2, then repeat WS-1 once. A second miss: stop and report. |
 | WS-2 | Photograph the stock recovery menu and transcribe its header, as in checklist E1. | The menu's header text, as recorded in E1. | — |
 | WS-3 | Select **reboot system now** and nothing else. Let Android reach the lock screen, then wait two minutes, touching nothing. Power off from Android's own menu. Remove the battery and wait 10 seconds. | Android reaches the lock screen; the phone powers off; the screen goes dark. | Any unexpected screen or prompt, or Android does not reach the lock screen: remove the battery, stop and report. W2 is not attempted. |
 
@@ -662,14 +666,14 @@ Everything this plan leaves open, in one place.
 | The owner's Knox statement | Given 2026-11-14 19:33:33 CET; accepted by the reviewer; quoted in the issue | E-4 |
 | Both approvals | Open | E-5, recorded in the issue |
 | Rule 4 amendment | Made in pull request #22; in effect since 2026-11-14 | E-15 |
-| The commit on `main` to build from, and its PASS count | Open: the merge commit of that pull request | E-11, named in the issue |
+| The commit on `main` to build from, and its PASS count | Open: the merge commit of the v5 pull request | E-11, named in the issue |
 | The five phone-only questions accepted as open | Open | E-10, recorded in the issue |
 | The write host, cable and port | Recorded, 2026-11-14 | E-16 ([write-host PIT read](../evidence/phase-2/2026-11-14-write-host-pit-read.md#host-cable-and-port-e-16)) |
 | Does this phone's Android actually rewrite `RECOVERY`? | Assumed yes (E-13) | The rescue check (S4) |
-| Rescue by W4 | Untested | Only if section 9 requires it |
+| Rescue by W4 | Rehearsed by WS; W4 itself untested | Only if section 9 requires it |
 | Signing-chain verification of the stock images | Not done | Not needed for this plan; recorded as a limit |
 | Are bytes of `RECOVERY` beyond the image's length changed by the transfer? | Unknown | Not resolved; not relied on |
-| How the bootloader rejects an image, and what state that leaves | From the code: refused before the write, so `RECOVERY` is unchanged (Measured, #26). On the phone: the transfer is not acknowledged (Recorded, W1); the screen was not transcribed | "What W1 showed" |
+| How the bootloader rejects an image, and what state that leaves | From the code: a recovery image with a bad magic is refused before the write (Measured, #26), so `RECOVERY` should be unchanged by W1 (Inference). On the phone: the transfer is not acknowledged (Recorded, W1); the screen was not transcribed | "What W1 showed" |
 | Whether the bootloader checks the magic, or refuses for one of the other known differences | From the code: it checks the magic at the transfer (Measured, #26). Whether it refuses `payload.img` for another difference: W2 and its trials decide | "What W1 showed"; section 6 |
 | Whether the bootloader adds text over the picture | Unknown | The first trial |
 | What the status lines read after a write | Unknown | Section 10's photographs |
