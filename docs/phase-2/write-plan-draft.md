@@ -1,6 +1,6 @@
-# Phase 2 write plan, method A (`RECOVERY` only): v4, final text
+# Phase 2 write plan, method A (`RECOVERY` only): v5
 
-**This is the plan the write-plan issue names.** The issue is titled "Phase 2 write plan: method A, RECOVERY only (GT-I9195)", and it names this file by commit and SHA-256. The file name still says "draft" so that existing links hold.
+**This is the plan the v5 write-plan issue names.** That issue is titled "Phase 2 write plan v5: method A, RECOVERY only (GT-I9195)", and it names this file by commit and SHA-256. Issue #23 named v4. It is closed when the v5 issue is opened, and it stays as the record of v4, its approvals and W1. The file name still says "draft" so that existing links hold.
 
 - **No command that contacts the phone may be run** until the issue carries both approvals: the reviewer's and the owner's (E-5; [AGENTS.md](../../AGENTS.md#hardware-safety-contract), rule 1). Until then, the only commands allowed on the phone are the read-only ones in the [Phase 0 checklist](../phase-0/hardware-verification-checklist.md#rules-for-this-checklist) (rule 5).
 - **The host-only block of section 3 contacts nothing and may be rehearsed.**
@@ -8,11 +8,12 @@
   - The issue quotes **sections 1, 2, 9 and 10** in the same words as this file.
   - Sections 3 to 8, 11 and 12, and the rest of this file, are read from this file at the commit E-11 names.
   - Everything this plan tells the owner to read "from the issue" or compare "against the issue" is in those quoted sections: the commands and hashes (section 1), and the boxes, the commit and its `make check` count (section 2, E-11).
-  - The owner's statement (E-4) and both approvals (E-5, E-10) are in the issue only.
+  - The owner's statement (E-4) and both approvals (E-5, E-10) are in the issue only. The v5 issue quotes the owner's statement of 2026-11-14 from issue #23, with its date.
 - **History.** Written 2026-11-11 from the repository's documents and public sources, and revised the same day (v2). Revised on 2026-11-14 (v3) with the recorded Phase 0 facts and the decisions below. **No device was touched and no flash command was run to write it.**
   - v3.1, the same day, marks the reviewer's confirmed wordings as decided and adds the two-minute wait at the lock screen.
   - v3.2, the same evening, records E-16 and E-17: the read-only PIT read from the write host, which is a command the [Phase 0 checklist](../phase-0/hardware-verification-checklist.md#allowed) allows. No flash command was run.
   - v4, the same evening, is the final text. It records E-3, E-4 and the rule 4 amendment (E-15), names how E-11 is closed, sets the issue's form, and sets step D5's expected screen from E-17. No other procedure step changes.
+  - v5, 2026-11-15, after the write session that stopped at W1 (R-4). It closes W1, makes WS (a stock control write) the first write, moves the rescue check to the end, records what W1 showed and the two open questions it leaves, cancels Part B, and adds the "Next images" section. No device was touched to write it.
 
 **Phase:** 2, first bare-metal boot ([ROADMAP.md](../../ROADMAP.md#phase-2--first-bare-metal-boot)). **Method:** A, decided by the former orchestrator on 2026-11-11 ([PR #10 comment](https://github.com/revival-systems/revival-os/pull/10#issuecomment-6792632937), decision B). **Partition:** `RECOVERY`, and no other.
 
@@ -39,10 +40,10 @@ The 2026-11-11 decisions were recorded by the former orchestrator in the [PR #12
 
 | Decision | Source | Where applied |
 | --- | --- | --- |
-| Order (b): invalid image first, then the payload | 2026-11-11 decisions, item 1 | Sections 1, 4, 5 |
+| Order (b): invalid image first, then the payload (**closed by W1; v5's order is WS, then W2**) | 2026-11-11 decisions, item 1 | Sections 1, 4, 5 |
 | A silent screen stays ambiguous; two silent screens cannot establish acceptance or rejection; a running payload from the invalid image is a result, not rejection evidence | 2026-11-11 decisions, item 1 | Sections 5, 6, 7 |
 | Rule 4 needs an explicit reviewed amendment; the Knox bit may change at the transfer or at an attempted boot | 2026-11-11 decisions, item 2 | Sections 2 (E-15), 10 |
-| W3 at most once, on evidence that the payload was replaced; at most four host writes; no retry or extra write implied | 2026-11-11 decisions, item 3 | Sections 1, 4 |
+| W3 at most once, on evidence that the payload was replaced; at most four host writes (**v5: at most four more, R-4**); no retry or extra write implied | 2026-11-11 decisions, item 3 | Sections 1, 4 |
 | Eight rows may pass the initial proof-of-execution sub-milestone in 5 of 5, on stated conditions | 2026-11-11 decisions, item 4 | Section 6 |
 | Filming windows; reset and latency are observations | 2026-11-11 decisions, item 5 | Sections 4, 6, 8 |
 | Phase 1 passed within its host/QEMU scope | 2026-11-11 decisions, item 6 | Section 2 (E-2) |
@@ -50,8 +51,8 @@ The 2026-11-11 decisions were recorded by the former orchestrator in the [PR #12
 | Trials after an Android start caused by a self-reset end before the reset time seen | Reviewer decision, 2026-11-14 (p) | Section 4 |
 | Any Android start restarts the count | Reviewer decision, 2026-11-14 (q) | Section 4 |
 | Transfer-failure procedure | Reviewer decision, 2026-11-14 (r) | Section 4 |
-| Rescue check between the two images | Reviewer decision, 2026-11-14 (s) | Sections 4, 9 |
-| No rehearsal write before W1 | Reviewer decision, 2026-11-14 (t) | Sections 1, 2 (E-17) |
+| Rescue check between the two images (**replaced by R-4: moved to the end**) | Reviewer decision, 2026-11-14 (s) | Sections 4, 9 |
+| No rehearsal write before W1 (**replaced by R-4: the control write WS**) | Reviewer decision, 2026-11-14 (t) | Sections 1, 2 (E-17) |
 | Roles and proof of the owner's acceptance; E-15 stays open | Reviewer decision, 2026-11-14 (u) | Sections 2, 10 |
 | Fresh clone without LFS download; no hosted run | Reviewer decision, 2026-11-14 (v) | Sections 3, 12 |
 | PRs #10, #11 and #14 merged; E-11 names the commit on `main` once the plan is final | Reviewer decision, 2026-11-14 (w) | Sections 1, 2 (E-11) |
@@ -59,12 +60,17 @@ The 2026-11-11 decisions were recorded by the former orchestrator in the [PR #12
 | Stop rule A5: a second unplanned Android start during the payload's trials ends the series | Reviewer decision, 2026-11-14 (v3 review) | Section 4 |
 | The 30-minute bound of the transfer-failure procedure (F-5) | Reviewer decision, 2026-11-14 (v3 review) | Section 4 |
 | The 10-second key hold that defines the key-release event (T2) | Reviewer decision, 2026-11-14 (v3 review) | Section 4 |
-| Two minutes at the lock screen before powering off, so the restore can finish (S2, A1) | Reviewer decision, 2026-11-14 (v3 review) | Section 4 |
+| Two minutes at the lock screen before powering off, so the restore can finish (WS-3, S4, A1) | Reviewer decision, 2026-11-14 (v3 review) | Section 4 |
 | E-4: the owner's statement of 2026-11-14 19:33:33 CET is accepted as the owner's acceptance; it answers the three points of section 10 | Reviewer decision, 2026-11-14 (final-plan task) | Sections 2 (E-4), 10 |
 | Rule 4 is amended with the text the 2026-11-11 decisions proposed (item 2), with "reviewer" for "orchestrator", in the pull request that makes this plan final; it is effective when that pull request is merged. This replaces "E-15 stays open" of decision (u) | Reviewer decision, 2026-11-14 (final-plan task) | Sections 2 (E-15), 10 |
 | The issue quotes sections 1, 2, 9 and 10 and names this file by commit and SHA-256; the rest is read from the file at the commit E-11 names | Reviewer decision, 2026-11-14 (final-plan task) | Header, section 2 |
 | E-11 is the merge commit of that pull request on `main`, named in the issue with its `make check` count | Reviewer decision, 2026-11-14 (final-plan task) | Sections 2 (E-11), 3 |
 | Step D5 expects the Download-mode screen, as E-17 recorded | Reviewer decision, 2026-11-14 (final-plan task) | Section 4 |
+| W1 is closed; `payload-invalid.img` is not written again | Reviewer decision, 2026-11-15 (R-4) | Sections 1, 4, "What W1 showed" |
+| The control write WS (stock `recovery.img`) replaces "no rehearsal write" (decision t) | Reviewer decision, 2026-11-15 (R-4) | Sections 1, 2, 4 |
+| The rescue check moves to the end (replaces decision s) | Reviewer decision, 2026-11-15 (R-4) | Sections 4, 9 |
+| Three of v4's four writes count as used by W1's three runs; v5 asks for at most four more | Reviewer decision, 2026-11-15 (R-4) | Sections 1, 2 (E-14) |
+| The session rules of section 4 (rested owner; `set +o history` then `history -c`); Part B cancelled; the section "Next images" | Reviewer decision, 2026-11-15 (R-4) | Section 4, "Next images" |
 
 ## Two facts that change the procedure
 
@@ -80,9 +86,9 @@ The 2026-11-11 decisions were recorded by the former orchestrator in the [PR #12
 **This plan assumes that this phone rewrites `RECOVERY` with stock recovery at every Android start** (Inference from the two files and the AOSP mechanism; E-13). What follows:
 
 1. **Every Android start is treated as replacing the test image with stock recovery,** until a trial shows otherwise. The content of `RECOVERY` after an Android start is not known until it is observed.
-2. **Every trial therefore goes from a removed battery straight to the recovery keys.** Android must not start between a write and the last trial of that image, except the plan's own starts: the rescue check (S2), after the invalid image's last trial, and the reboot from the stock recovery menu in A3 that precedes W3.
+2. **Every trial therefore goes from a removed battery straight to the recovery keys.** Android must not start between a write and the last trial of that image, except the plan's own starts: the WS check and the rescue check (S4), and the reboot from the stock recovery menu in A3 that precedes W3.
 3. **If Android does start,** section 4 says what to do. Any Android start restarts the count of the payload's trials (reviewer decision, 2026-11-14).
-4. **It is the expected rescue route.** One Android start should put stock recovery back with no write from the host. The rescue check between the two images (S2) shows whether it does, before the payload is written (section 9, R3).
+4. **It is the expected rescue route.** One Android start should put stock recovery back with no write from the host. The rescue check at the end (S4) shows whether it does (section 9, R3).
 
 ### What `--no-reboot` leaves, and how to reach the recovery keys
 
@@ -100,17 +106,29 @@ What follows for the plan:
 2. **After the write, the owner waits for Heimdall to exit, waits 10 seconds, photographs the screen, then unplugs the cable and removes the battery.** The battery is never removed while Heimdall is running, and never during the transfer-failure procedure until its step F-6 allows it (section 4).
 3. **The power button is not used to leave Download mode.** The manual says it is safe, but a restart by the power button boots normally, which is what the plan avoids.
 
+## What W1 showed
+
+W1 ran on 2026-11-14 to 15 and is now closed. What it established, each with its label and source (the write session that stopped at W1, [pull request #24](https://github.com/revival-systems/revival-os/blob/908fbda1ab8d61151062b194dd73b64c5ecb7f9e/docs/evidence/phase-2/2026-11-14-write-session.md); the stock-bootloader study, [pull request #26](https://github.com/revival-systems/revival-os/blob/d5589ffe7dd8194cc2ce2d6e49c6ac334235e647/docs/phase-2/aboot-transfer-checks.md)):
+
+- **The three runs, their times and output.** The W1 command (`payload-invalid.img` to `RECOVERY`, `--no-reboot`) was run three times; each reached 100 % on the host and ended `ERROR: Failed to confirm end of file transfer sequence!` then `ERROR: RECOVERY upload failed!`. The reset steps were at 00:53:31, 00:54:46 and 01:28:45 CET. Recorded (#24).
+- **The timing finding.** Run 2 ended about six seconds after its reset, far under Heimdall's 30 s / 120 s end-of-transfer wait, so the phone answered quickly with something Heimdall does not accept as the acknowledgement. Measured (the installed binary) and Inference (the upstream default), as labelled in #24.
+- **The code refuses a bad-magic image before the write, and writes a valid-magic unsigned one.** The Odin recovery path refuses, before the write, a recovery image whose first eight bytes are not `ANDROID!` (it returns an error), and it writes an unsigned image whose magic is valid (the signature-verify failure does not block the write). Measured from the code (#26); not observed on the phone.
+- **What the phone's screen showed:** not established. No one transcribed it, and no photograph or video of the night exists (Owner-stated, #24).
+- **An Android start between runs 2 and 3**, and that the phone works normally now. Android started once after the stop report and before run 3 (Recorded, #24). The owner has started the phone since, and it works normally (Owner-stated).
+
+**The result in one line.** The transfer was not acknowledged three times (Recorded). That the phone refused the image for its magic is an Inference from the bootloader's code and the timing.
+
 ## 1. What is written
 
-Only `RECOVERY` is written, with these images. The two test images are built at the commit named in the issue (E-11). Their hashes come from a clean export; `make check` checks both (test `payload-frozen` pins `payload.img`; the invalid image is reproducible byte for byte).
+Only `RECOVERY` is written, with these images. The two test images are built at the commit named in the issue (E-11). Their hashes come from a clean export; `make check` checks both (test `payload-frozen` pins `payload.img`; the invalid image is reproducible byte for byte). Of the two test images, v5 writes `payload.img` only; `payload-invalid.img` is deleted before the session (section 3).
 
 | Image | Size | SHA-256 |
 | --- | --- | --- |
 | `build/boot-serrano/payload.img` | 6,160 bytes | `bde09074c1e7f48ac04be318bba9905228fc26ad077e94ab9ded5dc00bb1ce02` |
-| `build/boot-serrano/payload-invalid.img` | 6,160 bytes | `34dc91c64811346a3766e71044c2260340fadec0a0ea327e4126a1ef7a584d7b` |
-| Stock `recovery.img` of the installed build `I9195XXSCQAN` / `I9195OXXCNK2` (rescue only, W4) | 8,935,696 bytes | `0e3095596253b713cf89da85a0293ad78651253c41805b90d397899dfa6b79c6` |
+| `build/boot-serrano/payload-invalid.img` (W1, closed; not written in v5) | 6,160 bytes | `34dc91c64811346a3766e71044c2260340fadec0a0ea327e4126a1ef7a584d7b` |
+| Stock `recovery.img` of the installed build `I9195XXSCQAN` / `I9195OXXCNK2` (WS, and W4 as rescue) | 8,935,696 bytes | `0e3095596253b713cf89da85a0293ad78651253c41805b90d397899dfa6b79c6` |
 
-The stock image is Recorded: [firmware evidence](../evidence/phase-0/2026-11-13-firmware-rescue.md) and its [re-verification on Ubuntu](../evidence/phase-0/2026-11-13-linux-retest.md#firmware-re-verified-on-ubuntu), where the copy inside Samsung's AP package is byte-identical to the standalone image. **W4 uses the private copy** in `~/revival-firmware/gt-i9195/I9195XXSCQAN_I9195OXXCNK2/recovery.img`, after a hash check (section 3). The Git LFS copy under `firmware/GT-I9195/` is not downloaded again for this plan.
+The stock image is Recorded: [firmware evidence](../evidence/phase-0/2026-11-13-firmware-rescue.md) and its [re-verification on Ubuntu](../evidence/phase-0/2026-11-13-linux-retest.md#firmware-re-verified-on-ubuntu), where the copy inside Samsung's AP package is byte-identical to the standalone image. **WS and W4 use the private copy** in `~/revival-firmware/gt-i9195/I9195XXSCQAN_I9195OXXCNK2/recovery.img`, after a hash check (section 3). The Git LFS copy under `firmware/GT-I9195/` is not downloaded again for this plan.
 
 **Merge state.** The payload ([PR #10](https://github.com/revival-systems/revival-os/pull/10)), the trial kit ([PR #11](https://github.com/revival-systems/revival-os/pull/11)) and the Phase 0 evidence ([PR #14](https://github.com/revival-systems/revival-os/pull/14)) are merged into `main` (reviewer decision, 2026-11-14). The two images are unchanged by those merges. Once this plan is final, the issue names the commit on `main` to build from (E-11).
 
@@ -123,7 +141,7 @@ The stock image is Recorded: [firmware evidence](../evidence/phase-0/2026-11-13-
 | Size | 20,480 sectors of 512 bytes = 10,485,760 bytes, starting at sector 241,664 | Recorded, same file. Linux agrees: `recovery` is `mmcblk0p14`, 10,240 KiB ([by-name](../evidence/phase-0/2026-11-13-linux/by-name.txt), [partitions](../evidence/phase-0/2026-11-13-linux/partitions.txt)). |
 | PIT read from the write host | PIT SHA-256 `1ec0d73501ca5b956b80b85583f9b578ea819e961e8fba3ccc1784b195f51432`, equal to the Windows read | Recorded (E-17), 2026-11-14: `RECOVERY` is identifier 14, 20,480 blocks, from block 241,664 ([write-host PIT read](../evidence/phase-2/2026-11-14-write-host-pit-read.md)). |
 
-Heimdall refuses a name that is not in the phone's PIT (Source for the original project: [`FlashAction.cpp:220-224`](https://github.com/Benjamin-Dobell/Heimdall/blob/3997d5cc607e6c603c6e7c0d07e42e9868c62af2/heimdall/source/FlashAction.cpp#L220-L224); Inference for 2.1.0). Each test image is 6,160 bytes, far below the partition size, so `--skip-size-check` is never used. Whether bytes of `RECOVERY` beyond the image's length are changed by the transfer is **Unknown**; the plan does not depend on it.
+Heimdall refuses a name that is not in the phone's PIT (Source for the original project: [`FlashAction.cpp:220-224`](https://github.com/Benjamin-Dobell/Heimdall/blob/3997d5cc607e6c603c6e7c0d07e42e9868c62af2/heimdall/source/FlashAction.cpp#L220-L224); Inference for 2.1.0). Each test image is 6,160 bytes and the stock image is 8,935,696 bytes, both below the partition size, so `--skip-size-check` is never used. Whether bytes of `RECOVERY` beyond the image's length are changed by the transfer is **Unknown**; the plan does not depend on it.
 
 ### Known differences from the stock images
 
@@ -138,14 +156,17 @@ Read from the headers on the host ([stock images](../evidence/phase-0/2026-11-13
 | Kernel | 6,699,384 bytes at `0x80208000` | 1,636 bytes at `0x80208000` |
 | Tags, second stage, page size | `0x80200100`; none at `0x81100000`; 2,048 bytes | the same |
 
+**v5.** From the code, the bootloader verifies the last 256 bytes of a recovery image as a signature at the transfer, and, if the image's magic is `ANDROID!`, it writes the image even when that verification fails (Measured from the code, [#26](https://github.com/revival-systems/revival-os/blob/d5589ffe7dd8194cc2ce2d6e49c6ac334235e647/docs/phase-2/aboot-transfer-checks.md); not observed on the phone). What the start does with an unsigned image is not established.
+
 ### The writes
 
-Order (b), decided ([2026-11-11 decisions](https://github.com/revival-systems/revival-os/pull/12#issuecomment-6796999441), item 1).
+v5's order is WS, then W2 (reviewer decision, 2026-11-15, R-4). v4's order (b) ended with W1 ([2026-11-11 decisions](https://github.com/revival-systems/revival-os/pull/12#issuecomment-6796999441), item 1).
 
 | # | Image | SHA-256 | Partition | Proposed command (run from the repository root) | Why |
 | --- | --- | --- | --- | --- | --- |
-| W1 | `payload-invalid.img` | `34dc91c6…4d7b` (full value above) | `RECOVERY` | `heimdall flash --RECOVERY build/boot-serrano/payload-invalid.img --no-reboot` | ROADMAP negative test: a deliberately invalid image shows how the bootloader rejects images (section 7). |
-| W2 | `payload.img` | `bde09074…ce02` (full value above) | `RECOVERY` | `heimdall flash --RECOVERY build/boot-serrano/payload.img --no-reboot` | The proof of execution: five trials of the same image (section 6). Written only after the rescue check (S2). |
+| W1 | `payload-invalid.img` | `34dc91c6…4d7b` (full value above) | `RECOVERY` | — (not run again) | **Closed (R-4).** Run three times on 2026-11-14/15 and not repeated (see "What W1 showed"); `payload-invalid.img` is not written again under this plan. |
+| WS | Stock `recovery.img` | `0e309559…79c6` (full value above) | `RECOVERY` | `heimdall flash --RECOVERY ~/revival-firmware/gt-i9195/I9195XXSCQAN_I9195OXXCNK2/recovery.img --no-reboot` | **New, the first write of v5 (R-4): the stock control write.** It shows that this host, cable, port and Heimdall complete an upload to `RECOVERY` that the phone acknowledges, and it rehearses the rescue write (W4's command and image). Its reasons and limits are in the rules below; its check is in section 4. |
+| W2 | `payload.img` | `bde09074…ce02` (full value above) | `RECOVERY` | `heimdall flash --RECOVERY build/boot-serrano/payload.img --no-reboot` | The proof of execution: five trials of the same image (section 6). Written only after WS and the WS check. |
 | W3 | `payload.img` again | as W2 | `RECOVERY` | as W2 | **Conditional, at most once.** Only on evidence that the payload was **replaced**: after an Android start, the check trial shows the stock recovery menu (section 4, A3). Android merely starting is not enough. |
 | W4 | Stock `recovery.img` | `0e309559…79c6` (full value above) | `RECOVERY` | `heimdall flash --RECOVERY ~/revival-firmware/gt-i9195/I9195XXSCQAN_I9195OXXCNK2/recovery.img --no-reboot` | **Conditional, rescue only, at most once.** Only if required for recovery (section 9). Not a routine step. |
 
@@ -154,9 +175,9 @@ Rules for every row:
 - One partition argument per command, and no other option: no `--repartition`, no `--pit`, no `--skip-size-check`, no `--tflash`, no partition identifier in place of the name.
 - `--resume` is added only if an earlier Heimdall command in the same Download-mode session used `--no-reboot`. The procedure in section 4 has no such command before a write, so no write uses it.
 - A write that fails or is interrupted is **not repeated** under this plan. Follow the transfer-failure procedure (section 4) and report (rule 8).
-- **No rehearsal write before W1** (reviewer decision, 2026-11-14). The PIT read from the write host (E-17) already exercises the Heimdall session and the `--no-reboot` exit without writing, and writing the same stock bytes back could not show that they landed.
+- **WS, the stock control write, is the first write** (reviewer decision, 2026-11-15, R-4; it replaces v4's "no rehearsal write before W1"). Its purpose and its limits: it shows that this host, the cable, the USB port and Heimdall v2.1.0 complete an upload to `RECOVERY` that the phone acknowledges (`RECOVERY upload successful`, exit 0) — the thing W1 never did; it rehearses the rescue write (W4's command and image), which has never been run; and it makes W2's result readable, by proving the write path works before a non-Samsung image is sent. It **cannot** show that the bytes landed, because they equal what `RECOVERY` should already hold and Download mode cannot read a partition back; and it proves nothing about Revival OS.
 
-**Maximum number of host writes this plan asks approval for: four**, all to `RECOVERY`: W1 and W2 planned, W3 and W4 conditional ([2026-11-11 decisions](https://github.com/revival-systems/revival-os/pull/12#issuecomment-6796999441), item 3). No retry or extra write is implied. One write more than that, or a write of anything else, needs a new approval.
+**Maximum number of host writes this plan now asks approval for: at most four more**, all to `RECOVERY` (reviewer decision, 2026-11-15, R-4): WS; W2; W3 only on the evidence of A3 and A4; W4 only under section 9. Three of v4's four writes are already used by W1's three runs. A failed write is never repeated. One write more than that, or a write of anything else, needs a new approval.
 
 **Outside this plan:** `BOOT` (a normal power-on increment needs its own separately approved plan), `system`, `userdata`, `cache` and every other partition. **Never written, under any plan** (rule 2): the bootloader chain (`sbl1`, `sbl2`, `sbl3`, `aboot`, `rpm`, `tz` and any other boot-firmware partition), `efs`, `persist` and `modem` ([2026-11-11 decisions](https://github.com/revival-systems/revival-os/pull/12#issuecomment-6796999441), v2 points).
 
@@ -170,16 +191,16 @@ Every box is ticked in the issue, with its evidence, before the first write. A b
   Evidence: [Phase 0 addendum, decision](../evidence/phase-0/2026-11-13-linux-retest.md#decision): PASS, owner-directed, 2026-11-13, merged in PR #14. Images: [firmware evidence](../evidence/phase-0/2026-11-13-firmware-rescue.md) and [re-verification](../evidence/phase-0/2026-11-13-linux-retest.md#firmware-re-verified-on-ubuntu). Download mode: F1 and F6 3 of 3 (owner-confirmed), F4 `Device detected` on this host (measured) ([checklist results](../evidence/phase-0/2026-11-13-linux-retest.md#checklist-results)). **Rescue execution remains untested.**
 - [x] **E-2. Phase 1 has passed, within its host/QEMU scope.**
   Evidence: the former orchestrator's acceptance ([2026-11-11 decisions](https://github.com/revival-systems/revival-os/pull/12#issuecomment-6796999441), item 6), copied here: Phase 1 PASSED within its host/QEMU scope, on the merged Rust foundation PR #5 at `3f1130a1a8ecc6796440402be572855a4990de97`, its [successful manual CI run](https://github.com/revival-systems/revival-os/actions/runs/42757111224) (the former orchestrator verified that its `make check` step succeeded and that its exact head is an ancestor of the reviewed trial-kit head), and the working notes in [`docs/phase-1/rust-foundation.md`](../phase-1/rust-foundation.md). The full local suite passed 61 PASS / 0 FAIL on the trial-kit tree, and the heartbeat ran 20 of 20: every run exited 0 and contained both the heartbeat and checksum `0x22becba4`; heartbeat SHA-256 `7ac79ff8bde24a58f1afb0d0808eca0036d61f53dd4756daec67b3852f5d946d`. Recorded in the [Phase 1 gate review](../evidence/phase-1/2026-11-13-gate-review.md#gate-by-gate-result). No new hosted CI run was started for it. **It is not Phase 0 or Samsung evidence.** The issue adds the final source revision (E-11).
-- [x] **E-3. A write-plan issue names the method, partition, image hash and recovery steps.**
-  Closed by: the implementer, who opened it on the reviewer's task of 2026-11-14 (evening).
-  Evidence: the issue titled "Phase 2 write plan: method A, RECOVERY only (GT-I9195)". It quotes sections 1, 2, 9 and 10 of this file and names the file by commit and SHA-256. Its first line says it is not approved until it carries both approvals (E-5).
+- [ ] **E-3. A write-plan issue names the method, partition, image hash and recovery steps.** **Open again for v5 (R-6):** the v5 issue is a new issue.
+  Closed by: the implementer, who opens it on the reviewer's task after the v5 pull request is merged.
+  Evidence: the issue titled "Phase 2 write plan v5: method A, RECOVERY only (GT-I9195)". It quotes sections 1, 2, 9 and 10 of this file and names the file by commit and SHA-256. Its first line says it is not approved until it carries both approvals (E-5). Issue #23 was v4's.
 - [x] **E-4. The owner has explicitly accepted that flashing a non-Samsung image is reported to trip the irreversible Knox warranty bit.**
   Closed by: the owner.
   Evidence: **the owner's own statement, in the owner's words, quoted in the issue with its date** (section 10). Every agent posts through the owner's GitHub account, so a comment alone is not proof of who wrote it (reviewer decision, 2026-11-14).
   - The owner gave it on 2026-11-14 at 19:33:33 CET, by typing it into the implementer's session on the write host.
   - The reviewer accepted it the same day as the owner's acceptance.
   - It is quoted in the issue with its date. The statement itself stays out of this file.
-- [ ] **E-5. The reviewer has approved the plan, and the owner has approved the finished plan.**
+- [ ] **E-5. The reviewer has approved the plan, and the owner has approved the finished plan.** **Open again for v5 (R-4):** v4's approvals do not carry to v5; v5 needs its own reviewer and owner approval.
   Closed by: the reviewer, then the owner.
   Evidence: both approvals, recorded in the issue after E-4.
 
@@ -197,7 +218,7 @@ The numbers are those of the research's [list](boot-payload-research.md#blockers
 - [x] **E-9 (blocker 5). Verified stock `boot` and `recovery` images for the installed build are held in a private copy outside the repository (G1–G4).** By the owner's exception they are also in Git LFS ([AGENTS.md](../../AGENTS.md#hardware-safety-contract), rule 7).
   Evidence: `boot.img`, 7,754,000 bytes, SHA-256 `6918d25bfa63bd977279c3b064b74a5905f35a3d633173019f063c37e028cfe0`, and `recovery.img`, 8,935,696 bytes, SHA-256 `0e3095596253b713cf89da85a0293ad78651253c41805b90d397899dfa6b79c6`, checked again on this host from the private copy ([re-verification](../evidence/phase-0/2026-11-13-linux-retest.md#firmware-re-verified-on-ubuntu)). Signing-chain verification was not done. **Rescue execution (W4) remains untested.**
 - [x] **Blocker 6. The owner's Knox acceptance.** The same condition as E-4.
-- [ ] **E-10 (blocker 11). The five phone-only questions are accepted as open, with the expected observation and the recovery action for each outcome.**
+- [ ] **E-10 (blocker 11). The five phone-only questions are accepted as open, with the expected observation and the recovery action for each outcome.** **Open again for v5 (R-4).**
   Closed by: the reviewer, then the owner.
   Evidence: their approval of sections 6, 7, 8 and 9 of this plan at the commit E-11 names, recorded in the issue.
 - [ ] **Blocker 12. The approved write-plan issue.** The same condition as E-3 and E-5.
@@ -206,17 +227,18 @@ Blockers 7 to 10 are not open: 7 is decided (method A), 8 and 9 are the reviewed
 
 ### Conditions this draft adds
 
-- [ ] **E-11. The issue names the commit on `main` to build from, and the number of PASS lines `make check` prints on it.** PRs #10, #11 and #14 are merged.
+- [ ] **E-11. The issue names the commit on `main` to build from, and the number of PASS lines `make check` prints on it.** PRs #10, #11 and #14 are merged. **Open again for v5 (R-4):** v5's commit is the merge commit of the v5 pull request, and #24 and #26 are merged too (E-18).
   Closed by: the reviewer's next task, which merges the pull request that makes this plan final. The commit is that pull request's merge commit on `main`.
   Evidence: the commit SHA and the PASS count, named in the issue. `make check` on that commit prints that many PASS lines, no FAIL line, and `PASS payload-frozen` with the hashes in section 1.
 - [x] **E-12. The recovery keys reach stock recovery 3 of 3 (E1), and the battery exit from Download mode works 3 of 3 (F6).**
   Evidence: owner-confirmed 3 of 3 each, with the stock recovery menu photographed ([stock recovery](../evidence/phase-0/2026-11-13-linux-retest.md#stock-recovery-e1), [checklist results](../evidence/phase-0/2026-11-13-linux-retest.md#checklist-results)).
 - [x] **E-13. The recovery-restore check has been run and recorded.**
   Evidence: both files present ([recovery-restore check](../evidence/phase-0/2026-11-13-linux-retest.md#recovery-restore-check-write-plan-e-13)). The plan is written for a phone that rewrites `RECOVERY` at every Android start.
-- [x] **E-14. The order of the two images and the maximum number of writes are decided.**
-  Evidence: order (b), invalid image first; at most four host writes ([2026-11-11 decisions](https://github.com/revival-systems/revival-os/pull/12#issuecomment-6796999441), items 1 and 3).
-- [ ] **E-15. Rule 4 is amended by a reviewed change.**
-  Closed by: the pull request that makes this plan final. It amends [AGENTS.md](../../AGENTS.md#hardware-safety-contract) rule 4 **after** the owner's statement for E-4, and the amendment is **effective when the reviewer's next task merges it**. Until then, rule 4's former wording binds ([2026-11-11 decisions](https://github.com/revival-systems/revival-os/pull/12#issuecomment-6796999441), item 2; reviewer decisions, 2026-11-14). Section 10 quotes the amended rule.
+- [x] **E-14. The order of the writes and the maximum number of writes are decided.**
+  Evidence (v5, R-4): the order is WS (the stock control write), then W2 (`payload.img`); W1 is closed and `payload-invalid.img` is not written again. At most four more host writes, all to `RECOVERY` (WS, W2, W3, W4); three of v4's four are already used by W1's three runs ([2026-11-11 decisions](https://github.com/revival-systems/revival-os/pull/12#issuecomment-6796999441), items 1 and 3; reviewer decision, 2026-11-15).
+- [x] **E-15. Rule 4 is amended by a reviewed change.**
+  Closed by: pull request #22, which made v4 final.
+  Evidence: commit `0b3eaf7`, on `main` since the merge commit `301a9574d509e104de7dcda4bdf22e3fcaecafc5`; rule 4 of AGENTS.md on `main` reads as section 10 quotes it.
 - [x] **E-16. The write host is the Ubuntu development host used for the 2026-11-13 Phase 0 re-test, with the cable and USB port used for E-17, and `heimdall version` prints `v2.1.0`.** Whether Heimdall needs `sudo` for USB access is recorded in E-17; the writes use the same form.
   Closed by: the owner.
   Evidence: [write-host PIT read](../evidence/phase-2/2026-11-14-write-host-pit-read.md#host-cable-and-port-e-16), 2026-11-14. The host is the one of the 2026-11-13 re-test. The cable is the same as on 2026-11-13, in the left front USB port (owner-confirmed). `heimdall version` prints `v2.1.0`, and `make doctor` exits 0 (measured). Heimdall needs no `sudo`, so the writes run without it.
@@ -237,6 +259,9 @@ Blockers 7 to 10 are not open: 7 is decided (method A), 8 and 9 are the reviewed
   - Heimdall's session lines are recorded there for D4.
   - The phone stayed on the Download-mode screen, and the photograph was taken (owner-confirmed).
   - After the battery exit, the screen went dark and the phone recovered (owner-confirmed).
+- [x] **E-18. Pull requests #24 and #26 are merged (R-4).** The W1 record (#24) and the bootloader study (#26) that v5 relies on are on `main`.
+  Closed by: the reviewer's task R-5.
+  Evidence: the merge commits `9561db1d477c772399a6530be29135f389cdfb31` (#24) and `63d0a6a81ce74afdd14b9ab6cbf52c340e130e99` (#26) on `main`. v5 cites them by absolute GitHub URL at their head commits ("What W1 showed", sections 1, 4, 6 and 10, and Sources); both head commits are on `main`.
 
 ## 3. Host and tools
 
@@ -245,7 +270,7 @@ Blockers 7 to 10 are not open: 7 is decided (method A), 8 and 9 are the reviewed
 | Host | The Ubuntu development machine used for the 2026-11-13 Phase 0 re-test ([DEVELOPMENT.md](../DEVELOPMENT.md#one-time-setup)). No other computer, no virtual machine, no USB hub. |
 | Heimdall | `v2.1.0` as printed by `heimdall version`: Ubuntu package `heimdall-flash` 2.1.0-1build1. A different version stops the plan until the issue is updated. |
 | Other flashing tools | None. No Odin, no fastboot, no lk2nd. |
-| Repository | A fresh clone of the commit named in the issue (E-11), made in a shell with `GIT_LFS_SKIP_SMUDGE=1` exported, so that neither the clone nor the checkout downloads the firmware again, with nothing else in it (reviewer decision, 2026-11-14). |
+| Repository | A fresh clone of the commit named in the issue (E-11), made in a shell with `GIT_LFS_SKIP_SMUDGE=1` exported, so that neither the clone nor the checkout downloads the firmware again, with nothing else in it (reviewer decision, 2026-11-14). The clone is made in a new, empty directory, and every write command is run from that clone's root. |
 | Stock image | The private copy named in section 1. |
 | Row decoder | [tools/read_rows.py](../../tools/read_rows.py) at that commit ([Trial kit](boot-payload-research.md#row-reading-tool)). |
 | Camera | A second device that records video with sound and takes sharp still photographs. Its clock is set to the host's. |
@@ -255,25 +280,32 @@ Blockers 7 to 10 are not open: 7 is decided (method A), 8 and 9 are the reviewed
 
 ```sh
 # Host only. Nothing here contacts the phone.
+unset TMPDIR              # a long TMPDIR breaks a test's socket path
+cd "$(mktemp -d)"         # a new, empty directory
 export GIT_LFS_SKIP_SMUDGE=1   # for the clone and the checkout: the firmware is not downloaded
 git clone https://github.com/revival-systems/revival-os.git && cd revival-os
+pwd                       # records where the clone is
 git checkout <commit named in the approved issue>
 git status --short        # must print nothing
 make check                # must exit 0 and print: PASS payload-frozen (payload.bin 8ee519ae…, payload.img bde09074…)
-make payload-invalid      # prints the line that starts INVALID-MAGIC-NEGATIVE-TEST
-sha256sum build/boot-serrano/payload.img build/boot-serrano/payload-invalid.img
+echo "exit=$?"            # must print exit=0
+find build -name 'payload-invalid.img' -delete
+find build -name 'payload-invalid.img'   # must print nothing
+ls build/boot-serrano/*.img              # must print build/boot-serrano/payload.img only
+sha256sum build/boot-serrano/payload.img
 sha256sum ~/revival-firmware/gt-i9195/I9195XXSCQAN_I9195OXXCNK2/recovery.img
+heimdall version          # must print v2.1.0
 ```
 
 - At the commit the issue names (E-11), `make check` prints the number of PASS lines the issue names for that commit, and no FAIL line.
-- The three `sha256sum` lines must equal the three values in section 1, compared character by character against the issue, not against this draft.
+- The two `sha256sum` lines must equal the values of W2 and WS in section 1, compared character by character against the issue, not against this draft.
 - Nothing is rebuilt between this check and the write. If `make` is run again for any reason, the check is run again.
 
-**Stop** if the commit, the tree, any test or any hash differs. A different hash means a different image, which this plan does not cover.
+**Stop** if the commit, the tree, any test or any hash differs, or if either `find` prints anything, or the `ls` prints anything but `build/boot-serrano/payload.img`, or if `heimdall version` prints anything but `v2.1.0`. A different hash means a different image, which this plan does not cover.
 
 ## 4. Procedure for the owner
 
-The owner performs every physical step (rule 6). An agent may prepare the commands and read the results; it does not run a write. **Stop** means: do nothing further to the phone except what the step says, remove the battery if the step says so, and report in the issue (rule 8). A stopped step is not retried until the owner and the reviewer have answered.
+The owner performs every physical step (rule 6). An agent may prepare the commands and read the results; it does not run a write. The owner enters every command that contacts the phone (`lsusb`, `heimdall detect` and the writes) in the terminal that runs the session log of section 11. No agent tool runs them, so no tool timeout can end a transfer. **Stop** means: do nothing further to the phone except what the step says, remove the battery if the step says so, and report in the issue (rule 8). A stopped step is not retried until the owner and the reviewer have answered.
 
 **Precedence.** The safety stops (heat, smell, swelling, an unexpected screen or prompt) and the unexpected-outcome stops come first. They override every filming time and every count below.
 
@@ -283,24 +315,26 @@ Before the phone is touched.
 
 | Step | Action | Stop if |
 | --- | --- | --- |
+| P0 | Confirm the owner has at least two free hours and is rested. | The owner is tired or short of time: the session waits. |
 | P1 | Confirm every box in section 2 is ticked in the issue, and the issue carries the owner's E-4 statement and both approvals (E-5). | Any box is open. |
 | P2 | Inspect and charge the battery as in checklist B2 and B3: not swollen, at least 60 %. Use the cable and USB port of E-17. | The battery is swollen, hot or below 60 %. |
 | P3 | Create the Phase 2 evidence directory and start the session log (section 11). Record the date, the time and who performs the steps. | — |
 | P4 | Run the hash check in section 3. Save its output. | Section 3's stop conditions. |
 | P5 | Check that the camera works and that its clock matches the host's. | — |
+| P6 | Before the first write (WS), run `set +o history` and then `history -c` in the shell that `script` started (P3), which is the session terminal, so that no write command can be recalled with the arrow keys afterwards. (Checked on the host in a throwaway shell: with history turned off first, the shell's exit does not write the cleared list back, so the history file is left unchanged — recorded in the v5 pull request.) | — |
 
 ### Writing an image
 
-For W1 and W2, and for W3 or W4 if their condition applies.
+For WS and W2, and for W3 or W4 if their condition applies.
 
 | Step | Action | Expected | Stop if |
 | --- | --- | --- | --- |
-| D0 | Start the video recording if it is not running, with the phone's screen in frame. Say the date, the time, the write number (W1–W4), the image name and the first eight characters of its hash. Keep recording until D6. | — | — |
+| D0 | Start the video recording if it is not running, with the phone's screen in frame. Say the date, the time, the write number (WS, W2, W3 or W4), the image name and the first eight characters of its hash. Keep recording until D6. | — | — |
 | D1 | Power the phone off. Hold Volume Down + Home + Power until the warning screen appears, then release. Press Volume Up to continue. | The warning screen, then the download screen. | Any other screen appears, or the warning does not appear in two attempts. |
-| D2 | Photograph the status lines at the top left and transcribe them. Before W1 this is the "before" photograph (section 10). | Before W1: exactly the lines recorded in F2 (section 10). Before a later write: record what is shown. | Before W1, a line differs from F2. At any write, a reactivation-lock line appears that reads on. |
+| D2 | Photograph the status lines at the top left and transcribe them. Before WS this is the "before" photograph (section 10), and the test of the study's claim that W1 changed nothing on the phone. | Before WS: exactly the lines recorded in F2 (section 10). Before a later write: record what is shown. | Before WS, a line differs from F2. At any write, a reactivation-lock line appears that reads on. |
 | D3 | Connect the cable. Run `lsusb \| grep -i 04e8`, then `heimdall detect`. | `04e8:685d` and `Device detected`, as recorded on this host ([output](../evidence/phase-0/2026-11-13-linux/download-mode-usb-detect.txt)). | No device, a different ID, or any error. |
-| D4 | Read the proposed command for this write aloud from the **issue**, compare the file name and the partition name with section 1, then run it. Do not touch the phone, the cable or the battery while it runs. | The session lines recorded by E-17 on this host, including any `WARNING` lines seen there; then the upload messages for this one partition, `Uploading RECOVERY` and `RECOVERY upload successful`; then `Ending session...`, with no `Rebooting device...` line after it. Save the complete output. | Any line starts `ERROR`; Heimdall asks any question or names any other partition; it exits with a non-zero status or without the line `RECOVERY upload successful`; or it is still running once its output has stopped (a 6,160-byte write normally takes seconds). In each case **do not press Ctrl-C and do not touch the phone: follow the transfer-failure procedure below**, which waits up to 10 minutes from the command's start. Never repeat the command. |
-| D5 | Wait until the shell prompt has returned. Wait 10 more seconds without touching the phone or the cable, then photograph the phone's screen. | The phone stays on the Download-mode screen, as E-17 recorded after `--no-reboot` on this host ([write-host PIT read](../evidence/phase-2/2026-11-14-write-host-pit-read.md#steps-e-17)). | The phone restarts by itself. If Android then appears: "If Android starts", A1–A2, then stop and report. Run no trial and no S2 until the owner and the reviewer have answered. |
+| D4 | Read the proposed command for this write aloud from the **issue** and compare the file name and partition with section 1. Enter `date +%T` on the line directly before the write command, and `echo "exit=$? $(date +%T)"` on the line directly after it; then touch nothing — not the phone, the cable or the battery — until the implementer has read the output. | The session preamble as W1's record prints it on this host ([#24](https://github.com/revival-systems/revival-os/blob/908fbda1ab8d61151062b194dd73b64c5ecb7f9e/docs/evidence/phase-2/2026-11-14-write-session.md)): it begins `Detecting device...` (where E-17 had `Waiting for device...`), then the session lines and any `WARNING` seen there, then `Uploading RECOVERY`. A **successful** write then prints `RECOVERY upload successful` and `Ending session...`, with no `Rebooting device...` after it — W1 instead ended `ERROR: Failed to confirm end of file transfer sequence!`. For **WS** the upload is far larger than W1's 6,160 bytes (the stock image is 8,935,696 bytes), so its duration is **Unknown**; F-1's ten-minute bound stands. Save the complete output and the two `date` lines. | Any line starts `ERROR`; Heimdall asks a question or names another partition; it exits non-zero or without `RECOVERY upload successful`; or it is still running once its output has stopped. In each case **do not press Ctrl-C and do not touch the phone: follow the transfer-failure procedure below**, which waits up to 10 minutes from the command's start. Never repeat the command. |
+| D5 | Wait until the shell prompt has returned. Wait 10 more seconds without touching the phone or the cable, then photograph the phone's screen. The owner also reads out any text that appeared on the phone's screen during or after the transfer, with its colour; the implementer writes it down at once. | The phone stays on the Download-mode screen, as E-17 recorded after `--no-reboot` on this host ([write-host PIT read](../evidence/phase-2/2026-11-14-write-host-pit-read.md#steps-e-17)). Any on-screen text (for example a `SECURE :` line or a `Set Warranty Bit` line) is transcribed exactly, with its colour (section 6). | The phone restarts by itself. If Android then appears: "If Android starts", A1–A2, then stop and report. Run no trial and no further write until the owner and the reviewer have answered. |
 | D6 | Only after the photograph: unplug the cable, remove the battery and wait 10 seconds. | The screen goes dark. | — |
 
 The upload and end-of-session messages named in D4 are the original project's (Source: [`FlashAction.cpp:255-260`](https://github.com/Benjamin-Dobell/Heimdall/blob/3997d5cc607e6c603c6e7c0d07e42e9868c62af2/heimdall/source/FlashAction.cpp#L255-L260), `BridgeManager.cpp:560` and `:586`); E-17 recorded the installed 2.1.0's session lines on this host, with no `WARNING` line ([write-host PIT read](../evidence/phase-2/2026-11-14-write-host-pit-read.md#heimdall-210-session-lines-on-this-host)). The upload lines are not part of a PIT read, so for 2.1.0 their wording stays an Inference. A line that is none of the expected ones and does not start `ERROR` is recorded and reported; the write is not repeated because of it.
@@ -321,9 +355,21 @@ Reviewer decision, 2026-11-14. A timeout or Ctrl-C on the host does not show tha
 
 Heat, smell or swelling overrides F-1 to F-5: unplug and remove the battery at once, and record that it was done during a possible transfer.
 
+### The WS check
+
+Immediately after WS, with the battery just removed (D6). It shows that `RECOVERY` starts a working stock recovery after WS, and it rehearses the rescue write's result. One start with the recovery keys (T1 and T2 of "One trial"; no filming window and no row reading), repeated once only under WS-1's rule.
+
+| Step | Action | Expected | Stop if |
+| --- | --- | --- | --- |
+| WS-1 | With the cable unplugged, insert the battery and hold the recovery keys as in T2. | The stock recovery menu. | Android's boot animation appears (the recovery keys were not taken): do not remove the battery; follow A1 and A2, then repeat WS-1 once. A second miss: stop and report; W2 is not attempted. Any other screen that is not the stock recovery menu: remove the battery, stop and report; **W2 is not attempted.** |
+| WS-2 | Photograph the stock recovery menu and transcribe its header, as in checklist E1. | The menu's header text, as recorded in E1. | — |
+| WS-3 | Select **reboot system now** and nothing else. Let Android reach the lock screen, then wait two minutes, touching nothing. Power off from Android's own menu. Remove the battery and wait 10 seconds. | Android reaches the lock screen; the phone powers off; the screen goes dark. | Any unexpected screen or prompt, or Android does not reach the lock screen: remove the battery, stop and report. W2 is not attempted. |
+
+**If WS did not end with `RECOVERY upload successful` and exit status 0,** the WS check is not run: follow the transfer-failure F steps if the write is still open, then stop. **W2 is not attempted.**
+
 ### One trial
 
-Repeated; the steps are the same for both images.
+Repeated; the steps are the same for every image.
 
 | Step | Action | Expected | Stop if |
 | --- | --- | --- | --- |
@@ -332,7 +378,7 @@ Repeated; the steps are the same for both images.
 | T3 | Keep filming without touching the phone, for the trial's window ("How long to film"). | A picture that does not change, or one of the other outcomes in sections 6 and 7. | The phone becomes hot, or smells: remove the battery at once. |
 | T4 | While filming continues, take a sharp still photograph of the whole screen, square on, with no reflection across the rows. | Every cell of every row is countable in the photograph. | — |
 | T5 | End the trial at the end of its window: remove the battery. Say the time. Wait 10 seconds. Stop the recording. | The screen goes dark. | The screen stays lit with the battery out. |
-| T6 | Type the rows from the photograph into `tools/read_rows.py` with the fill colour seen, compare its echo of the cells with the photograph, and save its output and its PNG. A screen that is not a fill with eight or nine rows is described in words and not typed. | The record's first line reads `Checksum row OK`. | It reads `ROWS MISREAD`: read the photograph again; do not go on to the next trial until the rows are read or declared unreadable. |
+| T6 | Type the rows from the photograph into `tools/read_rows.py` with the fill colour seen, compare its echo of the cells with the photograph, and save its output and its PNG. `--png` is set to a file in `$EV2`, so that nothing is written under `build/` after the hash check. A screen that is not a fill with eight or nine rows is described in words and not typed. | The record's first line reads `Checksum row OK`. | It reads `ROWS MISREAD`: read the photograph again; do not go on to the next trial until the rows are read or declared unreadable. |
 | T7 | Fill in the trial's line of the evidence table (section 11). | — | The outcome is not in section 6 or 7. |
 
 ### How long to film
@@ -352,34 +398,38 @@ Rules for every window:
 - **The first self-reset:** keep filming and touch no key. What the phone starts next is part of the result (section 6).
 - **Reset loop** (reviewer decision, 2026-11-14): a second self-reset in one window ends the trial and the series. If the phone resets by itself a second time within one window, remove the battery at once (unless Android's boot animation is showing, below), record a reset loop with each reset's time, and stop the series after this trial.
 - **Android ends the window.** If Android's boot animation appears at any point in a window, after a reset or otherwise, the window and the reset-loop rule no longer apply. Do not remove the battery: follow "If Android starts" from A1. A second reset that started Android is recorded as a reset loop after A2, and it too ends the series.
-- **The exception** replaces the formula only for the image whose self-reset started Android, including after W3 for `payload.img`. A reset seen with `payload-invalid.img` does not shorten any `payload.img` window. The reset time and what started next are recorded from the trial that showed them; they are not measured again. If the reset comes too soon to photograph the screen and remove the battery, stop and report.
+- **The exception** replaces the formula only for the image whose self-reset started Android, including after W3 for `payload.img`. The reset time and what started next are recorded from the trial that showed them; they are not measured again. If the reset comes too soon to photograph the screen and remove the battery, stop and report.
 - **Observations only.** A reset and its latency are recorded as observations. Timing alone does not prove that a watchdog caused a reset, and no reset in ten minutes does not prove that the watchdog is off. The reference timeouts in the research, 0.39 and 48 seconds ([section 4](boot-payload-research.md#4-watchdog)), are not known to apply.
 
 ### The series
 
+v5's order: WS and its check; then W2 and its five trials; then the Download-mode check; then the rescue check last, so that the plan ends with the stock recovery menu shown. (v4's S1, the invalid-image trials, is removed: W1 is closed.)
+
 | Step | Action | Stop if |
 | --- | --- | --- |
-| S1 | **W1, then `payload-invalid.img`:** up to 3 trials. One trial is enough if it ends in Android starting, because `RECOVERY` is then assumed rewritten with stock recovery (E-13), which S2 checks. | The trials' results differ from each other. |
-| S2 | **Rescue check** (reviewer decision, 2026-11-14), required before W2. Insert the battery and power on normally. Let Android start once and reach the lock screen, accepting no prompt; it should rewrite `RECOVERY`. Once the lock screen shows, wait two minutes, touching nothing, so that the restore has time to finish (reviewer decision, 2026-11-14). Then power off from Android's menu, remove the battery and wait 10 seconds. With the camera recording, insert the battery and hold the recovery keys as in T2. The stock recovery menu proves the restore route with no host write: photograph it, select **reboot system now** and nothing else, let Android start, and power off from its menu. Only then go on to W2. | The stock recovery menu does not appear. Stop and report. |
-| S3 | **W2, then `payload.img`:** 5 trials, each started from a removed battery (T1–T7), with no Android start and no Download-mode entry between them. The pass criterion is in section 6. | Two trials differ: record both, stop, report. A failed trial is recorded, not repeated or replaced. |
-| S4 | After the last trial: enter Download mode (D1), photograph and transcribe the status lines (D2), run `heimdall detect` (D3), and leave by removing the battery (D6). | Download mode cannot be reached: section 9. |
-| S5 | Write nothing more. `RECOVERY` is left holding `payload.img`; a stock image is not restored unless section 9 requires it. | — |
+| S1 | **WS, the stock control write, then the WS check.** Write WS (D0–D6), then run the WS check above. Only when it ends with the stock recovery menu shown and the phone powered off does the plan go on to W2. | WS does not end `RECOVERY upload successful` with exit 0, or the WS check does not show the stock recovery menu: stop and report. W2 is not attempted. |
+| S2 | **W2, then `payload.img`:** 5 trials, each started from a removed battery (T1–T7), with no Android start and no Download-mode entry between them. The pass criterion is in section 6. | **W2 ends as W1 did** (any `ERROR`, or no `RECOVERY upload successful`): follow the transfer-failure F steps, then stop; `payload.img` is not sent again under this plan. Two trials differ: record both, stop, report. A failed trial is recorded, not repeated or replaced. |
+| S3 | **Download-mode check.** After the last trial: enter Download mode (D1), photograph and transcribe the status lines (D2), run `heimdall detect` (D3), and leave by removing the battery (D6). | Download mode cannot be reached: section 9. |
+| S4 | **Rescue check, last** (v4's rescue check, moved to the end by R-4). Insert the battery and power on normally. Let Android start once and reach the lock screen, accepting no prompt; it should rewrite `RECOVERY`. Once the lock screen shows, wait two minutes, touching nothing, so that the restore has time to finish. Then power off from Android's menu, remove the battery and wait 10 seconds. With the camera recording, insert the battery and hold the recovery keys as in T2. The stock recovery menu proves the restore route with no host write: photograph it, select **reboot system now** and nothing else, let Android start, and power off from its menu. | The stock recovery menu does not appear. Stop and report (section 9). |
+| S5 | Write nothing more. The plan ends with the stock recovery menu shown (S4). **At the end `RECOVERY` holds the stock recovery image** that the rescue check restored, not `payload.img`. (If the rescue check could not be reached, `RECOVERY` holds whatever the last successful write left; record it.) | — |
 
-The Download-mode entry for W2 (D1–D3) also shows that Download mode is still reachable after the invalid image and the rescue check.
+The Download-mode check after the trials (S3) also shows that Download mode is still reachable after WS and W2.
 
 ### If Android starts
 
-At any point after W1, outside the rescue check (S2), before the last trial. Any Android start restarts the count of the payload's trials, even if the payload survives (reviewer decision, 2026-11-14).
+At any point after WS, outside the WS check and the rescue check (S4), before the last trial. Any Android start restarts the count of the payload's trials, even if the payload survives (reviewer decision, 2026-11-14).
 
 | Step | Action | Why, and what follows |
 | --- | --- | --- |
 | A1 | Do not remove the battery. Let Android reach the lock screen, then wait two more minutes, touching nothing (reviewer decision, 2026-11-14). Accept no prompt in Android: no update, no setup. Keep filming and note the time the lock screen appeared. | Android is assumed to be rewriting `RECOVERY` at that moment (E-13). The two minutes give the restore time to finish; interrupting it would leave the partition half written. |
 | A2 | Power off from Android's own power menu, and do nothing else in Android. Remove the battery and wait 10 seconds. Record that Android started, and what led to it: the keys, a restart after the write, a self-reset during a trial, or a rejected image. | The content of `RECOVERY` is now not known. |
-| A3 | Run one **check trial** (T1–T7). If Android was started by a self-reset, end it before the reset time seen ("How long to film"). | **The payload appears:** it survived. This check trial is **trial 1 of a new series**; earlier trials are recorded, not counted. **The stock recovery menu appears:** if at least one trial since the last write showed the payload before this Android start, the payload was replaced: select **reboot system now** and nothing else, let Android start, power off from its menu, then A4. If no trial since the last write had shown the payload, this is not evidence of replacement: stop and report; no W3. **Any other screen:** end the trial as its section 6 row says, record it, then stop and report; `RECOVERY`'s content is not established, and W3 is not allowed on it. **During the invalid image's trials:** the check trial is not needed; go to S2. |
+| A3 | Run one **check trial** (T1–T7). If Android was started by a self-reset, end it before the reset time seen ("How long to film"). | **The payload appears:** it survived. This check trial is **trial 1 of a new series**; earlier trials are recorded, not counted. **The stock recovery menu appears:** if at least one trial since the last write showed the payload before this Android start, the payload was replaced: select **reboot system now** and nothing else, let Android start, power off from its menu, then A4. If no trial since the last write had shown the payload, this is not evidence of replacement: stop and report; no W3. **Any other screen:** end the trial as its section 6 row says, record it, then stop and report; `RECOVERY`'s content is not established, and W3 is not allowed on it. |
 | A4 | Only for `payload.img`, and only on the evidence in A3 that it was replaced (the payload was seen running after the last write, and then replaced): W3, once. The series then restarts with five trials, each from a removed battery. | No other reason allows W3. |
-| A5 | **Stop rule** (reviewer decision, 2026-11-14). A second unplanned Android start during the payload's trials, counted from W2, ends the series: stop and report. The plan's own Android starts (S2, and every "reboot system now" from the stock recovery menu) are not counted. | The write budget stays at four; a phone that keeps starting Android is a result to report, not a reason for more writes. |
+| A5 | **Stop rule** (reviewer decision, 2026-11-14). A second unplanned Android start during the payload's trials, counted from W2, ends the series: stop and report. The plan's own Android starts (the WS check, the rescue check S4, and every "reboot system now" from the stock recovery menu) are not counted. | The write budget does not grow; a phone that keeps starting Android is a result to report, not a reason for more writes. |
 
 ## 5. Order of the two images
+
+**Note (v5, R-4).** W1 closed this question: the negative test was run three times and `payload-invalid.img` is not written again (see "What W1 showed"). The table below stays as the record of the original choice. **v5's order is WS (the stock control write), then W2 (`payload.img`).**
 
 **Decided: (b), invalid image first** ([2026-11-11 decisions](https://github.com/revival-systems/revival-os/pull/12#issuecomment-6796999441), item 1; E-14). Both columns are kept as the record of the choice. The cost is explicit: the first write ever made to this phone is the image built to be refused, so every entry condition must already be met; the order waives none of them.
 
@@ -399,6 +449,8 @@ At any point after W1, outside the rescue check (S2), before the last trial. Any
 ## 6. Outcomes for `payload.img`
 
 Every outcome is recorded with the video, the still photograph and the times. "Rows" are typed into `tools/read_rows.py`, whose record states what each row means ([Trial kit](boot-payload-research.md#row-reading-tool)). Small text that the bootloader adds at the top of the screen, such as a `Set Warranty Bit` line, is transcribed exactly; if it covers a row, that row is recorded as unreadable and not guessed.
+
+**What the bootloader may print (v5, R-4).** The bootloader's own code can print lines such as `SECURE : Signature verification failed` at the write and `Set Warranty Bit : %s` at the start (Measured: strings and code paths, [bootloader study #26](https://github.com/revival-systems/revival-os/blob/d5589ffe7dd8194cc2ce2d6e49c6ac334235e647/docs/phase-2/aboot-transfer-checks.md)). Whether and where they appear on this phone's screen is **not established**. Transcribe exactly what appears, with its colour, and do not guess.
 
 | On screen | What it means | What to record | What to do next |
 | --- | --- | --- | --- |
@@ -427,9 +479,11 @@ Every outcome is recorded with the video, the still photograph and the times. "R
    - the checksum row equal to `0x22BECBA4` each time;
    - no contradictory input.
 
-Grey with eight rows does not qualify. Either way, Download mode and the recovery route must still be shown (S4, section 9), and the other entry and observation requirements still apply. **A pass does not close the normal power-on boot or Phase 2 as a whole.** Everything else is a recorded result that is not a pass.
+Grey with eight rows does not qualify. Either way, Download mode and the recovery route must still be shown (S3 and S4, section 9), and the other entry and observation requirements still apply. **A pass does not close the normal power-on boot or Phase 2 as a whole.** Everything else is a recorded result that is not a pass.
 
 ## 7. Outcomes for `payload-invalid.img`
+
+**Not reached (v5, R-4).** `payload-invalid.img` (W1) was refused at the transfer and no trial was run (see "What W1 showed"); it is not written again. The table below stays as the record. Step and write numbers in this section are v4's.
 
 The image differs from `payload.img` in the magic alone, and its kernel slot is the real payload ([Trial kit](boot-payload-research.md#negative-test-image-blocker-10)). So the trial asks one question: does the bootloader check the magic? Because the image shares the [known differences](#known-differences-from-the-stock-images) from the stock images, a refusal cannot be attributed to the magic alone.
 
@@ -451,7 +505,7 @@ The questions are the research's ([list](boot-payload-research.md#questions-only
 
 | # | Question | Answered by | Still unanswered after this plan |
 | --- | --- | --- | --- |
-| 1 | Does the bootloader accept a kernel without the zImage words, a zero-length ramdisk, or a missing trailer, and what does it show and do when it rejects an image? | Only the magic is varied (section 7). If the invalid image is refused, the refusal screen and what follows it are recorded. | The zImage words, the 1-byte ramdisk and the marker are present in both images, and the stock images' 256-byte signature-sized block is absent from both, so whether each is required is not tested. If the bootloader does not check the magic, its rejection behaviour is not seen at all. |
+| 1 | Does the bootloader accept a kernel without the zImage words, a zero-length ramdisk, or a missing trailer, and what does it show and do when it rejects an image? | **W1 (closed) answered this much, and no more:** the transfer was not acknowledged on any of its three runs; from the code, a recovery image whose first 8 bytes are not `ANDROID!` is refused before the write (Measured, #26). What the phone's screen showed when it refused was not transcribed ("What W1 showed"), so the on-phone rejection behaviour is not recorded. No trial of `payload-invalid.img` is run in v5. | The zImage words, the 1-byte ramdisk and the marker are present in both images, and the stock images' 256-byte signature-sized block is absent from both, so whether each is required is not tested. The on-phone rejection behaviour (the screen and what follows) was not seen. |
 | 2 | The actual load address and entry state: `r0`–`r2`, mode, interrupt masks, MMU and caches. | Rows 1–6: `r0`, `r1`, `r2`, CPSR, SCTLR and the run-time entry address. Row 7: the first word at `r2` (ATAGS or a device tree). The tool's record sets each against the expectation. | `r3` is captured but not painted. Only the first word at `r2` is read, not the tag list. The second core's state, and whether HYP mode exists, are not shown. |
 | 3 | Is the display still scanning out when a non-Samsung image is started from `RECOVERY`, what is the framebuffer address on this unit, and what is the byte order? | Any fill appearing answers the first part. The fill colour gives the address (section 6). Red or blue gives the byte order. Row 9 gives the display register's own value. | The byte order if the fill is green or grey. The stride and size registers are not read. The same questions for an image started from `BOOT` are outside this plan. |
 | 4 | Is the watchdog running at handoff, and what is its timeout? | Whether the phone resets by itself within the window, and after how long, recorded as an observation. | Timing alone does not prove that a watchdog caused a reset. No reset in 10 minutes does not prove that the watchdog is off: the watchdog registers are not read, so a stopped watchdog and a longer timeout look the same. |
@@ -463,12 +517,14 @@ All five are accepted as open by approving this plan (E-10). No trial is repeate
 
 Rule 1 sets the aim: a safe route for further Revival OS testing. That route is **Download mode on an untouched bootloader chain, with `RECOVERY` writable again**. Restoring Android is not the aim.
 
+**v5 (R-4):** R4 (the stock-image rescue write) is rehearsed by WS, the first write, which uses the same image and the same command; and the rescue check (R3) is the **last step** of the plan (section 4, S4), so the session ends with the stock recovery menu shown.
+
 | # | Route | Depends on | Use | Label |
 | --- | --- | --- | --- | --- |
 | R1 | Remove the battery. | Nothing | Ends any hang, loop, error screen or stuck mode. Used to end every trial. Never used while a transfer may be running (section 4, transfer failure). | Recorded: F6 3 of 3, owner-confirmed ([checklist results](../evidence/phase-0/2026-11-13-linux-retest.md#checklist-results)) |
-| R2 | Download mode: Volume Down + Home + Power from power-off. | The bootloader chain, which is never written | The anchor for every later write. Checked before W2 (D1–D3) and after the last trial (S4). | Recorded: F1 3 of 3, F4 on this host. Inference: it does not depend on `RECOVERY` or `BOOT` |
-| R3 | Normal power-on. | `BOOT`, `system` and the rest, none of which this plan writes | Starts Android from the untouched `BOOT`. Android is expected to rewrite stock recovery into `RECOVERY` with no host write (E-13). **Exercised once on purpose by the rescue check (S2)**, which shows whether the restore happens. Not a pass condition. | Recorded: the restore files are present (E-13). Inference: the rewrite. Shown on this phone by S2 |
-| R4 | Write the verified stock `recovery.img` to `RECOVERY` (W4). | R2, Heimdall, and the private copy of the verified image | **Only if required for recovery.** | Recorded: the image ([re-verification](../evidence/phase-0/2026-11-13-linux-retest.md#firmware-re-verified-on-ubuntu)). **Rescue execution remains untested** |
+| R2 | Download mode: Volume Down + Home + Power from power-off. | The bootloader chain, which is never written | The anchor for every later write. Checked before WS and before W2 (D1–D3) and after the last trial (S3). | Recorded: F1 3 of 3, F4 on this host. Inference: it does not depend on `RECOVERY` or `BOOT` |
+| R3 | Normal power-on. | `BOOT`, `system` and the rest, none of which this plan writes | Starts Android from the untouched `BOOT`. Android is expected to rewrite stock recovery into `RECOVERY` with no host write (E-13). **Exercised once on purpose by the rescue check (S4), the last step of the plan**, which shows whether the restore happens. Not a pass condition. | Recorded: the restore files are present (E-13). Inference: the rewrite. Shown on this phone by S4 |
+| R4 | Write the verified stock `recovery.img` to `RECOVERY` (W4). | R2, Heimdall, and the private copy of the verified image | **Only if required for recovery.** Rehearsed by WS (v5), which writes the same image with the same command as the first write. | Recorded: the image ([re-verification](../evidence/phase-0/2026-11-13-linux-retest.md#firmware-re-verified-on-ubuntu)). **Rehearsed by WS (v5); W4 as a rescue remains untested** |
 
 **When R4 is "required".** Only in one of these cases, and only after the owner and the reviewer have agreed in the issue that the case applies:
 
@@ -511,6 +567,8 @@ Writing `BOOT` is outside this plan; it would need its own approved plan.
 
 **Where the acceptance is recorded.** The owner's own statement, in the owner's words, quoted in the issue with its date, before the approvals (E-4). Every agent posts through the owner's GitHub account, so a comment alone does not show who wrote it (reviewer decision, 2026-11-14). The Phase 2 evidence summary refers to that statement; it is not recorded anywhere else.
 
+**W1, WS and W2 (v5, R-4).** W1's three runs did not acknowledge the transfer; from the code, the recovery path refuses a bad-magic image **before** the write, and the warranty setter was not seen on that path (Measured from the code, [#26](https://github.com/revival-systems/revival-os/blob/d5589ffe7dd8194cc2ce2d6e49c6ac334235e647/docs/phase-2/aboot-transfer-checks.md); not proof for the phone). **D2 before WS tests this,** by re-reading the status lines and comparing them with the "before" state below. **WS writes Samsung's own stock image,** so it is not expected to change the bit. **W2 is the first write of a non-Samsung image;** whether the Knox bit changes at the write or at an attempted start is **not established**, and v5 does not say which (the two open questions in "Unknown and open").
+
 **The "before" state.** Recorded on 2026-11-13 ([Download mode (F2)](../evidence/phase-0/2026-11-13-linux-retest.md#download-mode-f2)):
 
 ```text
@@ -525,22 +583,22 @@ BOOTLOADER RP SWREV: 2
 WRITE PROTECTION: Enable
 ```
 
-No reactivation-lock line is shown. D2 before W1 must show exactly these lines.
+No reactivation-lock line is shown. D2 before WS must show exactly these lines.
 
 **After a write: Unknown.** What `CURRENT BINARY`, `SYSTEM STATUS` and `KNOX WARRANTY VOID` read after a write is Unknown. The status lines are photographed and transcribed:
 
-1. **before W1:** step D2, compared with the lines above;
-2. **before W2:** step D2, after the invalid image's trials and the rescue check;
+1. **before WS:** step D2, compared with the lines above;
+2. **before W2:** step D2, after WS and the WS check;
 3. **before W3 or W4,** if either is used: step D2;
-4. **after the last trial:** step S4.
+4. **after the last trial:** step S3 (the Download-mode check).
 
 The transcriptions go into the evidence (section 11). A changed line is a result to record, not a reason to stop, unless it reports a lock that was not there before, such as a reactivation lock that reads on.
 
-**Rule 4.** The pull request that makes this plan final amends [AGENTS.md](../../AGENTS.md#hardware-safety-contract) rule 4, after the owner's statement for E-4 (E-15). The amendment is **effective when the reviewer's next task merges it**, and until then the former wording binds ([2026-11-11 decisions](https://github.com/revival-systems/revival-os/pull/12#issuecomment-6796999441), item 2). The amended rule reads:
+**Rule 4.** Pull request #22 amended [AGENTS.md](../../AGENTS.md#hardware-safety-contract) rule 4, after the owner's statement for E-4 (E-15). The amendment has been in effect since that pull request was merged on 2026-11-14 (`301a957`). The amended rule reads:
 
 > 4. **No bootloader unlocking, Knox configuration or security-setting changes,** and no exploits or rooting. **One exception,** on the owner's GT-I9195 only: the automatic, irreversible change of the Knox warranty bit that a `RECOVERY` image write, or the attempted boot of that image, may cause. It applies only under a write plan approved by the owner and the reviewer under rule 1, which names the exact images and quotes the owner's explicit acceptance of this consequence (given on 2026-11-14). It permits no direct write to a fuse or to Knox, no disabling of a protection, no write to any other partition, and nothing else these rules forbid.
 
-This plan makes no Knox or security-setting change on purpose: it unlocks nothing, sets nothing, and uses no exploit. A change of the warranty bit caused by W1–W4, or by an attempted boot of their image, is the exception's case.
+This plan makes no Knox or security-setting change on purpose: it unlocks nothing, sets nothing, and uses no exploit. A change of the warranty bit caused by a write of this plan (W1's runs, WS, W2, W3 or W4), or by an attempted boot of their image, is the exception's case.
 
 ## 11. Evidence
 
@@ -549,10 +607,12 @@ The rule is in [TESTING.md](../TESTING.md#recording-evidence): a device result c
 ```sh
 export EV2="$HOME/revival-evidence/gt-i9195/phase-2/$(date +%F)"
 mkdir -p "$EV2/private"
-script -q -a "$EV2/private/session.log"
+script -q -f -a "$EV2/private/session.log"
 ```
 
-**After each write:** the time; the exact command; Heimdall's complete output; the image's name and SHA-256 as checked that day; the status-line photograph taken before it.
+`-f` writes the log at once, so that it can be read during the session.
+
+**After each write:** the time; the exact command; Heimdall's complete output; the image's name and SHA-256 as checked that day; the status-line photograph taken before it; the two `date` lines of D4; any text read from the phone's screen (D5), with its colour.
 
 **After each trial:**
 
@@ -570,12 +630,12 @@ script -q -a "$EV2/private/session.log"
 
 1. The date, who performed it, the phase (2) and the step IDs of this plan.
 2. The device: model and the bootloader and build versions, as in the Phase 0 record, with identifiers redacted.
-3. The exact images: the commit, the `make` targets (`make check`, `make payload-invalid`) and the SHA-256 of every image written.
+3. The exact images: the commit, the `make` target (`make check`) and the SHA-256 of every image written.
 4. The observed result of each step, the number of trials, which counted, and how many showed the pass picture.
 5. Every failure, the recovery action, and the state afterwards.
-6. A statement of every write made: which of W1–W4, when, and that nothing else was written.
+6. A statement of every write made: which of WS, W2, W3 and W4, when, and that nothing else was written.
 
-Also: the reboot counts; the status-line transcriptions (section 10); the rescue check's result (S2); the entry state decoded from the rows; the reset observations; and the state of the partitions after the phase, which is "`RECOVERY` holds `<image>`; no other partition was written by this plan". Download mode cannot read a partition back ([gt-i9195.md](../hardware/gt-i9195.md#recovery-mechanisms)), so that statement rests on the list of writes and on what `RECOVERY` starts, not on a read-back.
+Also: the reboot counts; the status-line transcriptions (section 10); the WS check's result; the rescue check's result (S4); the entry state decoded from the rows; the reset observations; and the state of the partitions after the phase, which is "`RECOVERY` holds `<image>`; no other partition was written by this plan". Download mode cannot read a partition back ([gt-i9195.md](../hardware/gt-i9195.md#recovery-mechanisms)), so that statement rests on the list of writes and on what `RECOVERY` starts, not on a read-back.
 
 **Where the redacted summary goes.** A pull request adds it under `docs/evidence/phase-2/`, for the reviewer's review. Redacted photographs of the device's screen may be added there as [TESTING.md](../TESTING.md#recording-evidence) allows. Never committed: videos, original photographs, the session log, the PIT file, firmware, and any IMEI, serial number, MAC address or account name.
 
@@ -587,10 +647,14 @@ Also: the reboot counts; the status-line transcriptions (section 10); the rescue
 - **No on-device exception test.** By decision A the exception path is tested in QEMU (`qemu-payload-fault-halts`), and on-device exception behaviour is deferred to Phase 3a.
 - No payload-triggered reset, no watchdog petting or disabling, no UART.
 - No change to the payload or to either image. A different hash is a different plan.
-- No rehearsal write, and no write beyond the four in section 1.
+- No write beyond section 1's: WS, W2, and W3 or W4 on their conditions. WS is the only control write.
 - No erase, wipe or factory reset, and no recovery-menu action other than **reboot system now**.
 - No full stock firmware flash (section 9).
 - No new download of the Git LFS firmware, no hosted CI run, and no merge.
+
+## Next images
+
+After this plan's session, a further test image is written under the same plan by one amendment comment in the plan's issue. The comment names only: the commit, the image's size and SHA-256, what the image should show, and the number of writes asked for. The partition (`RECOVERY` only), the command form, the session rules, the stop rules and the rescue stay as in v5. The comment needs both approvals, the owner's and the reviewer's. No other part of the plan is rewritten for it.
 
 ## Unknown and open
 
@@ -600,22 +664,24 @@ Everything this plan leaves open, in one place.
 | --- | --- | --- |
 | PIT read from the write host; what the phone shows after `--no-reboot` there; Heimdall 2.1.0's exact session lines | Recorded, 2026-11-14 | E-17 ([write-host PIT read](../evidence/phase-2/2026-11-14-write-host-pit-read.md)) |
 | Heimdall 2.1.0's wording of the upload lines of a flash | Inference | The first write (D4) |
-| The write-plan issue | Opened 2026-11-14; not approved | E-3 |
+| The v5 write-plan issue | Not yet opened (issue #23 was v4's) | E-3 |
 | The owner's Knox statement | Given 2026-11-14 19:33:33 CET; accepted by the reviewer; quoted in the issue | E-4 |
 | Both approvals | Open | E-5, recorded in the issue |
-| Rule 4 amendment | Made in the pull request that makes this plan final; effective when the reviewer's next task merges it | E-15 |
-| The commit on `main` to build from, and its PASS count | Open: the merge commit of that pull request | E-11, named in the issue |
+| Rule 4 amendment | Made in pull request #22; in effect since 2026-11-14 | E-15 |
+| The commit on `main` to build from, and its PASS count | Open: the merge commit of the v5 pull request | E-11, named in the issue |
 | The five phone-only questions accepted as open | Open | E-10, recorded in the issue |
 | The write host, cable and port | Recorded, 2026-11-14 | E-16 ([write-host PIT read](../evidence/phase-2/2026-11-14-write-host-pit-read.md#host-cable-and-port-e-16)) |
-| Does this phone's Android actually rewrite `RECOVERY`? | Assumed yes (E-13) | The rescue check (S2) |
-| Rescue by W4 | Untested | Only if section 9 requires it |
+| Does this phone's Android actually rewrite `RECOVERY`? | Assumed yes (E-13) | The rescue check (S4) |
+| Rescue by W4 | Rehearsed by WS; W4 itself untested | Only if section 9 requires it |
 | Signing-chain verification of the stock images | Not done | Not needed for this plan; recorded as a limit |
 | Are bytes of `RECOVERY` beyond the image's length changed by the transfer? | Unknown | Not resolved; not relied on |
-| How the bootloader rejects an image, and what state that leaves | Unknown | Section 7 |
-| Whether the bootloader checks the magic, or refuses for one of the other known differences | Unknown | Section 7, in part; the reasons cannot be told apart |
+| How the bootloader rejects an image, and what state that leaves | From the code: a recovery image with a bad magic is refused before the write (Measured, #26), so `RECOVERY` should be unchanged by W1 (Inference). On the phone: the transfer is not acknowledged (Recorded, W1); the screen was not transcribed | "What W1 showed" |
+| Whether the bootloader checks the magic, or refuses for one of the other known differences | From the code: it checks the magic at the transfer (Measured, #26). Whether it refuses `payload.img` for another difference: W2 and its trials decide | "What W1 showed"; section 6 |
 | Whether the bootloader adds text over the picture | Unknown | The first trial |
 | What the status lines read after a write | Unknown | Section 10's photographs |
 | The five phone-only questions | Unknown | Section 8, in part |
+| Whether the written image (`payload.img`) actually starts from `RECOVERY` | Open: v5's session answers it | W2's five trials (section 6) |
+| When the Knox warranty bit changes — at the W2 write or at an attempted start of `payload.img` | Partly open. The session shows whether the bit has changed by the end: D2 before W2 against S3. It separates the write from the start only if the phone prints a line at one of them (for example `Set Warranty Bit`); otherwise that stays open. The D5 photograph after W2's transfer is taken before any start: if its status lines already differ from D2's, the change came with the write. Whether the bootloader redraws those lines after a transfer is Unknown. | The status-line photographs (section 10) and the on-screen text transcribed at D5 and in the trials |
 
 ## Sources
 
@@ -630,5 +696,7 @@ Checked 2026-11-11, and the repository evidence on 2026-11-14. Line numbers refe
 - Decisions: the former orchestrator's [PR #10 comment](https://github.com/revival-systems/revival-os/pull/10#issuecomment-6792632937) and [PR #12 comment of 2026-11-11](https://github.com/revival-systems/revival-os/pull/12#issuecomment-6796999441); the reviewer's decisions of 2026-11-14, marked where they apply.
 - Phase 0 evidence: the [addendum](../evidence/phase-0/2026-11-13-linux-retest.md), the [partition map](../evidence/phase-0/2026-11-13-readonly/partition-map.md), the [firmware evidence](../evidence/phase-0/2026-11-13-firmware-rescue.md) and the [hardware summary](../evidence/phase-0/2026-11-13-hardware-summary.md). Phase 1: the [gate review](../evidence/phase-1/2026-11-13-gate-review.md).
 - In this repository: [AGENTS.md](../../AGENTS.md#hardware-safety-contract), [ROADMAP.md](../../ROADMAP.md#phase-2--first-bare-metal-boot), [TESTING.md](../TESTING.md#recording-evidence), [gt-i9195.md](../hardware/gt-i9195.md), the [Phase 0 checklist](../phase-0/hardware-verification-checklist.md) and [boot-payload-research.md](boot-payload-research.md).
+- The Phase 2 write session that stopped at W1 (pull request #24), at commit `908fbda`: <https://github.com/revival-systems/revival-os/blob/908fbda1ab8d61151062b194dd73b64c5ecb7f9e/docs/evidence/phase-2/2026-11-14-write-session.md>
+- The stock-bootloader study (pull request #26), at commit `d5589ff`: <https://github.com/revival-systems/revival-os/blob/d5589ffe7dd8194cc2ce2d6e49c6ac334235e647/docs/phase-2/aboot-transfer-checks.md>
 
 The downloaded source files were read outside this repository and are not committed.
