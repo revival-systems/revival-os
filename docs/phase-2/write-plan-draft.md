@@ -40,10 +40,10 @@ The 2026-11-11 decisions were recorded by the former orchestrator in the [PR #12
 
 | Decision | Source | Where applied |
 | --- | --- | --- |
-| Order (b): invalid image first, then the payload | 2026-11-11 decisions, item 1 | Sections 1, 4, 5 |
+| Order (b): invalid image first, then the payload (**closed by W1; v5's order is WS, then W2**) | 2026-11-11 decisions, item 1 | Sections 1, 4, 5 |
 | A silent screen stays ambiguous; two silent screens cannot establish acceptance or rejection; a running payload from the invalid image is a result, not rejection evidence | 2026-11-11 decisions, item 1 | Sections 5, 6, 7 |
 | Rule 4 needs an explicit reviewed amendment; the Knox bit may change at the transfer or at an attempted boot | 2026-11-11 decisions, item 2 | Sections 2 (E-15), 10 |
-| W3 at most once, on evidence that the payload was replaced; at most four host writes; no retry or extra write implied | 2026-11-11 decisions, item 3 | Sections 1, 4 |
+| W3 at most once, on evidence that the payload was replaced; at most four host writes (**v5: at most four more, R-4**); no retry or extra write implied | 2026-11-11 decisions, item 3 | Sections 1, 4 |
 | Eight rows may pass the initial proof-of-execution sub-milestone in 5 of 5, on stated conditions | 2026-11-11 decisions, item 4 | Section 6 |
 | Filming windows; reset and latency are observations | 2026-11-11 decisions, item 5 | Sections 4, 6, 8 |
 | Phase 1 passed within its host/QEMU scope | 2026-11-11 decisions, item 6 | Section 2 (E-2) |
@@ -158,7 +158,7 @@ Read from the headers on the host ([stock images](../evidence/phase-0/2026-11-13
 
 ### The writes
 
-Order (b), decided ([2026-11-11 decisions](https://github.com/revival-systems/revival-os/pull/12#issuecomment-6796999441), item 1).
+v5's order is WS, then W2 (reviewer decision, 2026-11-15, R-4). v4's order (b) ended with W1 ([2026-11-11 decisions](https://github.com/revival-systems/revival-os/pull/12#issuecomment-6796999441), item 1).
 
 | # | Image | SHA-256 | Partition | Proposed command (run from the repository root) | Why |
 | --- | --- | --- | --- | --- | --- |
@@ -189,9 +189,9 @@ Every box is ticked in the issue, with its evidence, before the first write. A b
   Evidence: [Phase 0 addendum, decision](../evidence/phase-0/2026-11-13-linux-retest.md#decision): PASS, owner-directed, 2026-11-13, merged in PR #14. Images: [firmware evidence](../evidence/phase-0/2026-11-13-firmware-rescue.md) and [re-verification](../evidence/phase-0/2026-11-13-linux-retest.md#firmware-re-verified-on-ubuntu). Download mode: F1 and F6 3 of 3 (owner-confirmed), F4 `Device detected` on this host (measured) ([checklist results](../evidence/phase-0/2026-11-13-linux-retest.md#checklist-results)). **Rescue execution remains untested.**
 - [x] **E-2. Phase 1 has passed, within its host/QEMU scope.**
   Evidence: the former orchestrator's acceptance ([2026-11-11 decisions](https://github.com/revival-systems/revival-os/pull/12#issuecomment-6796999441), item 6), copied here: Phase 1 PASSED within its host/QEMU scope, on the merged Rust foundation PR #5 at `3f1130a1a8ecc6796440402be572855a4990de97`, its [successful manual CI run](https://github.com/revival-systems/revival-os/actions/runs/42757111224) (the former orchestrator verified that its `make check` step succeeded and that its exact head is an ancestor of the reviewed trial-kit head), and the working notes in [`docs/phase-1/rust-foundation.md`](../phase-1/rust-foundation.md). The full local suite passed 61 PASS / 0 FAIL on the trial-kit tree, and the heartbeat ran 20 of 20: every run exited 0 and contained both the heartbeat and checksum `0x22becba4`; heartbeat SHA-256 `7ac79ff8bde24a58f1afb0d0808eca0036d61f53dd4756daec67b3852f5d946d`. Recorded in the [Phase 1 gate review](../evidence/phase-1/2026-11-13-gate-review.md#gate-by-gate-result). No new hosted CI run was started for it. **It is not Phase 0 or Samsung evidence.** The issue adds the final source revision (E-11).
-- [x] **E-3. A write-plan issue names the method, partition, image hash and recovery steps.**
-  Closed by: the implementer, who opened it on the reviewer's task of 2026-11-14 (evening).
-  Evidence: the issue titled "Phase 2 write plan: method A, RECOVERY only (GT-I9195)". It quotes sections 1, 2, 9 and 10 of this file and names the file by commit and SHA-256. Its first line says it is not approved until it carries both approvals (E-5).
+- [ ] **E-3. A write-plan issue names the method, partition, image hash and recovery steps.** **Open again for v5 (R-6):** the v5 issue is a new issue.
+  Closed by: the implementer, who opens it on the reviewer's task after the v5 pull request is merged.
+  Evidence: the issue titled "Phase 2 write plan v5: method A, RECOVERY only (GT-I9195)". It quotes sections 1, 2, 9 and 10 of this file and names the file by commit and SHA-256. Its first line says it is not approved until it carries both approvals (E-5). Issue #23 was v4's.
 - [x] **E-4. The owner has explicitly accepted that flashing a non-Samsung image is reported to trip the irreversible Knox warranty bit.**
   Closed by: the owner.
   Evidence: **the owner's own statement, in the owner's words, quoted in the issue with its date** (section 10). Every agent posts through the owner's GitHub account, so a comment alone is not proof of who wrote it (reviewer decision, 2026-11-14).
@@ -234,8 +234,9 @@ Blockers 7 to 10 are not open: 7 is decided (method A), 8 and 9 are the reviewed
   Evidence: both files present ([recovery-restore check](../evidence/phase-0/2026-11-13-linux-retest.md#recovery-restore-check-write-plan-e-13)). The plan is written for a phone that rewrites `RECOVERY` at every Android start.
 - [x] **E-14. The order of the writes and the maximum number of writes are decided.**
   Evidence (v5, R-4): the order is WS (the stock control write), then W2 (`payload.img`); W1 is closed and `payload-invalid.img` is not written again. At most four more host writes, all to `RECOVERY` (WS, W2, W3, W4); three of v4's four are already used by W1's three runs ([2026-11-11 decisions](https://github.com/revival-systems/revival-os/pull/12#issuecomment-6796999441), items 1 and 3; reviewer decision, 2026-11-15).
-- [ ] **E-15. Rule 4 is amended by a reviewed change.**
-  Closed by: the pull request that makes this plan final. It amends [AGENTS.md](../../AGENTS.md#hardware-safety-contract) rule 4 **after** the owner's statement for E-4, and the amendment is **effective when the reviewer's next task merges it**. Until then, rule 4's former wording binds ([2026-11-11 decisions](https://github.com/revival-systems/revival-os/pull/12#issuecomment-6796999441), item 2; reviewer decisions, 2026-11-14). Section 10 quotes the amended rule.
+- [x] **E-15. Rule 4 is amended by a reviewed change.**
+  Closed by: pull request #22, which made v4 final.
+  Evidence: commit `0b3eaf7`, on `main` since the merge commit `301a9574d509e104de7dcda4bdf22e3fcaecafc5`; rule 4 of AGENTS.md on `main` reads as section 10 quotes it.
 - [x] **E-16. The write host is the Ubuntu development host used for the 2026-11-13 Phase 0 re-test, with the cable and USB port used for E-17, and `heimdall version` prints `v2.1.0`.** Whether Heimdall needs `sudo` for USB access is recorded in E-17; the writes use the same form.
   Closed by: the owner.
   Evidence: [write-host PIT read](../evidence/phase-2/2026-11-14-write-host-pit-read.md#host-cable-and-port-e-16), 2026-11-14. The host is the one of the 2026-11-13 re-test. The cable is the same as on 2026-11-13, in the left front USB port (owner-confirmed). `heimdall version` prints `v2.1.0`, and `make doctor` exits 0 (measured). Heimdall needs no `sudo`, so the writes run without it.
@@ -256,9 +257,9 @@ Blockers 7 to 10 are not open: 7 is decided (method A), 8 and 9 are the reviewed
   - Heimdall's session lines are recorded there for D4.
   - The phone stayed on the Download-mode screen, and the photograph was taken (owner-confirmed).
   - After the battery exit, the screen went dark and the phone recovered (owner-confirmed).
-- [ ] **E-18. Pull requests #24 and #26 are merged (R-4).** The W1 record (#24) and the bootloader study (#26) that v5 relies on are on `main`.
-  Closed by: the reviewer's next task, which merges them.
-  Evidence: #24 and #26 merged into `main`, their merge commits named in the issue. Until then v5 cites them by absolute GitHub URL at their head commits ("What W1 showed", sections 6, 7, 10, and Sources).
+- [x] **E-18. Pull requests #24 and #26 are merged (R-4).** The W1 record (#24) and the bootloader study (#26) that v5 relies on are on `main`.
+  Closed by: the reviewer's task R-5.
+  Evidence: the merge commits `9561db1d477c772399a6530be29135f389cdfb31` (#24) and `63d0a6a81ce74afdd14b9ab6cbf52c340e130e99` (#26) on `main`. v5 cites them by absolute GitHub URL at their head commits ("What W1 showed", sections 6, 7, 10, and Sources); both head commits are on `main`.
 
 ## 3. Host and tools
 
@@ -267,7 +268,7 @@ Blockers 7 to 10 are not open: 7 is decided (method A), 8 and 9 are the reviewed
 | Host | The Ubuntu development machine used for the 2026-11-13 Phase 0 re-test ([DEVELOPMENT.md](../DEVELOPMENT.md#one-time-setup)). No other computer, no virtual machine, no USB hub. |
 | Heimdall | `v2.1.0` as printed by `heimdall version`: Ubuntu package `heimdall-flash` 2.1.0-1build1. A different version stops the plan until the issue is updated. |
 | Other flashing tools | None. No Odin, no fastboot, no lk2nd. |
-| Repository | A fresh clone of the commit named in the issue (E-11), made in a shell with `GIT_LFS_SKIP_SMUDGE=1` exported, so that neither the clone nor the checkout downloads the firmware again, with nothing else in it (reviewer decision, 2026-11-14). |
+| Repository | A fresh clone of the commit named in the issue (E-11), made in a shell with `GIT_LFS_SKIP_SMUDGE=1` exported, so that neither the clone nor the checkout downloads the firmware again, with nothing else in it (reviewer decision, 2026-11-14). The clone is made in a new, empty directory, and every write command is run from that clone's root. |
 | Stock image | The private copy named in section 1. |
 | Row decoder | [tools/read_rows.py](../../tools/read_rows.py) at that commit ([Trial kit](boot-payload-research.md#row-reading-tool)). |
 | Camera | A second device that records video with sound and takes sharp still photographs. Its clock is set to the host's. |
@@ -282,6 +283,7 @@ git clone https://github.com/revival-systems/revival-os.git && cd revival-os
 git checkout <commit named in the approved issue>
 git status --short        # must print nothing
 make check                # must exit 0 and print: PASS payload-frozen (payload.bin 8ee519ae…, payload.img bde09074…)
+echo "exit=$?"            # must print exit=0
 find build -name 'payload-invalid.img' -delete
 find build -name 'payload-invalid.img'   # must print nothing
 ls build/boot-serrano/*.img              # must print build/boot-serrano/payload.img only
@@ -297,7 +299,7 @@ sha256sum ~/revival-firmware/gt-i9195/I9195XXSCQAN_I9195OXXCNK2/recovery.img
 
 ## 4. Procedure for the owner
 
-The owner performs every physical step (rule 6). An agent may prepare the commands and read the results; it does not run a write. **Stop** means: do nothing further to the phone except what the step says, remove the battery if the step says so, and report in the issue (rule 8). A stopped step is not retried until the owner and the reviewer have answered.
+The owner performs every physical step (rule 6). An agent may prepare the commands and read the results; it does not run a write. The owner enters every command that contacts the phone (`lsusb`, `heimdall detect` and the writes) in the terminal that runs the session log of section 11. No agent tool runs them, so no tool timeout can end a transfer. **Stop** means: do nothing further to the phone except what the step says, remove the battery if the step says so, and report in the issue (rule 8). A stopped step is not retried until the owner and the reviewer have answered.
 
 **Precedence.** The safety stops (heat, smell, swelling, an unexpected screen or prompt) and the unexpected-outcome stops come first. They override every filming time and every count below.
 
@@ -313,7 +315,7 @@ Before the phone is touched.
 | P3 | Create the Phase 2 evidence directory and start the session log (section 11). Record the date, the time and who performs the steps. | — |
 | P4 | Run the hash check in section 3. Save its output. | Section 3's stop conditions. |
 | P5 | Check that the camera works and that its clock matches the host's. | — |
-| P6 | Before the first write (WS), run `set +o history` and then `history -c` in the session terminal, so that no write command can be recalled with the arrow keys afterwards. (Checked on the host in a throwaway shell: with history turned off first, the shell's exit does not write the cleared list back, so the history file is left unchanged — recorded in the v5 pull request.) | — |
+| P6 | Before the first write (WS), run `set +o history` and then `history -c` in the shell that `script` started (P3), which is the session terminal, so that no write command can be recalled with the arrow keys afterwards. (Checked on the host in a throwaway shell: with history turned off first, the shell's exit does not write the cleared list back, so the history file is left unchanged — recorded in the v5 pull request.) | — |
 
 ### Writing an image
 
@@ -361,7 +363,7 @@ Immediately after WS, with the battery just removed (D6). It shows that `RECOVER
 
 ### One trial
 
-Repeated; the steps are the same for both images.
+Repeated; the steps are the same for every image.
 
 | Step | Action | Expected | Stop if |
 | --- | --- | --- | --- |
@@ -370,7 +372,7 @@ Repeated; the steps are the same for both images.
 | T3 | Keep filming without touching the phone, for the trial's window ("How long to film"). | A picture that does not change, or one of the other outcomes in sections 6 and 7. | The phone becomes hot, or smells: remove the battery at once. |
 | T4 | While filming continues, take a sharp still photograph of the whole screen, square on, with no reflection across the rows. | Every cell of every row is countable in the photograph. | — |
 | T5 | End the trial at the end of its window: remove the battery. Say the time. Wait 10 seconds. Stop the recording. | The screen goes dark. | The screen stays lit with the battery out. |
-| T6 | Type the rows from the photograph into `tools/read_rows.py` with the fill colour seen, compare its echo of the cells with the photograph, and save its output and its PNG. A screen that is not a fill with eight or nine rows is described in words and not typed. | The record's first line reads `Checksum row OK`. | It reads `ROWS MISREAD`: read the photograph again; do not go on to the next trial until the rows are read or declared unreadable. |
+| T6 | Type the rows from the photograph into `tools/read_rows.py` with the fill colour seen, compare its echo of the cells with the photograph, and save its output and its PNG. `--png` is set to a file in `$EV2`, so that nothing is written under `build/` after the hash check. A screen that is not a fill with eight or nine rows is described in words and not typed. | The record's first line reads `Checksum row OK`. | It reads `ROWS MISREAD`: read the photograph again; do not go on to the next trial until the rows are read or declared unreadable. |
 | T7 | Fill in the trial's line of the evidence table (section 11). | — | The outcome is not in section 6 or 7. |
 
 ### How long to film
@@ -390,7 +392,7 @@ Rules for every window:
 - **The first self-reset:** keep filming and touch no key. What the phone starts next is part of the result (section 6).
 - **Reset loop** (reviewer decision, 2026-11-14): a second self-reset in one window ends the trial and the series. If the phone resets by itself a second time within one window, remove the battery at once (unless Android's boot animation is showing, below), record a reset loop with each reset's time, and stop the series after this trial.
 - **Android ends the window.** If Android's boot animation appears at any point in a window, after a reset or otherwise, the window and the reset-loop rule no longer apply. Do not remove the battery: follow "If Android starts" from A1. A second reset that started Android is recorded as a reset loop after A2, and it too ends the series.
-- **The exception** replaces the formula only for the image whose self-reset started Android, including after W3 for `payload.img`. A reset seen with `payload-invalid.img` does not shorten any `payload.img` window. The reset time and what started next are recorded from the trial that showed them; they are not measured again. If the reset comes too soon to photograph the screen and remove the battery, stop and report.
+- **The exception** replaces the formula only for the image whose self-reset started Android, including after W3 for `payload.img`. The reset time and what started next are recorded from the trial that showed them; they are not measured again. If the reset comes too soon to photograph the screen and remove the battery, stop and report.
 - **Observations only.** A reset and its latency are recorded as observations. Timing alone does not prove that a watchdog caused a reset, and no reset in ten minutes does not prove that the watchdog is off. The reference timeouts in the research, 0.39 and 48 seconds ([section 4](boot-payload-research.md#4-watchdog)), are not known to apply.
 
 ### The series
@@ -586,7 +588,7 @@ No reactivation-lock line is shown. D2 before WS must show exactly these lines.
 
 The transcriptions go into the evidence (section 11). A changed line is a result to record, not a reason to stop, unless it reports a lock that was not there before, such as a reactivation lock that reads on.
 
-**Rule 4.** The pull request that makes this plan final amends [AGENTS.md](../../AGENTS.md#hardware-safety-contract) rule 4, after the owner's statement for E-4 (E-15). The amendment is **effective when the reviewer's next task merges it**, and until then the former wording binds ([2026-11-11 decisions](https://github.com/revival-systems/revival-os/pull/12#issuecomment-6796999441), item 2). The amended rule reads:
+**Rule 4.** Pull request #22 amended [AGENTS.md](../../AGENTS.md#hardware-safety-contract) rule 4, after the owner's statement for E-4 (E-15). The amendment has been in effect since that pull request was merged on 2026-11-14 (`301a957`). The amended rule reads:
 
 > 4. **No bootloader unlocking, Knox configuration or security-setting changes,** and no exploits or rooting. **One exception,** on the owner's GT-I9195 only: the automatic, irreversible change of the Knox warranty bit that a `RECOVERY` image write, or the attempted boot of that image, may cause. It applies only under a write plan approved by the owner and the reviewer under rule 1, which names the exact images and quotes the owner's explicit acceptance of this consequence (given on 2026-11-14). It permits no direct write to a fuse or to Knox, no disabling of a protection, no write to any other partition, and nothing else these rules forbid.
 
@@ -599,8 +601,10 @@ The rule is in [TESTING.md](../TESTING.md#recording-evidence): a device result c
 ```sh
 export EV2="$HOME/revival-evidence/gt-i9195/phase-2/$(date +%F)"
 mkdir -p "$EV2/private"
-script -q -a "$EV2/private/session.log"
+script -q -f -a "$EV2/private/session.log"
 ```
+
+`-f` writes the log at once, so that it can be read during the session.
 
 **After each write:** the time; the exact command; Heimdall's complete output; the image's name and SHA-256 as checked that day; the status-line photograph taken before it; the two `date` lines of D4; any text read from the phone's screen (D5), with its colour.
 
@@ -620,7 +624,7 @@ script -q -a "$EV2/private/session.log"
 
 1. The date, who performed it, the phase (2) and the step IDs of this plan.
 2. The device: model and the bootloader and build versions, as in the Phase 0 record, with identifiers redacted.
-3. The exact images: the commit, the `make` targets (`make check`, `make payload-invalid`) and the SHA-256 of every image written.
+3. The exact images: the commit, the `make` target (`make check`) and the SHA-256 of every image written.
 4. The observed result of each step, the number of trials, which counted, and how many showed the pass picture.
 5. Every failure, the recovery action, and the state afterwards.
 6. A statement of every write made: which of WS, W2, W3 and W4, when, and that nothing else was written.
@@ -637,7 +641,7 @@ Also: the reboot counts; the status-line transcriptions (section 10); the WS che
 - **No on-device exception test.** By decision A the exception path is tested in QEMU (`qemu-payload-fault-halts`), and on-device exception behaviour is deferred to Phase 3a.
 - No payload-triggered reset, no watchdog petting or disabling, no UART.
 - No change to the payload or to either image. A different hash is a different plan.
-- No rehearsal write, and no write beyond the four in section 1.
+- No write beyond section 1's: WS, W2, and W3 or W4 on their conditions. WS is the only control write.
 - No erase, wipe or factory reset, and no recovery-menu action other than **reboot system now**.
 - No full stock firmware flash (section 9).
 - No new download of the Git LFS firmware, no hosted CI run, and no merge.
@@ -654,10 +658,10 @@ Everything this plan leaves open, in one place.
 | --- | --- | --- |
 | PIT read from the write host; what the phone shows after `--no-reboot` there; Heimdall 2.1.0's exact session lines | Recorded, 2026-11-14 | E-17 ([write-host PIT read](../evidence/phase-2/2026-11-14-write-host-pit-read.md)) |
 | Heimdall 2.1.0's wording of the upload lines of a flash | Inference | The first write (D4) |
-| The write-plan issue | Opened 2026-11-14; not approved | E-3 |
+| The v5 write-plan issue | Not yet opened (issue #23 was v4's) | E-3 |
 | The owner's Knox statement | Given 2026-11-14 19:33:33 CET; accepted by the reviewer; quoted in the issue | E-4 |
 | Both approvals | Open | E-5, recorded in the issue |
-| Rule 4 amendment | Made in the pull request that makes this plan final; effective when the reviewer's next task merges it | E-15 |
+| Rule 4 amendment | Made in pull request #22; in effect since 2026-11-14 | E-15 |
 | The commit on `main` to build from, and its PASS count | Open: the merge commit of that pull request | E-11, named in the issue |
 | The five phone-only questions accepted as open | Open | E-10, recorded in the issue |
 | The write host, cable and port | Recorded, 2026-11-14 | E-16 ([write-host PIT read](../evidence/phase-2/2026-11-14-write-host-pit-read.md#host-cable-and-port-e-16)) |
@@ -665,13 +669,13 @@ Everything this plan leaves open, in one place.
 | Rescue by W4 | Untested | Only if section 9 requires it |
 | Signing-chain verification of the stock images | Not done | Not needed for this plan; recorded as a limit |
 | Are bytes of `RECOVERY` beyond the image's length changed by the transfer? | Unknown | Not resolved; not relied on |
-| How the bootloader rejects an image, and what state that leaves | Unknown | Section 7 |
-| Whether the bootloader checks the magic, or refuses for one of the other known differences | Unknown | Section 7, in part; the reasons cannot be told apart |
+| How the bootloader rejects an image, and what state that leaves | From the code: refused before the write, so `RECOVERY` is unchanged (Measured, #26). On the phone: the transfer is not acknowledged (Recorded, W1); the screen was not transcribed | "What W1 showed" |
+| Whether the bootloader checks the magic, or refuses for one of the other known differences | From the code: it checks the magic at the transfer (Measured, #26). Whether it refuses `payload.img` for another difference: W2 and its trials decide | "What W1 showed"; section 6 |
 | Whether the bootloader adds text over the picture | Unknown | The first trial |
 | What the status lines read after a write | Unknown | Section 10's photographs |
 | The five phone-only questions | Unknown | Section 8, in part |
 | Whether the written image (`payload.img`) actually starts from `RECOVERY` | Open: v5's session answers it | W2's five trials (section 6) |
-| When the Knox warranty bit changes — at the W2 write or at an attempted start of `payload.img` | Partly open. The session shows whether the bit has changed by the end: D2 before W2 against S3. It separates the write from the start only if the phone prints a line at one of them (for example `Set Warranty Bit`); otherwise that stays open. | The status-line photographs (section 10) and the on-screen text transcribed at D5 and in the trials |
+| When the Knox warranty bit changes — at the W2 write or at an attempted start of `payload.img` | Partly open. The session shows whether the bit has changed by the end: D2 before W2 against S3. It separates the write from the start only if the phone prints a line at one of them (for example `Set Warranty Bit`); otherwise that stays open. The D5 photograph after W2's transfer is taken before any start: if its status lines already differ from D2's, the change came with the write. Whether the bootloader redraws those lines after a transfer is Unknown. | The status-line photographs (section 10) and the on-screen text transcribed at D5 and in the trials |
 
 ## Sources
 
