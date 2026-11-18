@@ -11,12 +11,13 @@
 //! (ATAGS) and the display controller's framebuffer register, then a counter
 //! that keeps counting to show the CPU is still running.
 //!
-//! What it touches: it WRITES only to the framebuffer at `board::FB_BASE`. It
-//! READS the seven words kstart.S captured, the tag list (only inside the tag
-//! page, only word-aligned), and exactly one register, the MDP4 framebuffer
-//! address, after the rest is on screen. No heap, no allocator, no `svc`, no
-//! timer, no watchdog, no interrupts, no `core::fmt`, and no path that can
-//! panic (`make test-console` checks the last one in the linked image).
+//! What it touches: outside its own stack it WRITES only to the framebuffer at
+//! `board::FB_BASE`. It READS the seven words kstart.S captured, the tag list
+//! (only inside the tag page, only word-aligned), and exactly one register,
+//! the MDP4 framebuffer address, after the rest is on screen. No heap, no
+//! allocator, no `svc`, no timer, no watchdog, no interrupts, no `core::fmt`,
+//! and no path that can panic (`make test-console` checks the last one in the
+//! linked image).
 //!
 //! What it never shows: a value from the kernel command line, the serial tag's
 //! words, or the content of a tag it does not know. Those hold the phone's
@@ -41,12 +42,20 @@ use console::Console;
 use fb::Framebuffer;
 
 // --- screen layout -----------------------------------------------------------
+// The console takes its size from the framebuffer. On this panel that is a
+// grid that covers it exactly: 30 x 18 = 540 across and 40 x 24 = 960 down.
+const LINES: usize = board::FB_HEIGHT / console::CELL_H;
+const _: () = assert!(board::FB_WIDTH == 30 * console::CELL_W);
+const _: () = assert!(LINES == 40 && board::FB_HEIGHT == 40 * console::CELL_H);
+
 // The report gets every line but the last two, which are fixed: one for the
 // display register and one for the counter. Whatever the report does, those
 // two lines are always drawn in the same place.
-const REPORT_LINES: usize = console::LINES - 2;
-const MDP_LINE: usize = console::LINES - 2;
-const TICK_LINE: usize = console::LINES - 1;
+const REPORT_LINES: usize = LINES - 2;
+const MDP_LINE: usize = LINES - 2;
+const TICK_LINE: usize = LINES - 1;
+/// The counter's line is "TICK " and then eight digits, from this column.
+const TICK_DIGITS_COLUMN: usize = 5;
 
 /// Loop turns between two steps of the counter. How long that takes on the
 /// phone is not known; the session measures it.
@@ -94,10 +103,19 @@ pub extern "C" fn payload_main(handoff: *const u32) {
     let captured: &[u32; 7] = unsafe { &*(handoff as *const [u32; 7]) };
     let [_, _, r2, _, _, _, entry] = *captured;
 
-    // SAFETY: board::FB_BASE is the start of the panel's framebuffer, which
-    // lies outside this image, its stack and the tag page (the overlap table
-    // in docs/phase-2/console-payload.md). Nothing else here uses that memory.
-    let fb = unsafe { Framebuffer::new(board::FB_BASE) };
+    // SAFETY: board::FB_BASE is the start of the panel's framebuffer, which is
+    // FB_STRIDE * FB_HEIGHT bytes and lies outside this image, its stack and
+    // the tag page (the overlap table in docs/phase-2/console-payload.md).
+    // Nothing else here uses that memory.
+    let fb = unsafe {
+        Framebuffer::new(
+            board::FB_BASE,
+            board::FB_WIDTH,
+            board::FB_HEIGHT,
+            board::FB_STRIDE,
+            board::FB_BYTES_PER_PIXEL,
+        )
+    };
 
     // The image is linked for one address and uses absolute addresses for its
     // text and its font. If the bootloader put it somewhere else, those would
@@ -129,13 +147,26 @@ pub extern "C" fn payload_main(handoff: *const u32) {
     let verdict: &[u8] = if mdp as usize == board::FB_BASE { b" IS FB" } else { b" NOT FB" };
     mdp_line.puts(verdict);
 
+    // The counter. Its line is drawn once; after that only the digits that
+    // change are redrawn, one cell each, so the line never blanks and a step
+    // costs little more than the wait itself.
+    let mut tick_line = Console::new(&fb, TICK_LINE, 1);
+    tick_line.puts(b"TICK ");
+    tick_line.hex32(0);
     let mut tick: u32 = 0;
     loop {
-        let mut tick_line = Console::new(&fb, TICK_LINE, 1);
-        tick_line.puts(b"TICK ");
-        tick_line.hex32(tick);
         console_tick_wait();
-        tick = tick.wrapping_add(1);
+        let next = tick.wrapping_add(1);
+        let mut digit: usize = 0;
+        while digit < 8 {
+            let shift = 28 - 4 * digit as u32;
+            let nibble = (next >> shift) & 0xF;
+            if nibble != (tick >> shift) & 0xF {
+                tick_line.replace(TICK_DIGITS_COLUMN + digit, console::hex_digit(nibble));
+            }
+            digit += 1;
+        }
+        tick = next;
     }
 }
 
@@ -151,14 +182,16 @@ pub extern "C" fn console_tick_wait() {
     let mut turns: u32 = 0;
     let slot: *mut u32 = &mut turns;
     loop {
-        // SAFETY: `slot` points at `turns`, a live local of this function that
-        // nothing else refers to. The accesses are volatile so that the
-        // compiler keeps the loop instead of working out its result.
+        // SAFETY: `slot` points at `turns`, which is live until this function
+        // returns and which nothing else reads or writes. The accesses are
+        // volatile so that the compiler keeps the loop instead of working
+        // out its result.
         let now = unsafe { read_volatile(slot) };
         if now >= TICK_TURNS {
             break;
         }
-        // SAFETY: as above.
+        // SAFETY: `slot` points at `turns`, which is live until this function
+        // returns and which nothing else reads or writes.
         unsafe { write_volatile(slot, now + 1) };
     }
 }
@@ -166,11 +199,11 @@ pub extern "C" fn console_tick_wait() {
 /// White and black stripes across the whole panel. Uses no text and no table,
 /// so it is right wherever the image was loaded.
 fn draw_moved(fb: &Framebuffer) {
-    let height = board::FB_HEIGHT / MOVED_STRIPES;
+    let height = fb.height() / MOVED_STRIPES;
     let mut stripe: usize = 0;
     while stripe < MOVED_STRIPES {
         let shade: u8 = if stripe & 1 == 0 { 0xFF } else { 0x00 };
-        fb.fill_rect(0, stripe * height, board::FB_WIDTH, height, shade);
+        fb.fill_rect(0, stripe * height, fb.width(), height, shade);
         stripe += 1;
     }
 }
@@ -275,15 +308,17 @@ fn report_tags(report: &mut Console, r2: u32) {
     while let Some(step) = walk.next() {
         match step {
             Step::Tag { id, body } => report_tag(report, id, body),
-            Step::End { id } => {
+            Step::End { id: 0 } => {
                 report.puts(b" END ");
                 report.dec(walk.seen() as u32);
                 report.puts(b" TAGS\n");
-                if id != 0 {
-                    report.puts(b" END KIND ");
-                    report.hex32(id);
-                    report.newline();
-                }
+            }
+            // A tag of size 0 ends the walk whatever its kind, as it does in
+            // the Linux kernel; a kind other than 0 is still a malformed list.
+            Step::End { id } => {
+                report.puts(b" STOP END KIND ");
+                report.hex32(id);
+                report.newline();
             }
             Step::BadSize(size) => {
                 report.puts(b" STOP SIZE ");
@@ -354,7 +389,7 @@ fn report_pair(report: &mut Console, name: &[u8], between: &[u8], body: &[u32]) 
 /// The kernel command line: each word's name and the length of its value,
 /// `NAME=<length>`, or `<length>` alone for a word with no `=`. Words are kept
 /// whole where they fit: one that would pass the end of the line starts a new
-/// line, indented.
+/// line, indented. A text with no terminating zero gets a line saying so.
 fn report_cmdline(report: &mut Console, body: &[u32]) {
     report.puts(b" CMDLINE");
     let mut pieces = Cmdline::new(body);
@@ -363,7 +398,7 @@ fn report_cmdline(report: &mut Console, body: &[u32]) {
         if width == 0 {
             break;
         }
-        if report.column() + 1 + width > console::COLUMNS {
+        if report.column() + 1 + width > report.columns() {
             report.puts(b"\n  ");
         } else {
             report.put(b' ');
@@ -389,6 +424,9 @@ fn report_cmdline(report: &mut Console, body: &[u32]) {
         }
     }
     report.newline();
+    if !pieces.is_terminated() {
+        report.puts(b" CMDLINE UNTERMINATED\n");
+    }
 }
 
 /// How many characters the next word of the command line takes on screen, or

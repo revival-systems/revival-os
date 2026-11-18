@@ -37,8 +37,8 @@ const MAX_TAG_WORDS: u32 = 2048;
 pub enum Step<'a> {
     /// A well-formed tag: its kind, and its words after the two header words.
     Tag { id: u32, body: &'a [u32] },
-    /// The tag of size 0 that ends a list, and its kind word (0 in a correct
-    /// list).
+    /// The tag of size 0 that ends a list, and its kind word. In a correct
+    /// list the kind is 0; any other kind is a malformed end.
     End { id: u32 },
     /// A size word that is 1, or more than `MAX_TAG_WORDS`.
     BadSize(u32),
@@ -138,6 +138,12 @@ impl<'a> Cmdline<'a> {
     /// The command line held in `body`, the words of a tag after its header.
     pub fn new(body: &'a [u32]) -> Self {
         Cmdline { body, pos: 0, name_end: 0, word_end: 0 }
+    }
+
+    /// Whether the text's terminating zero byte is inside the body. A command
+    /// line without one is malformed: its text was cut off at the tag's end.
+    pub fn is_terminated(&self) -> bool {
+        self.body.iter().any(|word| word.to_le_bytes().contains(&0))
     }
 
     /// Byte `index` of the text; 0 past the end of the body. Words are little
