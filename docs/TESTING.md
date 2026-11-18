@@ -95,6 +95,10 @@ Emulator-only exception reporting, a step toward ROADMAP 3a: vectors ([exc_vecto
 | `qemu-exc-data-abort` (negative) | A load from an address with nothing behind it is reported as a data abort at the exact address of the load, with the fault address and a synchronous external abort status (DFSR, DFAR) |
 | `qemu-exc-prefetch-abort` (negative) | A jump to that address is reported as a prefetch abort at that address, with the fault address and status (IFSR, IFAR) |
 
+### `make test-console`
+
+The Phase 2 console image, run in QEMU from the exact bytes built for the phone. Every screen is compared byte for byte with a host oracle. The tests, what each can show and what the emulator cannot show are listed in [console-payload.md](phase-2/console-payload.md#tests). Emulator results; not hardware results.
+
 ### `make test-repro`
 
 | Test | Pass when |
