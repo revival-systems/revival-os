@@ -1,6 +1,6 @@
 # ADR 0002 — Design goals, and how each one is measured
 
-- **Status:** Accepted by the reviewer, 2026-11-14. The eight goals are the owner's, and the owner can change them at any time.
+- **Status:** Accepted by the reviewer, 2026-11-14. The nine goals are the owner's, and the owner can change them at any time.
 - **Source:** the owner stated the goals on 2026-11-10 and 2026-11-14, and the reviewer's task of 2026-11-14 relayed them; how each goal is measured, and where its number is set, is what the reviewer accepted.
 - **Builds on:** [ADR 0001](0001-rust-and-arm-assembly.md) (Rust and ARM Assembly; the memory strategy), [ARCHITECTURE.md](../../ARCHITECTURE.md#goals) (goals and engineering standards) and the [roadmap rules](../../ROADMAP.md#rules-for-every-phase).
 - **Does not change:** the hardware-safety contract, the phase-by-phase method, or any pass criterion already in the roadmap.
@@ -42,6 +42,7 @@ No figure exists yet for the phone's speed, the cost of a task, a context switch
 6. **Built from the ground up, with room to invent.** Original ideas from the project's own research are welcome when they serve goals 1 to 5.
 7. **The memory rule of ADR 0001.** The stack first, a heap only when it is necessary, in the bounded-arena style studied in Goose.
 8. **A real-world system, not a demo.** It ends up doing a real job on real hardware.
+9. **One kernel, many boards.** One kernel core over an architecture layer and a board layer, so that another board or architecture needs no change to the core ([ADR 0004](0004-one-kernel-many-boards.md)).
 
 ### What each goal means here, and how it is measured
 

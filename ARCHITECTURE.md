@@ -57,6 +57,8 @@ The engineering goals that serve them:
 
 Code that needs a fact about one board (a GPIO number, a memory address, a regulator) gets it from `board/`. If such a fact is found in `kernel/`, `drivers/` class code or `services/`, that is a defect.
 
+The owner's decision behind this layering, one kernel core over an architecture layer and a board layer, with drivers isolated from the core, is [ADR 0004](docs/decisions/0004-one-kernel-many-boards.md).
+
 ## Proposed source layout
 
 These directories do not exist yet. Each is created by the first milestone that puts real, tested code in it. Placeholder files are not added.
