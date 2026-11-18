@@ -66,7 +66,7 @@ TICK 00000007
 | `ENTRY 80208000 OK` | The address the image was entered at. The report is printed only if it is the address the image is linked for; see "If the image is loaded somewhere else". |
 | `ATAGS 80200100` | r2 again, taken as the address of the bootloader's tag list, followed by one line for each tag. |
 | `MDP4 88100000 IS FB` | The display controller's framebuffer-address register, and whether it names the buffer the image draws in. Before the register is read the line says `MDP4 READ PENDING`. |
-| `TICK 00000007` | A counter that goes up by one after every 4,194,304 turns of a wait loop, for as long as the phone is on. A counter that moves shows the processor is still running our code. |
+| `TICK 00000007` | A counter that goes up by one after every 4,194,304 turns of a wait loop, for as long as the phone is on. A counter that moves shows the processor is still running our code. Only the digits that change are redrawn. |
 
 The last two lines are fixed. Whatever the report above them does, they are always the bottom two lines of the panel.
 
@@ -80,14 +80,18 @@ The last two lines are fixed. Whatever the report above them does, they are alwa
 | ` REVISION xxxxxxxx` | The board revision. |
 | ` SERIAL HIDDEN` | A serial-number tag is present. Its words are never drawn. |
 | ` CMDLINE …` | The kernel command line: for each word its name and the **length** of its value, `name=<length>`, or `<length>` alone for a word that has no `=`. |
+| ` CMDLINE UNTERMINATED` | The command line's text has no terminating zero byte: it was cut off at the end of its tag. The words before the cut are shown above this line. |
 | ` TAG kkkkkkkk Wn` | A tag of a kind this image does not know: its kind, and how many words follow its header. The words are never drawn. |
-| ` END n TAGS` | The list ended properly after n tags. A second line ` END KIND xxxxxxxx` appears if the ending tag's kind word is not 0. |
+| ` END n TAGS` | The list ended properly after n tags. |
+| ` STOP END KIND xxxxxxxx` | The list ended with a tag of size 0 whose kind word is not 0. A size of 0 ends the walk whatever the kind, as in the Linux kernel, but a correct list ends with kind 0. |
 | ` STOP SIZE xxxxxxxx` | A tag claims a size of 1 word, or of more than 2,048. The walk stops. |
 | ` STOP PAST PAGE END` | A tag, or its header, would run past the end of the tag page. The walk stops. |
 | ` STOP AT 64 TAGS` | 64 tags were shown and the list goes on. The walk stops. |
 | `ATAGS xxxxxxxx OUT OF PAGE` | r2 is not inside the tag page. Nothing is read. |
 | `ATAGS xxxxxxxx UNALIGNED` | r2 is not a multiple of 4. Nothing is read. |
 | `ATAGS xxxxxxxx DEVICE TREE` | The first word is a device tree's magic number. It is not a tag list and is not walked. |
+
+Every line that starts with ` STOP`, and ` CMDLINE UNTERMINATED`, means the list is malformed.
 
 If the report needs more than its 38 lines, the rest is dropped and a `+` is drawn in the last cell of line 38. The console never scrolls: a photograph must show a still screen.
 
@@ -108,13 +112,14 @@ What is drawn: register values, addresses and sizes of memory regions, the board
 
 | | What | Notes |
 | --- | --- | --- |
-| Writes | The framebuffer, 0x88100000 to 0x8827BB00 | Nothing else. Every write goes through one routine that clips to the panel. |
-| Reads | The seven words `kstart.S` captured | On the image's own stack. |
+| Writes | The framebuffer, 0x88100000 to 0x8827BB00 | Every write goes through one routine that clips to the panel. |
+| Writes | Its own stack, the 64 KiB after the image | `kstart.S` pushes the captured registers there; the Rust code keeps its return addresses and locals there, and the wait loop's counter. |
+| Reads | The seven words `kstart.S` captured | On that stack. |
 | Reads | Its own code and constants | |
 | Reads | The tag page, 0x80200000 to 0x80208000 | Only if r2 is inside it and a multiple of 4; only whole words; never past its end. |
 | Reads | One register, 0x05190008 (MDP4 `DMA_P` buffer address) | Once, after the report is complete. **Measured:** the first image read it on the phone; it returned 0x88100000 and did not hang. Never written. |
 
-It writes no peripheral register, uses no storage and does not reset the phone. Under rule 1's standing approval it is therefore a "further test image", not an image that "does something new to the hardware" (reviewer's reading; the amendment in the issue states it).
+It writes nothing else: no peripheral register and no other memory. It uses no storage and does not reset the phone. Under rule 1's standing approval it is therefore a "further test image", not an image that "does something new to the hardware" (reviewer's reading; the amendment in the issue states it).
 
 No heap, no allocator, no interrupts, no timer, no watchdog, no `svc`, no `core::fmt`, and no code path that can panic.
 
@@ -133,11 +138,13 @@ The three do not overlap.
 | `boot/samsung-serranolte/kstart.S`, `link.ld` | **The first image's files, unchanged.** Everything that runs before Rust (the vectors, the register capture, the stack) is the code that has already run on the phone. |
 | `console/main.rs` | The entry `payload_main`, the report, the counter. |
 | `console/board.rs` | Every address and size the image uses, each with its evidence label. |
-| `console/fb.rs` | The framebuffer and its one operation, a clipped rectangle fill. The only code that writes to the screen. |
-| `console/console.rs` | Characters, lines, wrapping, hexadecimal and decimal numbers. |
+| `console/fb.rs` | A framebuffer (address, width, height, row length, bytes per pixel) and its one operation, a clipped rectangle fill. The only code that writes to the screen. |
+| `console/console.rs` | Characters, lines, wrapping, hexadecimal and decimal numbers. It takes its size from the framebuffer. |
 | `console/atags.rs` | The tag-list walk and the command-line splitter. No `unsafe`, no addresses: it works on a slice of words. |
 | `console/font.txt` | The glyphs, drawn for this project: 95 characters, ASCII 0x20 to 0x7E. The single source of the font. |
 | `console/font.rs` | The table generated from `font.txt` by `tools/gen_console_font.py`. Committed; a build never runs the generator; a test fails if the two disagree. |
+
+Only `main.rs` and `board.rs` know the GT-I9195. `fb.rs`, `console.rs`, `font.rs` and `atags.rs` do not, so they can serve the next board unchanged ([ADR 0004](../decisions/0004-one-kernel-many-boards.md)), and they are also built and tested on the build machine (`tests/boot/console_host.rs`).
 
 `make console` builds `build/boot-serrano-console/console.bin` (the kernel-slot bytes) and `console.img` (the Android boot image around them, packed by `tools/pack_bootimg.py` exactly as the first image is). The directory is separate from `build/boot-serrano/` on purpose: the write plan's host check lists the `.img` files there and must keep finding the first image only.
 
@@ -149,7 +156,7 @@ The first image is frozen and is not touched: its sources, its hashes and its te
 
 **Byte writes.** Every framebuffer write is one volatile byte. Bytes need no alignment (see below) and make the order of the colour bytes irrelevant: a pixel's three bytes all get the same value, so only greys can be drawn and white is white in any order. **Measured:** the order is blue, green, red. This is the simple form, not the fast one. Drawing the full screen is about 2 million byte writes with the caches off; how long that takes on the phone is **Unknown** until the session.
 
-**Alignment.** **Measured:** the bootloader enters the image with alignment checking on (SCTLR bit 1), so an unaligned word access would fault. The image reads words only from places it has checked or that the compiler aligns. The compiler itself is told never to generate an unaligned access: the Rust target `armv7a-none-eabi` has `+strict-align` among its built-in features (**Source:** rustc's target specification, `compiler/rustc_target/src/spec/targets/armv7a_none_eabi.rs`). The QEMU tests run the image with alignment checking on, after showing that the QEMU in use really faults an unaligned load.
+**Alignment.** **Measured:** the bootloader enters the image with alignment checking on (SCTLR bit 1) and the MMU off (bit 0). Either is enough to forbid an unaligned word access. With alignment checking on it faults. With the MMU off all memory is treated as device memory, where an unaligned access is not allowed whatever that bit says (**Inference** for the phone; QEMU models it so, **Source:** QEMU commit [59754f85ed3](https://qemu.googlesource.com/qemu/+/59754f85ed35cbd5f4bf2663ca2136c78d5b2413), "Do memory type alignment check when translation disabled"). So the image must make none. It reads words only from places it has checked or that the compiler aligns, and the compiler is told never to generate an unaligned access: the Rust target `armv7a-none-eabi` has `+strict-align` among its built-in features (**Source:** [rustc's target specification](https://doc.rust-lang.org/stable/nightly-rustc/src/rustc_target/spec/targets/armv7a_none_eabi.rs.html)). The QEMU tests run the image in the phone's state, alignment checking on and MMU off, after showing that the QEMU in use faults an unaligned load in that state.
 
 **The order of risk.** Everything that only reads memory comes first. The one register read comes after the report is complete and after both fixed lines are in a known state, so a hang or fault there leaves the whole report on screen with `MDP4 READ PENDING` under it.
 
@@ -159,17 +166,21 @@ The first image is frozen and is not touched: its sources, its hashes and its te
 
 **If the image is loaded somewhere else.** The image is linked for 0x80208000 and reaches its text and its font through absolute addresses. If it were entered at another address those would point at memory that is not the image, and no text could be trusted. So the entry address is checked first. If it is wrong, the image draws 20 white and black stripes across the whole panel, which need no text and no table, and stops. **Measured:** the phone entered the first image at 0x80208000 in five of five trials, so stripes are not expected.
 
-**The counter.** The wait between two steps is a counting loop, with volatile accesses so that the compiler keeps it. No timer and no `wfi`: with interrupts masked and nothing set up to raise one, a `wfi` would never return. How long one step takes on the phone is **Unknown**; the session's video gives it, and with it a first measure of how fast the processor runs our code with the caches off. `make console-sizes` prints the loop's instructions.
+**The counter.** Its line is drawn once. At each step only the digits that changed are redrawn, one cell each, so the line never blanks and a photograph almost never catches a digit half drawn.
+
+The wait between two steps is a counting loop of 4,194,304 turns. No timer and no `wfi`: with interrupts masked and nothing set up to raise one, a `wfi` would never return. The loop's counter is read and written with volatile accesses, so that the compiler keeps the loop; that puts the counter on the stack, so each turn is a handful of instructions (5 or 6, depending on the optimisation level; `make console-sizes` prints them) and two memory accesses. How long one step takes on the phone is **Unknown**; the session's video gives it. With the caches off, that time is mostly the time memory takes to answer, for the instructions as for the counter. It is a first rough figure for "our code on this phone as the bootloader leaves it", not a measure of the processor.
 
 **No margin.** Text starts at the panel's first pixel. If the session shows the panel's edge is hard to photograph, the next image gives up a column and a line for a margin.
 
-**Size.** The flat image may not exceed 8,192 bytes; a test fails if it does. `make console-sizes` prints its size at optimisation levels 2, s and z.
+**Size.** The flat image may not exceed 8,192 bytes; a test fails if it does. It is built at optimisation level z, the smallest. At commit `fd9ad49` the implementer measured 12,412 bytes at level 2, 7,272 at s and 6,000 at z (report R-14 on pull request #34). `make console-sizes` prints the three sizes for the current sources.
 
 ## Tests
 
 `make test-console` (part of `make check`). Everything here is **Emulator** evidence or a build check. The host oracle is `tests/boot/console_v2.py`; the QEMU harness is `tests/boot/run_console.py`; the oracle's own unit tests are `tests/boot/test_console_v2.py` (run by `make test-unit`).
 
 The oracle works out the expected screen from the description in this document and from `font.txt`. It does not share code with the image. The harness fills the framebuffer with a byte the image never writes before each run, so a dump that equals the oracle shows that the image wrote every byte of the panel.
+
+The host tests (`tests/boot/console_host.rs`) build `fb.rs`, `console.rs`, `font.rs` and `atags.rs` for the build machine, exactly as they are, and run them against a framebuffer that is ordinary memory with guard bytes on both sides. They exercise the Rust case by case, and they give the rectangle fill coordinates the image never uses, far outside the panel.
 
 | Test | What it can show |
 | --- | --- |
@@ -178,17 +189,19 @@ The oracle works out the expected screen from the description in this document a
 | `console-no-system-calls`, `console-symbols`, `console-elf-attributes` | As for the first image: no `svc`, nothing undefined, ARMv7-A soft-float. |
 | `console-no-panic-code` | The linked image has no `core::panicking` and no `core::fmt` symbol. |
 | `console-corrupt-image-rejected`, `console-image-unchanged` | A one-byte change is caught by the SHA-256. |
+| `console-host-tests` | The Rust modules themselves, on the build machine, built without optimisation so that arithmetic overflow is checked. The rectangle fill writes exactly the part of a rectangle that lies inside the panel and never a guard byte, for rectangles outside the panel and sizes that would overflow. Lines are cleared when the cursor enters them; wrapping, the `+`, numbers and single-cell replacement are right. The tag walk gives each malformed list its stop. The command-line splitter never gives out a byte of a value or of a word without `=`. |
 | `console-vector-header` | The image starts with `kstart.S`'s vectors and zImage words. |
-| `qemu-console` | With no handoff, the screen is byte-exact, and byte-exact again after the counter has stepped. |
+| `qemu-console` | With no handoff, the screen is byte-exact, and stays byte-exact at every look while the counter runs past 0x10, so a carry into the next digit has been drawn. |
 | `qemu-console-device-handoff` | Entered as the phone enters it, with a sample tag list and the register reading 0x88100000: byte-exact; none of the sample's hidden values can be read back from the screen; the tag page is unchanged. |
-| `qemu-console-alignment-control` | This QEMU faults an unaligned word load when alignment checking is on. Without this, the next test would prove nothing. |
+| `qemu-console-alignment-control` | In the phone's state (alignment checking on, MMU off) this QEMU faults a word load from an odd address, and the same load from an aligned address works. Without this, the next test would prove nothing. |
 | `qemu-console-alignment-checked` | The same handoff with alignment checking on, as on the phone: byte-exact, no fault. |
-| `qemu-console-tag-lists` | Twenty malformed and edge-case tag lists, one run each: byte-exact, no fault. They cover r2 outside the page and unaligned, the first and last word of the page, a device tree, sizes of 1 and 2,049, the largest tag, a tag that runs past the page end, 65 tags, an ending tag with a kind, a report longer than the screen, and the command-line forms (quotes, no `=`, empty name, empty value, a name longer than a line, bytes that are not printable, no terminating zero). |
+| `qemu-console-tag-lists` | Twenty-one malformed and edge-case tag lists, one run each, alignment checking on: byte-exact, no fault. They cover r2 outside the page and unaligned, the first and last word of the page, a device tree, sizes of 1 and 2,049, the largest tag, a tag that runs past the page end, 65 tags, an ending tag with a kind, a report longer than the screen, and the command-line forms (quotes, no `=`, empty name, empty value, a name longer than a line, bytes that are not printable, no terminating zero, no text at all). |
 | `qemu-console-noise` | Four tag pages of pseudo-random bytes: byte-exact, no fault, and the walk stays inside the page. |
 | `qemu-console-moved` | Loaded and started at another address: the stripes, then a halt, no fault. |
 | `qemu-console-fault-halts` | With memory that ends inside the framebuffer, the write past its end faults, the processor rests in the halt loop in abort mode, and everything drawn before is byte-exact. |
 | `console-bootimg-valid` | An independent reader accepts every field of `console.img`. |
 | `console-repro-identical` | Two clean builds give identical bytes. |
+| `console-frozen` | `console.bin` and `console.img` are the reviewed bytes, by SHA-256. Until hashes are pinned in the Makefile this prints a `NOTE` line with the two hashes and is not a test. |
 
 After every QEMU run the harness also checks that the tag page still holds exactly what was stored and that 64 KiB on each side of the framebuffer were not written.
 
