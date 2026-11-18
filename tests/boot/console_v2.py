@@ -260,6 +260,9 @@ def _report_cmdline(win: Window, body: list[int]) -> None:
         win.puts("\n  " if win.col + 1 + len(shown) > COLUMNS else " ")
         win.puts(shown)
     win.newline()
+    if b"\0" not in struct.pack(f"<{len(body)}I", *body):
+        # Malformed: the text has no terminating zero; it was cut at the tag's end.
+        win.puts(" CMDLINE UNTERMINATED\n")
 
 
 def _report_tag(win: Window, kind: int, body: list[int]) -> None:
@@ -300,9 +303,10 @@ def _report_tags(win: Window, r2: int, page: bytes) -> None:
     for kind, body in tags:
         _report_tag(win, kind, body)
     if ended[0] == "end":
-        win.puts(f" END {len(tags)} TAGS\n")
-        if ended[1] != 0:
-            win.puts(f" END KIND {ended[1]:08X}\n")
+        # A size of 0 ends the list whatever the kind word is, but a kind
+        # other than 0 is a malformed end, shown as a STOP like the others.
+        win.puts(f" END {len(tags)} TAGS\n" if ended[1] == 0
+                 else f" STOP END KIND {ended[1]:08X}\n")
     elif ended[0] == "bad-size":
         win.puts(f" STOP SIZE {ended[1]:08X}\n")
     elif ended[0] == "past-end":

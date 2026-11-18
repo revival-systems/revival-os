@@ -267,9 +267,9 @@ class TagTests(unittest.TestCase):
         self.assertEqual(len(over), 1 + o.MAX_TAGS + 1)
         self.assertEqual(over[-1], " STOP AT 64 TAGS")
 
-    def test_end_tag_with_a_kind_is_reported(self):
+    def test_end_tag_with_a_kind_is_a_stop(self):
         data = o.tag(o.ATAG_CORE) + struct.pack("<2I", 0, 0xABCD_0123)
-        self.assertEqual(tags_report(data)[1:], [" CORE", " END 1 TAGS", " END KIND ABCD0123"])
+        self.assertEqual(tags_report(data)[1:], [" CORE", " STOP END KIND ABCD0123"])
 
     def test_report_overflow_marks_the_last_report_cell(self):
         data = o.tag(o.ATAG_MEM, 1, 2) * 40 + o.end_tag()
@@ -313,7 +313,13 @@ class CmdlineTests(unittest.TestCase):
         data = struct.pack("<2I", 2 + len(body) // 4, o.ATAG_CMDLINE) + body
         data += o.tag(o.ATAG_REVISION, 7) + o.end_tag()
         self.assertEqual(tags_report(data)[1:],
-                         [" CMDLINE key=<8>", " REVISION 00000007", " END 2 TAGS"])
+                         [" CMDLINE key=<8>", " CMDLINE UNTERMINATED", " REVISION 00000007",
+                          " END 2 TAGS"])
+
+    def test_command_line_tag_with_no_body_is_unterminated(self):
+        data = o.tag(o.ATAG_CMDLINE) + o.end_tag()
+        self.assertEqual(tags_report(data)[1:],
+                         [" CMDLINE", " CMDLINE UNTERMINATED", " END 1 TAGS"])
 
     def test_words_are_kept_whole_at_the_line_end(self):
         data = o.cmdline_tag(b"aaaaaaaaaa=1 bbbbbbbbbb=2 cccccccccc=3") + o.end_tag()

@@ -24,8 +24,9 @@ Cases (PASS/FAIL line each):
 
   console-vector-header     The image's first 0x30 bytes are kstart.S's layout.
   qemu-console              No handoff (r0-r3 = 0), the display register reads
-                            0: the screen is byte-exact, and after the counter
-                            has stepped it is byte-exact again.
+                            0: the screen is byte-exact, and stays byte-exact
+                            at every look while the counter runs past 0x10
+                            (so a carry into the next digit has been drawn).
   qemu-console-device-handoff
                             Entered the way the phone enters it (r1 = 3727,
                             r2 = 0x80200100) with a sample tag list there and
@@ -34,8 +35,10 @@ Cases (PASS/FAIL line each):
                             back from the screen.
   qemu-console-alignment-control
                             Shows that this QEMU faults an unaligned word load
-                            when SCTLR.A is set, and does not when it is clear.
-                            Without this the next case would prove nothing.
+                            in the state the phone hands over (SCTLR.A set, MMU
+                            off), and that the same load from an aligned
+                            address does not. Without this the next case would
+                            prove nothing.
   qemu-console-alignment-checked
                             The device handoff again with SCTLR.A set, as on
                             the phone: byte-exact, no fault.
@@ -84,13 +87,14 @@ RAM_MIB = 2048
 FAULT_RAM_MIB = 1154
 NOISE = 0x55
 GUARD = 0x1_0000
+# The plain case watches the counter until it has passed this value.
+COUNT_PAST = 0x10
 
 # Test-only code. Words are ARM instructions.
 INSN_MRC_SCTLR_R4 = 0xEE11_4F10  # mrc p15, 0, r4, c1, c0, 0
 INSN_ORR_R4_A = 0xE384_4002      # orr r4, r4, #2      (SCTLR.A)
 INSN_MCR_SCTLR_R4 = 0xEE01_4F10  # mcr p15, 0, r4, c1, c0, 0
 INSN_ISB = 0xF57F_F06F
-INSN_NOP = 0xE1A0_0000           # mov r0, r0
 SET_ALIGN = (INSN_MRC_SCTLR_R4, INSN_ORR_R4_A, INSN_MCR_SCTLR_R4, INSN_ISB)
 LOAD_REGS_AND_JUMP = (
     0xE59F_0010,  # ldr r0, [pc, #16]
@@ -102,31 +106,30 @@ LOAD_REGS_AND_JUMP = (
 )
 SCTLR_A = 1 << 1
 
-# The alignment control: set (or not) SCTLR.A, load a word from an odd address,
+# The alignment control: set SCTLR.A, load a word from MARKER_ADDR + `offset`,
 # then store a marker. The marker is stored only if the load did not fault.
 MARKER_ADDR = 0x8011_0000
 MARKER = 0x600D_F00D
-CONTROL_TAIL = (
-    0xE59F_5010,  # ldr r5, [pc, #16]   -> MARKER_ADDR
-    0xE59F_6010,  # ldr r6, [pc, #16]   -> MARKER
-    0xE285_7001,  # add r7, r5, #1
-    0xE597_8000,  # ldr r8, [r7]        (unaligned word load)
-    0xE585_6000,  # str r6, [r5]
-    0xEAFF_FFFE,  # b .
-    MARKER_ADDR,
-    MARKER,
-)
+INSN_ADD_R7_R5_IMM = 0xE285_7000  # add r7, r5, #imm8
+
+
+def control_bytes(offset: int) -> bytes:
+    words = SET_ALIGN + (
+        0xE59F_5010,                  # ldr r5, [pc, #16]   -> MARKER_ADDR
+        0xE59F_6010,                  # ldr r6, [pc, #16]   -> MARKER
+        INSN_ADD_R7_R5_IMM | offset,  # add r7, r5, #offset
+        0xE597_8000,                  # ldr r8, [r7]        (the word load)
+        0xE585_6000,                  # str r6, [r5]
+        0xEAFF_FFFE,                  # b .
+        MARKER_ADDR,
+        MARKER,
+    )
+    return struct.pack(f"<{len(words)}I", *words)
 
 
 def shim_bytes(regs: tuple, entry: int, align: bool) -> bytes:
     """The entry shim: optionally set SCTLR.A, then load r0-r3 and jump."""
     words = (SET_ALIGN if align else ()) + LOAD_REGS_AND_JUMP + tuple(regs) + (entry,)
-    return struct.pack(f"<{len(words)}I", *words)
-
-
-def control_bytes(align: bool) -> bytes:
-    head = SET_ALIGN if align else (INSN_NOP,) * len(SET_ALIGN)
-    words = head + CONTROL_TAIL
     return struct.pack(f"<{len(words)}I", *words)
 
 
@@ -367,19 +370,25 @@ def case_plain(r: Runner) -> str:
         spans = r.spans(LINK_ADDR)
         state, psr, sp = vm.settle(spans)
         require_running(state, psr, sp)
-        first = require_screen(vm.read(FB_BASE, oracle.FB_BYTES), handoff, None, 0)
-        later = first
-        while later == first:
+        seen = [require_screen(vm.read(FB_BASE, oracle.FB_BYTES), handoff, None, 0)]
+        # The image redraws only the digits that change. Look again and again
+        # until the counter has passed COUNT_PAST, so that a carry into the
+        # next digit has been drawn; every look must be byte-exact.
+        while seen[-1] <= COUNT_PAST:
             state, psr, sp = vm.settle(spans)
             require_running(state, psr, sp)
-            later = require_screen(vm.read(FB_BASE, oracle.FB_BYTES), handoff, None, 0)
-            vm.check_time(f"the counter stayed at {first}")
-        if later < first:
-            raise CaseFailure(f"the counter went from {first} back to {later}")
+            now = require_screen(vm.read(FB_BASE, oracle.FB_BYTES), handoff, None, 0)
+            if now < seen[-1]:
+                raise CaseFailure(f"the counter went from {seen[-1]:#x} back to {now:#x}")
+            if now != seen[-1]:
+                seen.append(now)
+            vm.check_time(f"the counter did not pass {COUNT_PAST:#x} in time "
+                          f"(it shows {now:#x})")
         require_untouched(vm, None)
-    return (f"framebuffer byte-identical to the oracle with the counter at {first} and "
-            f"again at {later}; every byte of the panel written; cpsr={handoff.cpsr:#x} "
-            f"sctlr={handoff.sctlr:#x}; counting in SVC mode, sp={sp:#x}")
+    return (f"framebuffer byte-identical to the oracle at {len(seen)} counter values from "
+            f"{seen[0]:#x} to {seen[-1]:#x}; every byte of the panel written; "
+            f"cpsr={handoff.cpsr:#x} sctlr={handoff.sctlr:#x}; counting in SVC mode, "
+            f"sp={sp:#x}")
 
 
 def sample_page() -> bytes:
@@ -405,12 +414,14 @@ def case_device_handoff(r: Runner) -> str:
 
 
 def case_align_control(r: Runner) -> str:
-    """Does this QEMU fault an unaligned word load when SCTLR.A is set?"""
+    """Does this QEMU fault an unaligned word load in the state the phone
+    hands over, SCTLR.A set and the MMU off? The same program with an aligned
+    address is the control of the control: it must store its marker."""
     seen = {}
-    for align in (False, True):
-        tag = f"align-control-{int(align)}"
+    for offset in (0, 1):
+        tag = f"align-control-{offset}"
         with Vm(r.qemu, r.timeout, r.workdir, tag, ram_mib=RAM_MIB,
-                blobs=[(control_bytes(align), SHIM_ADDR, True)], flash=None) as vm:
+                blobs=[(control_bytes(offset), SHIM_ADDR, True)], flash=None) as vm:
             while True:
                 vm.resume()
                 time.sleep(0.05)
@@ -419,20 +430,21 @@ def case_align_control(r: Runner) -> str:
                 if marker == MARKER or psr & 0x1F == MODE_ABT:
                     break
                 vm.check_time("the control program neither stored its marker nor faulted")
-            seen[align] = (marker == MARKER, psr & 0x1F)
-    if seen[False] != (True, MODE_SVC):
-        raise CaseFailure("with SCTLR.A clear the unaligned load should succeed and the "
-                          f"marker be stored; got stored={seen[False][0]} "
-                          f"mode={seen[False][1]:#x}")
-    if seen[True][0]:
+            seen[offset] = (marker == MARKER, psr & 0x1F)
+    if seen[0] != (True, MODE_SVC):
+        raise CaseFailure("the aligned load should succeed and the marker be stored; got "
+                          f"stored={seen[0][0]} mode={seen[0][1]:#x}: the control program "
+                          "itself does not work here")
+    if seen[1][0]:
         raise CaseFailure("this QEMU does not fault an unaligned word load with SCTLR.A "
                           "set, so it cannot show that the image is free of unaligned "
-                          "accesses; a QEMU that enforces SCTLR.A is needed")
-    if seen[True][1] != MODE_ABT:
-        raise CaseFailure(f"with SCTLR.A set the load did not store the marker, but the "
-                          f"CPU mode is {seen[True][1]:#x}, not ABT")
-    return ("an unaligned word load succeeds with SCTLR.A clear and takes a data abort "
-            "with SCTLR.A set: this QEMU enforces alignment checking")
+                          "accesses; a QEMU that enforces alignment is needed")
+    if seen[1][1] != MODE_ABT:
+        raise CaseFailure(f"the unaligned load did not store the marker, but the CPU mode "
+                          f"is {seen[1][1]:#x}, not ABT")
+    return ("with SCTLR.A set and the MMU off, a word load from an aligned address "
+            "succeeds and the same load from an odd address takes a data abort: this "
+            "QEMU enforces alignment")
 
 
 def case_aligned(r: Runner) -> str:
@@ -475,6 +487,7 @@ def tag_lists() -> list:
          o.PHONE_R2),
         ("end-with-kind", o.PHONE_R2, o.tag(o.ATAG_CORE) + struct.pack("<2I", 0, 0xABCD_0123),
          o.PHONE_R2),
+        ("cmdline-no-body", o.PHONE_R2, o.tag(o.ATAG_CMDLINE) + o.end_tag(), o.PHONE_R2),
         ("report-overflow", o.PHONE_R2, o.tag(o.ATAG_MEM, 1, 2) * 40 + o.end_tag(),
          o.PHONE_R2),
         ("cmdline-forms", o.PHONE_R2,
