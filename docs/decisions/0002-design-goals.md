@@ -1,6 +1,6 @@
 # ADR 0002 — Design goals, and how each one is measured
 
-- **Status:** Accepted by the reviewer, 2026-11-14. The eight goals are the owner's, and the owner can change them at any time.
+- **Status:** Accepted by the reviewer, 2026-11-14. The nine goals are the owner's, and the owner can change them at any time.
 - **Source:** the owner stated the goals on 2026-11-10 and 2026-11-14, and the reviewer's task of 2026-11-14 relayed them; how each goal is measured, and where its number is set, is what the reviewer accepted.
 - **Builds on:** [ADR 0001](0001-rust-and-arm-assembly.md) (Rust and ARM Assembly; the memory strategy), [ARCHITECTURE.md](../../ARCHITECTURE.md#goals) (goals and engineering standards) and the [roadmap rules](../../ROADMAP.md#rules-for-every-phase).
 - **Does not change:** the hardware-safety contract, the phase-by-phase method, or any pass criterion already in the roadmap.
