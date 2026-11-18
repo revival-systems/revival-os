@@ -143,13 +143,29 @@ PAYLOAD_BIN_SHA256 := 8ee519ae31a9d005f72e14e21ff5c0b7baadefbec225083013820d5700
 PAYLOAD_IMG_SHA256 := bde09074c1e7f48ac04be318bba9905228fc26ad077e94ab9ded5dc00bb1ce02
 RUST_PAYLOAD_LINK := $(RUST_LINK_BASE) -C link-arg=-Wl,-T,$(PAYLOAD_DIR)/link.ld
 
+# Phase 2 image 2: the text console (docs/phase-2/console-payload.md). Its Rust
+# is in $(CONSOLE_DIR). It is entered through the first image's kstart.S and
+# laid out by its link.ld, both used unchanged (the same kstart.o). It has its
+# own output directory, so build/boot-serrano/ holds the first image only.
+# Built here and tested only in QEMU; no target flashes it.
+CONSOLE_DIR  := $(PAYLOAD_DIR)/console
+CONSOLE_OUT  := $(OUT)/boot-serrano-console
+CONSOLE_ELF  := $(CONSOLE_OUT)/console.elf
+CONSOLE_BIN  := $(CONSOLE_OUT)/console.bin
+CONSOLE_IMG  := $(CONSOLE_OUT)/console.img
+CONSOLE_SRC  := $(wildcard $(CONSOLE_DIR)/*.rs)
+# Optimisation level of the console image; `make console-sizes` compares 2, s
+# and z. The flat image may not exceed CONSOLE_MAX_BYTES (test console-size).
+CONSOLE_OPT  ?= 2
+CONSOLE_MAX_BYTES := 8192
+
 SHELL_SCRIPTS := $(wildcard tools/*.sh tests/*.sh tests/*/*.sh)
 PY_FILES      := $(wildcard tests/*.py tests/*/*.py tools/*.py)
 OWN_C         := $(wildcard $(FIXTURE)/*.c tests/host/*.c tests/build/link-negative/*.c)
 
 .PHONY: help doctor install-toolchain build payload payload-invalid test test-build test-unit test-qemu \
         test-rust test-tasks test-exceptions test-payload test-repro lint check-docs check clean qemu-run qemu-debug \
-        measure-tasks need-goose need-arm need-qemu need-rust
+        measure-tasks need-goose need-arm need-qemu need-rust console console-sizes console-sample test-console
 
 help: ## List the targets
 	@echo "Revival OS local development (docs/DEVELOPMENT.md):"
@@ -337,9 +353,45 @@ payload-invalid: $(PAYLOAD_INVALID_IMG) ## Build the Phase 2 NEGATIVE-TEST image
 	@echo 'NEGATIVE-TEST IMAGE, NOT THE PAYLOAD: payload-invalid.img has the magic "INVALID!" and is built to be rejected.'
 	@echo "INVALID-MAGIC-NEGATIVE-TEST sha256 $$(sha256sum < $(PAYLOAD_INVALID_IMG) | cut -d' ' -f1)  payload-invalid.img  ($$(stat -c %s $(PAYLOAD_INVALID_IMG)) bytes)"
 
-build: $(PROBE_ELFS) $(PROBE_BINS) $(ALLOC_ELF) $(KERNEL_ELFS) $(TASKS_ELFS) $(EXC_ELFS) $(PAYLOAD_BIN) $(PAYLOAD_IMG) ## Build every artifact that exists today (the ARMv7-A probe, allocator, Rust kernel, task-experiment, exception-report and Phase 2 payload images)
+# ---- Phase 2 image 2: the text console (device image) -----------------------
+
+# rustc drives the link exactly as for the first image: the same kstart.o, the
+# same link.ld. main.rs is the crate root; the other files are its modules.
+$(CONSOLE_ELF): $(CONSOLE_SRC) $(PAYLOAD_OUT)/kstart.o $(PAYLOAD_DIR)/link.ld | need-rust need-arm
+	@mkdir -p $(@D)
+	$(RUSTC) $(RUST_FLAGS) -C opt-level=$(CONSOLE_OPT) --crate-name revival_console \
+	    $(RUST_PAYLOAD_LINK) -C link-arg=$(PAYLOAD_OUT)/kstart.o \
+	    --emit link -o $@ $(CONSOLE_DIR)/main.rs
+
+# The exact kernel-slot bytes the stock bootloader would run (flat binary).
+$(CONSOLE_BIN): $(CONSOLE_ELF)
+	$(ARM_OBJCOPY) -O binary $< $@
+
+# The Android boot image v0 around them (not flashed by any target).
+$(CONSOLE_IMG): $(CONSOLE_BIN) tools/pack_bootimg.py
+	$(PYTHON) -I tools/pack_bootimg.py --kernel $< --output $@
+
+console: $(CONSOLE_BIN) $(CONSOLE_IMG) ## Build the Phase 2 console image (.bin kernel slot + .img boot image)
+	@cd $(CONSOLE_OUT) && sha256sum console.bin console.img
+
+console-sizes: $(CONSOLE_ELF) ## Print the console image's size at opt-level 2, s and z, its largest functions and its wait loop (information, not a test)
+	@for opt in 2 s z; do \
+	  $(MAKE) --no-print-directory -s BUILD=$(OUT)/console-opt-$$opt CONSOLE_OPT=$$opt console >/dev/null; \
+	  echo "console.bin at opt-level $$opt: $$(stat -c %s $(OUT)/console-opt-$$opt/boot-serrano-console/console.bin) bytes"; \
+	done
+	@echo "# largest symbols in $(notdir $(CONSOLE_ELF)) (opt-level $(CONSOLE_OPT)): address, size, kind, name"
+	@$(ARM_NM) -S -C --size-sort $(CONSOLE_ELF) | tail -n 14
+	@echo "# console_tick_wait: the instructions of one turn of the wait loop"
+	@$(ARM_OBJDUMP) -d --no-show-raw-insn $(CONSOLE_ELF) | awk '/<console_tick_wait>:/{on=1} on&&NF==0{exit} on'
+
+console-sample: ## Write the host oracle's sample console screen as a PNG picture (no build needed)
+	@mkdir -p $(CONSOLE_OUT)
+	@$(PYTHON) -m tests.boot.console_v2 --png $(CONSOLE_OUT)/console-sample.png
+
+build: $(PROBE_ELFS) $(PROBE_BINS) $(ALLOC_ELF) $(KERNEL_ELFS) $(TASKS_ELFS) $(EXC_ELFS) $(PAYLOAD_BIN) $(PAYLOAD_IMG) $(CONSOLE_BIN) $(CONSOLE_IMG) ## Build every artifact that exists today (the ARMv7-A probe, allocator, Rust kernel, task-experiment, exception-report and the two Phase 2 images)
 	@cd $(QEMU_OUT) && sha256sum probe-*.elf probe-*.bin alloc.elf kernel-*.elf $(notdir $(TASKS_ELFS)) $(notdir $(EXC_ELFS))
 	@cd $(PAYLOAD_OUT) && sha256sum payload.elf payload.bin payload.img
+	@cd $(CONSOLE_OUT) && sha256sum console.elf console.bin console.img
 
 # ---- link check (build-link-map) -------------------------------------------
 
@@ -391,7 +443,7 @@ $(HOST_OUT)/probe_host_asan: $(HOST_OUT)/probe_gen_asan.o $(HOST_OUT)/probe_main
 
 # ---- tests -----------------------------------------------------------------
 
-test: test-build test-unit test-qemu test-rust test-tasks test-exceptions test-payload test-repro ## Run every automated test (build, unit, QEMU, Rust kernel, task experiment, exception reports, Phase 2 payload, reproducibility)
+test: test-build test-unit test-qemu test-rust test-tasks test-exceptions test-payload test-console test-repro ## Run every automated test (build, unit, QEMU, Rust kernel, task experiment, exception reports, the two Phase 2 images, reproducibility)
 
 test-build: build $(QEMU_OUT)/hosted_probe.o $(LINK_CHECKED) ## Check the freestanding build: link inputs, symbols, ELF attributes, no system calls
 	@mkdir -p $(LOGS)
@@ -602,6 +654,51 @@ test-payload: $(PAYLOAD_BIN) $(PAYLOAD_IMG) $(PAYLOAD_INVALID_IMG) $(PAYLOAD_OUT
 	  if [ "$$bin" = "$(PAYLOAD_BIN_SHA256)" ] && [ "$$img" = "$(PAYLOAD_IMG_SHA256)" ]; then \
 	    echo "PASS payload-frozen (payload.bin $$bin, payload.img $$img: the reviewed v1.3 bytes)"; \
 	  else echo "FAIL payload-frozen: payload.bin $$bin (want $(PAYLOAD_BIN_SHA256)), payload.img $$img (want $(PAYLOAD_IMG_SHA256)); the payload is frozen, a change needs a new review"; exit 1; fi
+
+test-console: $(CONSOLE_BIN) $(CONSOLE_IMG) tests/boot/run_console.py tests/boot/console_v2.py tests/boot/run_payload.py tests/boot/serrano_v1.py tests/boot/read_bootimg.py tools/gen_console_font.py $(CONSOLE_DIR)/font.txt tests/build/check_image_integrity.sh | need-qemu need-arm need-rust ## Boot the Phase 2 console image in QEMU (byte-exact screens for plain, device-like, malformed and random tag lists, alignment checking on, a moved image and a fault), and check its size, its build attributes, that it has no panic code, the packer and reproducibility
+	@mkdir -p $(LOGS) $(CONSOLE_OUT)/neg
+	@echo "# (a) build checks on the console image"
+	@$(EXPECT) console-font-generated 0 "OK font.rs matches font.txt" $(LOGS)/console-font.log -- \
+	    $(PYTHON) -I tools/gen_console_font.py --check
+	@size=$$(stat -c %s $(CONSOLE_BIN)); \
+	  if [ "$$size" -le $(CONSOLE_MAX_BYTES) ]; then echo "PASS console-size (console.bin is $$size bytes at opt-level $(CONSOLE_OPT); limit $(CONSOLE_MAX_BYTES))"; \
+	  else echo "FAIL console-size: console.bin is $$size bytes at opt-level $(CONSOLE_OPT); limit $(CONSOLE_MAX_BYTES)"; exit 1; fi
+	@n=$$($(ARM_OBJDUMP) -d $(CONSOLE_ELF) | grep -cE '\s(svc|swi|smc|hvc)\s' || true); \
+	  if [ "$$n" = 0 ]; then echo "PASS console-no-system-calls (zero svc/swi/smc/hvc)"; \
+	  else echo "FAIL console-no-system-calls: found $$n"; exit 1; fi
+	@u=$$($(ARM_NM) -u $(CONSOLE_ELF) | wc -l | tr -d ' '); \
+	  if [ "$$u" = 0 ]; then echo "PASS console-symbols (no undefined symbols; Rust links its own core)"; \
+	  else echo "FAIL console-symbols: $$u undefined"; $(ARM_NM) -u $(CONSOLE_ELF); exit 1; fi
+	@a=$$($(ARM_READELF) -A $(CONSOLE_ELF)); \
+	  grep -q 'Tag_CPU_arch: v7$$' <<<"$$a" && grep -q 'Tag_CPU_arch_profile: Application' <<<"$$a" \
+	  && $(ARM_READELF) -h $(CONSOLE_ELF) | grep -q 'soft-float ABI' \
+	  && echo "PASS console-elf-attributes (ARMv7-A, Application, soft-float EABI)" \
+	  || { echo "FAIL console-elf-attributes"; exit 1; }
+	@p=$$($(ARM_NM) $(CONSOLE_ELF) | grep -cE 'panicking|4core3fmt' || true); \
+	  if [ "$$p" = 0 ]; then echo "PASS console-no-panic-code (no core::panicking and no core::fmt symbol in the linked image: nothing in it can panic)"; \
+	  else echo "FAIL console-no-panic-code: $$p symbols"; $(ARM_NM) -C $(CONSOLE_ELF) | grep -E 'panicking|core::fmt'; exit 1; fi
+	@tests/build/check_image_integrity.sh $(CONSOLE_BIN) $(CONSOLE_OUT)/neg console
+	@echo "# (b) run the exact kernel-slot bytes in QEMU; every screen must match the host oracle byte for byte"
+	@syms=$$($(ARM_NM) -S $(CONSOLE_ELF)); \
+	  halt=$$(awk '$$NF=="halt_loop"{print $$1}' <<<"$$syms"); \
+	  wait=$$(awk 'NF==4 && $$4=="console_tick_wait"{print $$1}' <<<"$$syms"); \
+	  size=$$(awk 'NF==4 && $$4=="console_tick_wait"{print $$2}' <<<"$$syms"); \
+	  if [ -z "$$halt" ] || [ -z "$$wait" ] || [ -z "$$size" ]; then \
+	    echo "FAIL qemu-console: halt_loop, or console_tick_wait with its size, is not in $(CONSOLE_ELF)"; exit 1; fi; \
+	  $(PYTHON) -m tests.boot.run_console --image $(CONSOLE_BIN) --workdir $(CONSOLE_OUT)/qemu \
+	      --halt-addr 0x$$halt --wait-addr 0x$$wait --wait-size 0x$$size
+	@echo "# (c) packer: an independent reader validates every boot-image field"
+	@$(EXPECT) console-bootimg-valid 0 "OK" $(LOGS)/console-read.log -- \
+	    $(PYTHON) -m tests.boot.read_bootimg $(CONSOLE_IMG)
+	@echo "# (d) reproducibility: two clean builds give byte-identical .bin and .img"
+	@rm -rf $(OUT)/console-repro-a $(OUT)/console-repro-b
+	@$(MAKE) --no-print-directory -s BUILD=$(OUT)/console-repro-a console >/dev/null
+	@$(MAKE) --no-print-directory -s BUILD=$(OUT)/console-repro-b console >/dev/null
+	@if cmp -s $(OUT)/console-repro-a/boot-serrano-console/console.bin $(OUT)/console-repro-b/boot-serrano-console/console.bin \
+	    && cmp -s $(OUT)/console-repro-a/boot-serrano-console/console.img $(OUT)/console-repro-b/boot-serrano-console/console.img \
+	    && cmp -s $(OUT)/console-repro-a/boot-serrano-console/console.bin $(CONSOLE_BIN); then \
+	  echo "PASS console-repro-identical (console.bin and console.img byte-identical across two clean builds, and console.bin identical to this build's)"; \
+	else echo "FAIL console-repro-identical"; exit 1; fi
 
 test-repro: ## Build twice from scratch in separate directories and require identical outputs
 	@rm -rf $(OUT)/repro-a $(OUT)/repro-b
