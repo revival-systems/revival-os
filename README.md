@@ -2,7 +2,7 @@
 
 A lightweight, independent operating system written in **Rust and ARM Assembly** (`#![no_std]`, ARMv7-A), intended to run directly on repurposed phone hardware and, later, on cameras, robots and other embedded devices. It began as a [Goose](https://github.com/aardappel/goose)-based prototype; that work is kept as a studied reference ([ADR 0001](docs/decisions/0001-rust-and-arm-assembly.md)).
 
-**Status: Phase 0 — research and hardware verification. A QEMU-only Rust + ARM Assembly kernel exists (the Phase 1 foundation); no Revival OS code has run on the phone yet.** That kernel boots only in the QEMU emulator ([working notes](docs/phase-1/rust-foundation.md)), which is not a hardware result, and no hardware milestone has been passed. This repository also holds the architecture, the milestone plan and the first target's research and test procedure.
+**Status: Phase 2 — first bare-metal boot, in progress. Revival OS code has run on the phone:** on 2026-11-18 the Phase 2 test image, written to `RECOVERY` and started with the recovery keys, showed its test picture in 5 of 5 trials. That passes Phase 2's first sub-milestone, the initial proof of execution ([session record](docs/evidence/phase-2/2026-11-18-v5-session.md)). Phase 0 passed on 2026-11-13. Phase 1 passed on the host and in QEMU; its kernel boots only in the QEMU emulator ([working notes](docs/phase-1/rust-foundation.md)), which is not a hardware result. Still open in Phase 2: the normal power-on route into Revival OS, the watchdog's timing (whether it resets the phone, and after how long), and the times on the trial videos. This repository also holds the architecture, the milestone plan and the first target's research and test procedure.
 
 ## First target
 
@@ -22,9 +22,9 @@ Every milestone adds the smallest capability that can be observed and tested on 
 
 | Phase | Capability | State |
 | --- | --- | --- |
-| 0 | One-time stock hardware baseline; identify the boot chain and emergency rescue path | Research documented; physical verification evidence pending review |
-| 1 | Freestanding Rust + ARM Assembly foundation for ARMv7-A | QEMU foundation implemented ([PR #5](https://github.com/revival-systems/revival-os/pull/5) merged; [working notes](docs/phase-1/rust-foundation.md)); formal gate review pending; not yet run on the Samsung. Goose feasibility kept as reference ([findings](docs/toolchain/goose-freestanding-notes.md)) |
-| 2 | First bare-metal boot with observable output | Not started |
+| 0 | One-time stock hardware baseline; identify the boot chain and emergency rescue path | **Passed** on 2026-11-13 ([Phase 0 addendum](docs/evidence/phase-0/2026-11-13-linux-retest.md)) |
+| 1 | Freestanding Rust + ARM Assembly foundation for ARMv7-A | **Passed** on the host and in QEMU ([formal gate review](docs/evidence/phase-1/2026-11-13-gate-review.md); [PR #5](https://github.com/revival-systems/revival-os/pull/5) merged; [working notes](docs/phase-1/rust-foundation.md)); not yet run on the Samsung. Goose feasibility kept as reference ([findings](docs/toolchain/goose-freestanding-notes.md)) |
+| 2 | First bare-metal boot with observable output | **In progress.** The initial proof of execution passed on 2026-11-18: the test image started from `RECOVERY` with the recovery keys in 5 of 5 trials ([session record](docs/evidence/phase-2/2026-11-18-v5-session.md)). Open: the normal power-on route, the watchdog's timing, and the times on the trial videos |
 | 3–9 | Kernel foundations → hardware → networking → camera → standalone camera → internet → hardening | Not started |
 
 ## Quick start
@@ -38,7 +38,7 @@ make doctor              # every required tool must be "ok"
 make check               # lint, docs and every test; run before each push
 ```
 
-The buildable artifacts today are QEMU-only test fixtures. The **Phase 1 Rust + ARM Assembly kernel image** boots on QEMU's `virt` board and prints a heartbeat and a checksum ([working notes](docs/phase-1/rust-foundation.md), [ADR 0001](docs/decisions/0001-rust-and-arm-assembly.md)); it has not run on the Samsung. The **Goose toolchain probe** is now a reference artifact: a tiny Goose program cross-compiled for ARMv7-A and run in QEMU with no Linux and no C library. It tests the toolchain and is not part of the operating system.
+The buildable artifacts today are QEMU test fixtures and one phone test image. The **Phase 1 Rust + ARM Assembly kernel image** boots on QEMU's `virt` board and prints a heartbeat and a checksum ([working notes](docs/phase-1/rust-foundation.md), [ADR 0001](docs/decisions/0001-rust-and-arm-assembly.md)); it has not run on the Samsung. The **Phase 2 test image** (`payload.img`, from [boot/samsung-serranolte/](boot/samsung-serranolte/)) paints a test picture and halts; it ran on the phone on 2026-11-18 ([session record](docs/evidence/phase-2/2026-11-18-v5-session.md)). The **Goose toolchain probe** is now a reference artifact: a tiny Goose program cross-compiled for ARMv7-A and run in QEMU with no Linux and no C library. It tests the toolchain and is not part of the operating system.
 
 ## Repository map
 
