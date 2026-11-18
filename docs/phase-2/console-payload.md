@@ -168,11 +168,24 @@ The first image is frozen and is not touched: its sources, its hashes and its te
 
 **The counter.** Its line is drawn once. At each step only the digits that changed are redrawn, one cell each, so the line never blanks and a photograph almost never catches a digit half drawn.
 
-The wait between two steps is a counting loop of 4,194,304 turns. No timer and no `wfi`: with interrupts masked and nothing set up to raise one, a `wfi` would never return. The loop's counter is read and written with volatile accesses, so that the compiler keeps the loop; that puts the counter on the stack, so each turn is a handful of instructions (5 or 6, depending on the optimisation level; `make console-sizes` prints them) and two memory accesses. How long one step takes on the phone is **Unknown**; the session's video gives it. With the caches off, that time is mostly the time memory takes to answer, for the instructions as for the counter. It is a first rough figure for "our code on this phone as the bootloader leaves it", not a measure of the processor.
+The wait between two steps is a counting loop of 4,194,304 turns. No timer and no `wfi`: with interrupts masked and nothing set up to raise one, a `wfi` would never return. The loop's counter is read and written with volatile accesses, so that the compiler keeps the loop; that puts the counter on the stack, so each turn is a handful of instructions and two memory accesses. The implementer's disassembly at `fd9ad49` showed 5 instructions a turn at level 2 and 6 at level z (R-14), which makes about 25 million instructions a step at level z; redrawing a digit adds a few thousand. That is a count from the listing, not a measured total; `make console-sizes` prints the loop. How long one step takes on the phone is **Unknown**; the session's video gives it. With the caches off, that time is mostly the time memory takes to answer, for the instructions as for the counter. It is a first rough figure for "our code on this phone as the bootloader leaves it", not a measure of the processor.
 
 **No margin.** Text starts at the panel's first pixel. If the session shows the panel's edge is hard to photograph, the next image gives up a column and a line for a margin.
 
 **Size.** The flat image may not exceed 8,192 bytes; a test fails if it does. It is built at optimisation level z, the smallest. At commit `fd9ad49` the implementer measured 12,412 bytes at level 2, 7,272 at s and 6,000 at z (report R-14 on pull request #34). `make console-sizes` prints the three sizes for the current sources.
+
+**A window larger than the panel.** A console whose lines reach past the bottom of the framebuffer is not refused: the part outside is simply not drawn, because the rectangle fill clips. In this image the windows are fixed and checked when it is built. When the console moves into the kernel tree it should refuse or shorten such a window, so that misuse shows (implementer's review, R-15).
+
+## The frozen image
+
+The image is frozen at the bytes below. `make check` (test `console-frozen`) fails if the SHA-256 of either file changes; a new image needs a new review.
+
+| File (in `build/boot-serrano-console/`) | Size | SHA-256 |
+| --- | --- | --- |
+| `console.bin` | 6,380 bytes | `afe35140ab1ed431e8aaef9e09012e89b22fa3037f82cb3db7c25a31f7ee1846` |
+| `console.img` | 12,304 bytes | `9457fd486719ccb379a4bc7f1aa166214cab948129898d23f1b41908b9ac0249` |
+
+**Recorded:** the implementer built these from commit `40e224b` with the pinned toolchain and reported them (R-15 on pull request #34). Two clean builds were identical. With these exact bytes, in QEMU 10.2.1, every case of `make test-console` passed when given 60 seconds a run; at the default 20 seconds one case ran out of time, which was the test harness's fault and is corrected (see `qemu-console` below).
 
 ## Tests
 
@@ -191,7 +204,7 @@ The host tests (`tests/boot/console_host.rs`) build `fb.rs`, `console.rs`, `font
 | `console-corrupt-image-rejected`, `console-image-unchanged` | A one-byte change is caught by the SHA-256. |
 | `console-host-tests` | The Rust modules themselves, on the build machine, built without optimisation so that arithmetic overflow is checked. The rectangle fill writes exactly the part of a rectangle that lies inside the panel and never a guard byte, for rectangles outside the panel and sizes that would overflow. Lines are cleared when the cursor enters them; wrapping, the `+`, numbers and single-cell replacement are right. The tag walk gives each malformed list its stop. The command-line splitter never gives out a byte of a value or of a word without `=`. |
 | `console-vector-header` | The image starts with `kstart.S`'s vectors and zImage words. |
-| `qemu-console` | With no handoff, the screen is byte-exact, and stays byte-exact at every look while the counter runs past 0x10, so a carry into the next digit has been drawn. |
+| `qemu-console` | With no handoff, the whole screen is byte-exact. The counter's line is then watched, byte-exact at every look, until the counter has passed 0x10, so a carry into the next digit has been drawn. Then the whole screen is byte-exact again. A look reads only the counter's line, because the emulated processor stands still while the harness looks. |
 | `qemu-console-device-handoff` | Entered as the phone enters it, with a sample tag list and the register reading 0x88100000: byte-exact; none of the sample's hidden values can be read back from the screen; the tag page is unchanged. |
 | `qemu-console-alignment-control` | In the phone's state (alignment checking on, MMU off) this QEMU faults a word load from an odd address, and the same load from an aligned address works. Without this, the next test would prove nothing. |
 | `qemu-console-alignment-checked` | The same handoff with alignment checking on, as on the phone: byte-exact, no fault. |
@@ -201,7 +214,7 @@ The host tests (`tests/boot/console_host.rs`) build `fb.rs`, `console.rs`, `font
 | `qemu-console-fault-halts` | With memory that ends inside the framebuffer, the write past its end faults, the processor rests in the halt loop in abort mode, and everything drawn before is byte-exact. |
 | `console-bootimg-valid` | An independent reader accepts every field of `console.img`. |
 | `console-repro-identical` | Two clean builds give identical bytes. |
-| `console-frozen` | `console.bin` and `console.img` are the reviewed bytes, by SHA-256. Until hashes are pinned in the Makefile this prints a `NOTE` line with the two hashes and is not a test. |
+| `console-frozen` | `console.bin` and `console.img` are the frozen bytes, by SHA-256. |
 
 After every QEMU run the harness also checks that the tag page still holds exactly what was stored and that 64 KiB on each side of the framebuffer were not written.
 

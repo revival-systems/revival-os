@@ -156,16 +156,20 @@ CONSOLE_IMG  := $(CONSOLE_OUT)/console.img
 CONSOLE_SRC  := $(wildcard $(CONSOLE_DIR)/*.rs)
 # Optimisation level of the console image: z, the smallest. At level 2 the
 # flat image is over CONSOLE_MAX_BYTES (12,412 bytes at fd9ad49; z gave 6,000).
+# The pinned build below is 6,380 bytes.
 # `make console-sizes` compares 2, s and z. The level is part of the image:
 # the stamp file below makes a build with another level rebuild it.
 CONSOLE_OPT  ?= z
 CONSOLE_MAX_BYTES := 8192
 CONSOLE_OPT_STAMP := $(CONSOLE_OUT)/opt-level-$(CONSOLE_OPT).stamp
-# The console image's reviewed bytes. Empty until a build of it has been
-# reviewed; then test console-frozen fails if either hash changes, as
-# payload-frozen does for the first image.
-CONSOLE_BIN_SHA256 :=
-CONSOLE_IMG_SHA256 :=
+# The console image is FROZEN at these bytes: console.bin (6,380 bytes) and
+# console.img (12,304 bytes) as the implementer built them from commit 40e224b
+# with the pinned toolchain (report R-15 on pull request #34). Test
+# console-frozen fails if either hash changes, as payload-frozen does for the
+# first image; a new image needs a new review, and these two lines change in
+# that same reviewed pull request.
+CONSOLE_BIN_SHA256 := afe35140ab1ed431e8aaef9e09012e89b22fa3037f82cb3db7c25a31f7ee1846
+CONSOLE_IMG_SHA256 := 9457fd486719ccb379a4bc7f1aa166214cab948129898d23f1b41908b9ac0249
 # The console's board-independent modules, built for this machine with their
 # host tests (tests/boot/console_host.rs).
 CONSOLE_HOST_TESTS := $(CONSOLE_OUT)/console-host-tests
