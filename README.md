@@ -8,7 +8,7 @@ A lightweight, independent operating system written in **Rust and ARM Assembly**
 
 **Samsung Galaxy S4 Mini LTE, GT-I9195** (codename `serranolte` / `serranoltexx`): Qualcomm MSM8930AB (Snapdragon 400), two Krait cores, 32-bit ARMv7-A, 1.5 GB RAM, removable battery.
 
-These facts come from public sources and **have not yet been confirmed on the owner's physical device**. See [docs/hardware/gt-i9195.md](docs/hardware/gt-i9195.md) for the research and its sources, and the [Phase 0 hardware verification checklist](docs/phase-0/hardware-verification-checklist.md) for the confirmation procedure.
+These facts come from public sources. Phase 0 confirmed some of them on the owner's device on 2026-11-13: the model GT-I9195, two ARMv7 processors with Qualcomm's implementer code `0x51`, and about 1.3 GB of RAM usable by the stock kernel (`MemTotal: 1363632 kB`) ([Phase 0 hardware evidence](docs/evidence/phase-0/2026-11-13-hardware-summary.md#actual-device-observations)). The Phase 2 session of 2026-11-18 measured how the bootloader hands over to our code and where its framebuffer is, and the battery was removed at every step of it ([session record](docs/evidence/phase-2/2026-11-18-v5-session.md#12-what-this-answers)). **Not yet measured on the device:** the SoC's exact name (the phone reports `MSM8960` and `MSM8930`; MSM8930AB is the research's identification), the core type and its clock, and the RAM's physical size. See [docs/hardware/gt-i9195.md](docs/hardware/gt-i9195.md) for the research and its sources, and the [Phase 0 hardware verification checklist](docs/phase-0/hardware-verification-checklist.md) for the confirmation procedure.
 
 ## What "replacing Android" means here
 
