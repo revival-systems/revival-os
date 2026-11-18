@@ -48,6 +48,7 @@ LINES = HEIGHT // CELL_H   # 40
 REPORT_LINES = LINES - 2
 MDP_LINE = LINES - 2
 TICK_LINE = LINES - 1
+LINE_BYTES = CELL_H * STRIDE  # the framebuffer bytes of one text line: 38_880
 
 INK = 0xFF
 PAPER = 0x00
@@ -361,18 +362,21 @@ def screen_text(handoff: Handoff, page: bytes | None = None, mdp: int | None = 0
     return report_text(handoff, page) + [mdp_line.ljust(COLUMNS), tick_line.ljust(COLUMNS)]
 
 
+def render_line(line: str) -> bytes:
+    """The LINE_BYTES framebuffer bytes of one text line of COLUMNS characters."""
+    if len(line) != COLUMNS:
+        raise ValueError(f"a line is {COLUMNS} characters, not {len(line)}")
+    glyphs = [cells()[ch] for ch in line]
+    return b"".join(b"".join(glyph[row] for glyph in glyphs) for row in range(CELL_H))
+
+
 def render(lines: list[str]) -> bytes:
     """The framebuffer for LINES lines of COLUMNS characters."""
-    if len(lines) != LINES or any(len(line) != COLUMNS for line in lines):
-        raise ValueError(f"render needs {LINES} lines of {COLUMNS} characters")
-    cell = cells()
-    out = bytearray()
-    for line in lines:
-        glyphs = [cell[ch] for ch in line]
-        for row in range(CELL_H):
-            out += b"".join(glyph[row] for glyph in glyphs)
+    if len(lines) != LINES:
+        raise ValueError(f"render needs {LINES} lines")
+    out = b"".join(render_line(line) for line in lines)
     assert len(out) == FB_BYTES
-    return bytes(out)
+    return out
 
 
 def expected_fb(handoff: Handoff, page: bytes | None = None, mdp: int | None = 0,
@@ -392,34 +396,51 @@ def moved_fb() -> bytes:
     return bytes(out)
 
 
+_BY_PIXELS: dict[bytes, str] = {}
+
+
+def decode_line(band: bytes) -> str:
+    """Read the LINE_BYTES framebuffer bytes of one text line back into its
+    COLUMNS characters. A cell is read as a character only if every byte of
+    it is that character's; any other cell reads as U+FFFD. So a line that
+    reads back without U+FFFD is byte for byte render_line of what it reads."""
+    if len(band) != LINE_BYTES:
+        raise ValueError(f"a text line is {LINE_BYTES} bytes, not {len(band)}")
+    if not _BY_PIXELS:
+        _BY_PIXELS.update({b"".join(rows): ch for ch, rows in cells().items()})
+    width = CELL_W * BPP
+    text = []
+    for col in range(COLUMNS):
+        block = b"".join(band[row * STRIDE + col * width:][:width] for row in range(CELL_H))
+        text.append(_BY_PIXELS.get(block, "\ufffd"))
+    return "".join(text)
+
+
 def decode(fb: bytes) -> list[str]:
     """Read a framebuffer back into LINES lines of COLUMNS characters. A cell
     that is not exactly one glyph reads as U+FFFD."""
     if len(fb) != FB_BYTES:
         raise ValueError(f"a framebuffer is {FB_BYTES} bytes, not {len(fb)}")
-    by_pixels = {b"".join(rows): ch for ch, rows in cells().items()}
-    lines = []
-    width = CELL_W * BPP
-    for line in range(LINES):
-        text = []
-        for col in range(COLUMNS):
-            block = b"".join(
-                fb[(line * CELL_H + row) * STRIDE + col * width:][:width]
-                for row in range(CELL_H))
-            text.append(by_pixels.get(block, "�"))
-        lines.append("".join(text))
-    return lines
+    return [decode_line(fb[line * LINE_BYTES:(line + 1) * LINE_BYTES]) for line in range(LINES)]
+
+
+def tick_of_line(band: bytes) -> int | None:
+    """The counter value in the framebuffer bytes of the counter's line, or
+    None if they are not exactly a complete "TICK xxxxxxxx" line."""
+    line = decode_line(band)
+    digits = line[5:13]
+    if (line[:5] != "TICK " or line[13:].strip(" ")
+            or any(d not in "0123456789ABCDEF" for d in digits)):
+        return None
+    return int(digits, 16)
 
 
 def tick_of(fb: bytes) -> int | None:
     """The counter value on the screen's last line, or None if that line is
-    not a complete "TICK xxxxxxxx"."""
-    line = decode(fb)[TICK_LINE]
-    digits = line[5:13]
-    if (line[:5] != "TICK " or line[13:].strip()
-            or any(d not in "0123456789ABCDEF" for d in digits)):
-        return None
-    return int(digits, 16)
+    not exactly a complete "TICK xxxxxxxx" line."""
+    if len(fb) != FB_BYTES:
+        raise ValueError(f"a framebuffer is {FB_BYTES} bytes, not {len(fb)}")
+    return tick_of_line(fb[TICK_LINE * LINE_BYTES:])
 
 
 # --- building tag pages for tests and samples --------------------------------

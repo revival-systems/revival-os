@@ -24,9 +24,11 @@ Cases (PASS/FAIL line each):
 
   console-vector-header     The image's first 0x30 bytes are kstart.S's layout.
   qemu-console              No handoff (r0-r3 = 0), the display register reads
-                            0: the screen is byte-exact, and stays byte-exact
-                            at every look while the counter runs past 0x10
-                            (so a carry into the next digit has been drawn).
+                            0: the screen is byte-exact; the counter's line is
+                            then watched, byte-exact at every look, until the
+                            counter has passed 0x10 (so a carry into the next
+                            digit has been drawn); and the whole screen is
+                            byte-exact again at the end.
   qemu-console-device-handoff
                             Entered the way the phone enters it (r1 = 3727,
                             r2 = 0x80200100) with a sample tag list there and
@@ -87,8 +89,13 @@ RAM_MIB = 2048
 FAULT_RAM_MIB = 1154
 NOISE = 0x55
 GUARD = 0x1_0000
-# The plain case watches the counter until it has passed this value.
+# The plain case watches the counter until it has passed this value, letting
+# the CPU run for COUNT_LOOK_EVERY seconds between looks. A look reads only
+# the counter's line: the CPU stands still during a look, so looks must be
+# cheap and far apart, or the counter gets nowhere in the time allowed.
 COUNT_PAST = 0x10
+COUNT_LOOK_EVERY = 0.2
+TICK_BAND_ADDR = FB_BASE + oracle.TICK_LINE * oracle.LINE_BYTES
 
 # Test-only code. Words are ARM instructions.
 INSN_MRC_SCTLR_R4 = 0xEE11_4F10  # mrc p15, 0, r4, c1, c0, 0
@@ -233,13 +240,15 @@ class Vm:
             raise CaseFailure(f"dump of {size} bytes at {addr:#x} is {len(got)} bytes")
         return got
 
-    def settle(self, spans: dict) -> tuple:
-        """Let the CPU run until it is paused with its PC inside one of
-        `spans` ({name: (lo, hi)}). Returns (name, PSR, SP)."""
+    def settle(self, spans: dict, run_for: float = 0.02) -> tuple:
+        """Let the CPU run for `run_for` seconds, and then on in short turns
+        until it is paused with its PC inside one of `spans`
+        ({name: (lo, hi)}). Returns (name, PSR, SP)."""
         last = None
         while True:
             self.resume()
-            time.sleep(0.02)
+            time.sleep(run_for)
+            run_for = 0.02
             pc, psr, sp = self.pause()
             for name, (lo, hi) in spans.items():
                 if lo <= pc < hi:
@@ -371,24 +380,35 @@ def case_plain(r: Runner) -> str:
         state, psr, sp = vm.settle(spans)
         require_running(state, psr, sp)
         seen = [require_screen(vm.read(FB_BASE, oracle.FB_BYTES), handoff, None, 0)]
-        # The image redraws only the digits that change. Look again and again
-        # until the counter has passed COUNT_PAST, so that a carry into the
-        # next digit has been drawn; every look must be byte-exact.
+        # The image redraws only the digits that change. Watch the counter's
+        # line until the counter has passed COUNT_PAST, so that a carry into
+        # the next digit has been drawn. tick_of_line gives a value only for
+        # a line that is byte for byte a counter line, so every look is exact.
         while seen[-1] <= COUNT_PAST:
-            state, psr, sp = vm.settle(spans)
+            state, psr, sp = vm.settle(spans, run_for=COUNT_LOOK_EVERY)
             require_running(state, psr, sp)
-            now = require_screen(vm.read(FB_BASE, oracle.FB_BYTES), handoff, None, 0)
+            band = vm.read(TICK_BAND_ADDR, oracle.LINE_BYTES)
+            now = oracle.tick_of_line(band)
+            if now is None:
+                raise CaseFailure("while the image waits, its last line is not a counter: "
+                                  f"{oracle.decode_line(band).rstrip()!r}")
             if now < seen[-1]:
                 raise CaseFailure(f"the counter went from {seen[-1]:#x} back to {now:#x}")
             if now != seen[-1]:
                 seen.append(now)
             vm.check_time(f"the counter did not pass {COUNT_PAST:#x} in time "
                           f"(it shows {now:#x})")
+        # The CPU is still paused: the whole screen, at the value just seen.
+        last = require_screen(vm.read(FB_BASE, oracle.FB_BYTES), handoff, None, 0)
+        if last != seen[-1]:
+            raise CaseFailure(f"the counter shows {last:#x} on the whole screen and "
+                              f"{seen[-1]:#x} on its line, with the CPU paused")
         require_untouched(vm, None)
-    return (f"framebuffer byte-identical to the oracle at {len(seen)} counter values from "
-            f"{seen[0]:#x} to {seen[-1]:#x}; every byte of the panel written; "
-            f"cpsr={handoff.cpsr:#x} sctlr={handoff.sctlr:#x}; counting in SVC mode, "
-            f"sp={sp:#x}")
+    return (f"framebuffer byte-identical to the oracle with the counter at {seen[0]:#x} and "
+            f"again at {seen[-1]:#x}; the counter's line byte-exact at {len(seen)} values "
+            f"on the way, past the carry at {COUNT_PAST:#x}; every byte of the panel "
+            f"written; cpsr={handoff.cpsr:#x} sctlr={handoff.sctlr:#x}; counting in SVC "
+            f"mode, sp={sp:#x}")
 
 
 def sample_page() -> bytes:

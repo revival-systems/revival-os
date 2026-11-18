@@ -407,6 +407,26 @@ class FramebufferTests(unittest.TestCase):
         fb[(o.TICK_LINE * o.CELL_H) * o.STRIDE + 6 * o.CELL_W * o.BPP] ^= 0xFF
         self.assertIsNone(o.tick_of(bytes(fb)))
 
+    def test_one_line_round_trip_is_exact(self):
+        line = "TICK 0000ABCD".ljust(o.COLUMNS)
+        band = o.render_line(line)
+        self.assertEqual(len(band), o.LINE_BYTES)
+        self.assertEqual(o.decode_line(band), line)
+        self.assertEqual(o.tick_of_line(band), 0xABCD)
+        # The counter's line of a whole screen is that same band.
+        fb = o.render(o.screen_text(o.phone_handoff(), None, o.FB_BASE, 0xABCD))
+        self.assertEqual(fb[o.TICK_LINE * o.LINE_BYTES:], band)
+        # One wrong byte anywhere in a cell and the cell no longer reads.
+        for index in (0, 5 * o.CELL_W * o.BPP + 1, o.LINE_BYTES - 1):
+            bad = bytearray(band)
+            bad[index] ^= 0x01
+            self.assertIn("\ufffd", o.decode_line(bytes(bad)))
+        # Text after the digits, or another line, is not a counter.
+        self.assertIsNone(o.tick_of_line(o.render_line("TICK 0000ABCD X".ljust(o.COLUMNS))))
+        self.assertIsNone(o.tick_of_line(o.render_line("MDP4 88100000 IS FB".ljust(o.COLUMNS))))
+        with self.assertRaises(ValueError):
+            o.decode_line(band[:-1])
+
     def test_moved_stripes(self):
         fb = o.moved_fb()
         self.assertEqual(len(fb), o.FB_BYTES)
