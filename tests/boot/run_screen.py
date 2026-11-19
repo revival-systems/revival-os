@@ -22,10 +22,9 @@ Cases (PASS/FAIL line each):
                             0: the screen is byte-exact; the counter and its
                             bar are then watched, byte-exact at every look,
                             until the counter has passed 0x10 (so a carry into
-                            the next digit has been drawn, and the bar's lit
-                            cell has gone from its last cell back to its
-                            first); and the whole screen is byte-exact again
-                            at the end.
+                            the next digit has been drawn, and the bar has
+                            gone from full back to one sixteenth); and the
+                            whole screen is byte-exact again at the end.
   qemu-screen-selftest-bad  A copy of the image with one bit of its self-test
                             table flipped: the screen shows the sum of the
                             changed table and a red BAD chip, byte-exact, and
@@ -87,9 +86,9 @@ FB_BASE = oracle.FB_BASE
 COUNT_PAST = 0x10
 COUNT_LOOK_EVERY = 0.2
 # The pixel rows that hold the counter's digits and its bar: what a look reads.
-BAND_TOP = min(oracle.TICK_TOP, oracle.L["BAR_CELL_Y"])
+BAND_TOP = min(oracle.TICK_TOP, oracle.L["BAR_Y"])
 BAND_END = max(oracle.TICK_TOP + oracle.TICK_ROWS,
-               oracle.L["BAR_CELL_Y"] + oracle.A["masks"]["BAR_CELL"]["h"])
+               oracle.L["BAR_Y"] + oracle.A["sprites"]["BAR_01"]["h"])
 # What the framebuffer holds before the CPU starts, in every byte.
 UNWRITTEN = bytes([rc.NOISE]) * oracle.BPP
 BAND_ADDR = FB_BASE + BAND_TOP * oracle.STRIDE
@@ -184,12 +183,12 @@ def case_plain(r: Runner) -> str:
         state, psr, sp = vm.settle(spans)
         require_running(state, psr, sp)
         seen = [require_screen(vm.read(FB_BASE, oracle.FB_BYTES), handoff, None, 0)]
-        # The image redraws only the digits that change, and two cells of the
+        # The image redraws only the digits that change, and the inside of the
         # bar. Watch both until the counter has passed COUNT_PAST: by then a
-        # carry into the next digit has been drawn, and the bar's lit cell has
-        # gone from its last cell back to its first. Each look reads only the
-        # rows they are in, and those rows must be byte for byte the oracle's
-        # rows for the value the counter shows.
+        # carry into the next digit has been drawn, and the bar has gone from
+        # full back to one sixteenth. Each look reads only the rows they are
+        # in, and those rows must be byte for byte the oracle's rows for the
+        # value the counter shows.
         first_tick_row = (oracle.TICK_TOP - BAND_TOP) * oracle.STRIDE
         while seen[-1] <= COUNT_PAST:
             state, psr, sp = vm.settle(spans, run_for=COUNT_LOOK_EVERY)
