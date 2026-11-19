@@ -8,22 +8,22 @@ use crate::gfx::{Font, Mask, Rgb};
 
 /// The stored pictures: palette, background, letters and masks.
 pub static BLOB: &[u8] = include_bytes!("assets.bin");
-pub const BLOB_LEN: usize = 60422;
-pub const BLOB_SHA256: &str = "89c705bb2aa187daf4527d0ee2e285a3635c96b7857b5bd7a7b0a90f6d525361";
+pub const BLOB_LEN: usize = 58698;
+pub const BLOB_SHA256: &str = "4be7e414173326e2050cb532431e5662c5265678b10055d61aa0117e8b003f4f";
 
 pub const WIDTH: usize = 540;
 pub const HEIGHT: usize = 960;
 pub const PALETTE_OFF: usize = 0;
 pub const BG_OFF: usize = 768;
-pub const BG_LEN: usize = 30615;
+pub const BG_LEN: usize = 29883;
 
 pub static FONT_VAL_REG: Font = Font {
-    off: 31383,
+    off: 30651,
     cell_w: 15,
     cell_h: 15,
     up: 8,
     pad: 3,
-    space16: 143,
+    space16: 144,
     map: [
         255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 17, 255, 16, 255, 255,
         0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 255, 255, 255, 255, 255, 255,
@@ -32,15 +32,15 @@ pub static FONT_VAL_REG: Font = Font {
         255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
         255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
     ],
-    adv16: &[143, 143, 143, 143, 143, 143, 143, 143, 143, 143, 143, 143, 143, 143, 143, 143, 143, 143],
+    adv16: &[144, 144, 144, 144, 144, 144, 144, 144, 144, 144, 144, 144, 144, 144, 144, 144, 144, 144],
 };
 pub static FONT_VAL: Font = Font {
-    off: 33543,
-    cell_w: 15,
+    off: 32811,
+    cell_w: 14,
     cell_h: 13,
     up: 6,
     pad: 3,
-    space16: 132,
+    space16: 128,
     map: [
         255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 17, 255, 16, 255, 255,
         0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 255, 255, 255, 255, 255, 255,
@@ -49,15 +49,15 @@ pub static FONT_VAL: Font = Font {
         255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
         255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
     ],
-    adv16: &[132, 132, 132, 132, 132, 132, 132, 132, 132, 132, 132, 132, 132, 132, 132, 132, 132, 132],
+    adv16: &[128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128],
 };
 pub static FONT_SMALL: Font = Font {
-    off: 35415,
-    cell_w: 14,
-    cell_h: 13,
-    up: 7,
+    off: 34449,
+    cell_w: 13,
+    cell_h: 12,
+    up: 6,
     pad: 3,
-    space16: 118,
+    space16: 112,
     map: [
         255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
         0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 255, 255, 255, 255, 255, 255,
@@ -66,15 +66,15 @@ pub static FONT_SMALL: Font = Font {
         255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
         255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
     ],
-    adv16: &[118, 118, 118, 118, 118, 118, 118, 118, 118, 118, 118, 118, 118, 118, 118, 118],
+    adv16: &[112, 112, 112, 112, 112, 112, 112, 112, 112, 112, 112, 112, 112, 112, 112, 112],
 };
 pub static FONT_ROW1: Font = Font {
-    off: 36871,
+    off: 35793,
     cell_w: 15,
     cell_h: 15,
     up: 8,
     pad: 3,
-    space16: 142,
+    space16: 144,
     map: [
         255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
         0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 255, 255, 255, 255, 255, 255,
@@ -83,15 +83,15 @@ pub static FONT_ROW1: Font = Font {
         255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
         255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
     ],
-    adv16: &[142, 142, 142, 142, 142, 142, 142, 142, 142, 142, 142, 142, 142, 142, 142, 142],
+    adv16: &[144, 144, 144, 144, 144, 144, 144, 144, 144, 144, 144, 144, 144, 144, 144, 144],
 };
 pub static FONT_TICK: Font = Font {
-    off: 38791,
+    off: 37713,
     cell_w: 11,
     cell_h: 16,
     up: 8,
     pad: 0,
-    space16: 178,
+    space16: 176,
     map: [
         255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
         0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 255, 255, 255, 255, 255, 255,
@@ -100,15 +100,15 @@ pub static FONT_TICK: Font = Font {
         255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
         255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
     ],
-    adv16: &[178, 178, 178, 178, 178, 178, 178, 178, 178, 178, 178, 178, 178, 178, 178, 178],
+    adv16: &[176, 176, 176, 176, 176, 176, 176, 176, 176, 176, 176, 176, 176, 176, 176, 176],
 };
 pub static FONT_PAR: Font = Font {
-    off: 40327,
-    cell_w: 14,
-    cell_h: 18,
-    up: 8,
+    off: 39249,
+    cell_w: 13,
+    cell_h: 17,
+    up: 7,
     pad: 3,
-    space16: 117,
+    space16: 112,
     map: [
         0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15,
         16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31,
@@ -117,10 +117,10 @@ pub static FONT_PAR: Font = Font {
         64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79,
         80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90, 91, 92, 93, 94, 255,
     ],
-    adv16: &[117, 117, 117, 117, 117, 117, 117, 117, 117, 117, 117, 117, 117, 117, 117, 117, 117, 117, 117, 117, 117, 117, 117, 117, 117, 117, 117, 117, 117, 117, 117, 117, 117, 117, 117, 117, 117, 117, 117, 117, 117, 117, 117, 117, 117, 117, 117, 117, 117, 117, 117, 117, 117, 117, 117, 117, 117, 117, 117, 117, 117, 117, 117, 117, 117, 117, 117, 117, 117, 117, 117, 117, 117, 117, 117, 117, 117, 117, 117, 117, 117, 117, 117, 117, 117, 117, 117, 117, 117, 117, 117, 117, 117, 117, 117],
+    adv16: &[112, 112, 112, 112, 112, 112, 112, 112, 112, 112, 112, 112, 112, 112, 112, 112, 112, 112, 112, 112, 112, 112, 112, 112, 112, 112, 112, 112, 112, 112, 112, 112, 112, 112, 112, 112, 112, 112, 112, 112, 112, 112, 112, 112, 112, 112, 112, 112, 112, 112, 112, 112, 112, 112, 112, 112, 112, 112, 112, 112, 112, 112, 112, 112, 112, 112, 112, 112, 112, 112, 112, 112, 112, 112, 112, 112, 112, 112, 112, 112, 112, 112, 112, 112, 112, 112, 112, 112, 112, 112, 112, 112, 112, 112, 112],
 };
 pub static FONT_CHIP: Font = Font {
-    off: 52297,
+    off: 50554,
     cell_w: 16,
     cell_h: 14,
     up: 6,
@@ -137,22 +137,23 @@ pub static FONT_CHIP: Font = Font {
     adv16: &[114, 112, 108, 122, 101, 101, 121, 123, 55, 55, 114, 94, 147, 123, 125, 108, 125, 113, 106, 101, 120, 114, 162, 114, 107, 107, 103, 103, 59, 85],
 };
 
-pub const MASK_OK: Mask = Mask { off: 55657, w: 20, h: 15, dx: 0, up: 8 };
-pub const MASK_BAD: Mask = Mask { off: 55807, w: 28, h: 14, dx: 0, up: 8 };
-pub const MASK_HIDDEN: Mask = Mask { off: 56003, w: 53, h: 13, dx: 0, up: 7 };
-pub const MASK_MEM: Mask = Mask { off: 56354, w: 30, h: 13, dx: 0, up: 7 };
-pub const MASK_AT: Mask = Mask { off: 56549, w: 18, h: 13, dx: -1, up: 7 };
-pub const MASK_SZ: Mask = Mask { off: 56666, w: 15, h: 13, dx: 0, up: 7 };
-pub const MASK_BIT_FILL: Mask = Mask { off: 56770, w: 25, h: 20, dx: 0, up: 0 };
-pub const MASK_BIT_LINE: Mask = Mask { off: 57030, w: 25, h: 20, dx: 0, up: 0 };
-pub const MASK_OK1_FILL: Mask = Mask { off: 57290, w: 33, h: 26, dx: 0, up: 0 };
-pub const MASK_OK1_LINE: Mask = Mask { off: 57732, w: 33, h: 26, dx: 0, up: 0 };
-pub const MASK_OK2_FILL: Mask = Mask { off: 58174, w: 28, h: 20, dx: 0, up: 0 };
-pub const MASK_OK2_LINE: Mask = Mask { off: 58454, w: 28, h: 20, dx: 0, up: 0 };
-pub const MASK_WARN_FILL: Mask = Mask { off: 58734, w: 46, h: 20, dx: 0, up: 0 };
-pub const MASK_WARN_LINE: Mask = Mask { off: 59194, w: 46, h: 20, dx: 0, up: 0 };
-pub const MASK_READING: Mask = Mask { off: 59654, w: 47, h: 16, dx: 0, up: 6 };
-pub const MASK_RUNNING: Mask = Mask { off: 60038, w: 48, h: 16, dx: 0, up: 6 };
+pub const MASK_OK: Mask = Mask { off: 53914, w: 20, h: 15, dx: 0, up: 8 };
+pub const MASK_BAD: Mask = Mask { off: 54064, w: 28, h: 14, dx: 0, up: 8 };
+pub const MASK_HIDDEN: Mask = Mask { off: 54260, w: 53, h: 13, dx: 0, up: 7 };
+pub const MASK_MEM: Mask = Mask { off: 54611, w: 30, h: 13, dx: 0, up: 7 };
+pub const MASK_AT: Mask = Mask { off: 54806, w: 18, h: 13, dx: -1, up: 7 };
+pub const MASK_SZ: Mask = Mask { off: 54923, w: 14, h: 12, dx: 0, up: 6 };
+pub const MASK_BIT_FILL: Mask = Mask { off: 55007, w: 25, h: 20, dx: 0, up: 0 };
+pub const MASK_BIT_LINE: Mask = Mask { off: 55267, w: 25, h: 20, dx: 0, up: 0 };
+pub const MASK_OK1_FILL: Mask = Mask { off: 55527, w: 33, h: 26, dx: 0, up: 0 };
+pub const MASK_OK1_LINE: Mask = Mask { off: 55969, w: 33, h: 26, dx: 0, up: 0 };
+pub const MASK_OK2_FILL: Mask = Mask { off: 56411, w: 28, h: 20, dx: 0, up: 0 };
+pub const MASK_OK2_LINE: Mask = Mask { off: 56691, w: 28, h: 20, dx: 0, up: 0 };
+pub const MASK_WARN_FILL: Mask = Mask { off: 56971, w: 46, h: 20, dx: 0, up: 0 };
+pub const MASK_WARN_LINE: Mask = Mask { off: 57431, w: 46, h: 20, dx: 0, up: 0 };
+pub const MASK_READING: Mask = Mask { off: 57891, w: 47, h: 16, dx: 0, up: 6 };
+pub const MASK_RUNNING: Mask = Mask { off: 58275, w: 48, h: 16, dx: 0, up: 6 };
+pub const MASK_BAR_CELL: Mask = Mask { off: 58659, w: 6, h: 13, dx: 0, up: 0 };
 
 pub const SELF_X: usize = 365;
 pub const ROW1_Y: usize = 93;
@@ -182,9 +183,10 @@ pub const LIST_RIGHT_X: usize = 516;
 pub const LIST_Y: usize = 492;
 pub const HEAD_X: usize = 119;
 pub const HEAD_Y: usize = 527;
-pub const HEAD_CHARS: usize = 54;
+pub const HEAD_CHARS: usize = 56;
+pub const HEAD_FIRST_CHARS: usize = 46;
 pub const COL_X: [usize; 2] = [34, 296];
-pub const COL_CHARS: [usize; 2] = [32, 30];
+pub const COL_CHARS: [usize; 2] = [33, 31];
 pub const ROW0_Y: usize = 554;
 pub const ROW_SPAN: usize = 146;
 pub const ROWS: usize = 8;
@@ -194,18 +196,15 @@ pub const TEXT_RIGHT_X: usize = 516;
 pub const TEXT_Y: usize = 754;
 pub const CFG_X: [usize; 3] = [34, 34, 298];
 pub const CFG_Y: [usize; 3] = [795, 824, 795];
-pub const CFG_CHARS: [usize; 3] = [32, 32, 29];
-pub const MDP_X: usize = 335;
+pub const CFG_CHARS: [usize; 3] = [33, 33, 31];
+pub const MDP_X: usize = 333;
 pub const MDP_Y: usize = 824;
 pub const TICK_X: usize = 104;
 pub const TICK_Y: usize = 908;
 pub const STATUS_X: usize = 286;
 pub const STATUS_Y: usize = 908;
-pub const BAR_X: usize = 372;
-pub const BAR_Y: usize = 899;
-pub const BAR_W: usize = 132;
-pub const BAR_H: usize = 15;
-pub const BAR_CELLS: usize = 16;
+pub const BAR_CELL_X: [usize; 16] = [375, 383, 391, 399, 407, 415, 423, 431, 439, 447, 455, 463, 471, 479, 487, 495];
+pub const BAR_CELL_Y: usize = 900;
 pub const STATUS_BOX_X: usize = 286;
 pub const STATUS_BOX_Y: usize = 902;
 pub const STATUS_BOX_W: usize = 48;
@@ -223,6 +222,7 @@ pub const GREY: Rgb = [150, 164, 180];
 pub const RED: Rgb = [244, 104, 104];
 pub const DIM: Rgb = [126, 138, 160];
 pub const BAR_LIT: Rgb = [40, 232, 250];
+pub const BAR_DIM: Rgb = [17, 100, 116];
 pub const BG_ROW1: Rgb = [9, 30, 42];
 pub const BG_BODY: Rgb = [3, 14, 25];
 pub const BG_LIST: Rgb = [16, 35, 50];

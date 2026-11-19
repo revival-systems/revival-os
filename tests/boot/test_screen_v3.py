@@ -32,7 +32,7 @@ A, L, C = o.A, o.L, o.C
 # 2026-11-19, with the counter at 0x56. It changes whenever the stored
 # pictures or the drawing rules change; such a change is then a decision, made
 # here, and not an accident.
-PHONE_SCREEN_SHA256 = "0a18557799e78690cd6e6bd03179695a460e82915da7cf51a90e3d42fe6ce6f4"
+PHONE_SCREEN_SHA256 = "ccb0b113f7e57de2cc116fc174ebbc0c051477865c501a7797203945787f279a"
 
 
 def parse_assets_rs(text: str) -> dict:
@@ -185,11 +185,15 @@ class AssetsTests(unittest.TestCase):
             self.assertLessEqual(max(font["adv16"]), 255, name)
             self.assertEqual(len(font["adv16"]), len(font["chars"]), name)
 
-    def test_grid_fonts_are_fixed_pitch(self):
+    def test_grid_fonts_are_fixed_pitch_in_whole_pixels(self):
         # The layout counts characters, not pixels, wherever these are used.
+        # A whole-pixel pitch puts every letter on a whole pixel, so the gaps
+        # between letters are all the same; with a pitch of 7.3 pixels,
+        # `sysscope` read as `syss cope`.
         for name in ("PAR", "TICK", "VAL", "VAL_REG", "SMALL", "ROW1"):
             font = A["fonts"][name]
             self.assertEqual(set(font["adv16"]), {font["space16"]}, name)
+            self.assertEqual(font["space16"] % 16, 0, name)
         self.assertEqual(len(A["fonts"]["PAR"]["chars"]), 0x7F - 0x20)
 
     def test_counter_cells_do_not_overlap(self):
@@ -198,6 +202,15 @@ class AssetsTests(unittest.TestCase):
         left = [((L["TICK_X"] << 4) + i * font["space16"]) >> 4 for i in range(8)]
         for a, b in zip(left, left[1:]):
             self.assertGreaterEqual(b - a, font["cell_w"])
+
+    def test_index_says_what_drew_the_pictures(self):
+        made = A["made_with"]
+        self.assertRegex(made["pillow"], r"^\d+\.\d+")
+        self.assertEqual(len(made["fonts"]), 4)
+        for name, digest in list(made["fonts"].items()) + [("art.png", made["art_png"])]:
+            self.assertRegex(digest, r"^[0-9a-f]{64}$", name)
+            self.assertNotIn("/", name)
+        self.assertEqual(made["art_png"], hashlib.sha256((SCREEN_DIR / "art.png").read_bytes()).hexdigest())
 
     def test_chip_words_fit_their_chips(self):
         chip = A["fonts"]["CHIP"]
@@ -222,6 +235,9 @@ class AssetsTests(unittest.TestCase):
             return ((x << 4) + chars * step) >> 4
 
         self.assertLess(right(L["HEAD_X"], L["HEAD_CHARS"]), o.W)
+        # after the longest first word and two spaces, the second word has room
+        self.assertGreaterEqual(L["HEAD_CHARS"] - L["HEAD_FIRST_CHARS"] - 2, 8)
+        self.assertGreater(L["HEAD_FIRST_CHARS"], 30)
         self.assertLess(right(L["COL_X"][0], L["COL_CHARS"][0]), L["COL_X"][1])
         self.assertLess(right(L["COL_X"][1], L["COL_CHARS"][1]), o.W)
         self.assertLess(right(L["CFG_X"][0], L["CFG_CHARS"][0]), L["CFG_X"][2])
@@ -260,13 +276,14 @@ class CheckedScreen(o.Screen):
         super().mask(x, y, w, h, off, fg, bg)
 
     def fill_rect(self, x, y, w, h, rgb):
-        if tuple(rgb) not in (C["BAR_LIT"], C["BAR_DARK"]):
-            for yy in range(y, y + h):
-                for xx in range(x, x + w):
-                    at = yy * o.STRIDE + xx * o.BPP
-                    have = (self.fb[at + 2], self.fb[at + 1], self.fb[at])
-                    if have != tuple(rgb) and (xx, yy) not in self.drawn:
-                        self.wrong.append((xx, yy, have, tuple(rgb)))
+        # A box is cleared to the colour that was there before anything was
+        # drawn in it.
+        for yy in range(y, y + h):
+            for xx in range(x, x + w):
+                at = yy * o.STRIDE + xx * o.BPP
+                have = (self.fb[at + 2], self.fb[at + 1], self.fb[at])
+                if have != tuple(rgb) and (xx, yy) not in self.drawn:
+                    self.wrong.append((xx, yy, have, tuple(rgb)))
         super().fill_rect(x, y, w, h, rgb)
 
 
@@ -356,28 +373,52 @@ class ScreenTests(unittest.TestCase):
             band = fb[o.TICK_TOP * o.STRIDE:(o.TICK_TOP + o.TICK_ROWS) * o.STRIDE]
             self.assertEqual(o.tick_of_band(band), tick)
             if tick:
+                cell = A["masks"]["BAR_CELL"]
                 box = box_of_difference(zero, fb)
                 self.assertGreaterEqual(box[0], L["TICK_X"])
-                self.assertLessEqual(box[2], L["BAR_X"] + L["BAR_W"])
-                self.assertGreaterEqual(box[1], min(o.TICK_TOP, L["BAR_Y"]))
-                self.assertLessEqual(box[3], max(o.TICK_TOP + o.TICK_ROWS, L["BAR_Y"] + L["BAR_H"]))
+                self.assertLessEqual(box[2], L["BAR_CELL_X"][-1] + cell["w"])
+                self.assertGreaterEqual(box[1], min(o.TICK_TOP, L["BAR_CELL_Y"]))
+                self.assertLessEqual(box[3], max(o.TICK_TOP + o.TICK_ROWS, L["BAR_CELL_Y"] + cell["h"]))
         self.assertEqual(o.tick_of(o.expected_fb(PHONE, page, o.FB_BASE, 1 << 32)), 0)
         self.assertIsNone(o.tick_of(o.background_fb()))
         self.assertIsNone(o.tick_of(o.moved_fb()))
         with self.assertRaises(ValueError):
             o.tick_of(zero[:-1])
 
-    def test_bar_shows_the_counters_last_four_bits(self):
-        row = (L["BAR_Y"] + L["BAR_H"] // 2) * o.STRIDE
+    def test_bar_has_one_lit_cell_and_it_names_the_counters_last_four_bits(self):
+        cell = A["masks"]["BAR_CELL"]
+        self.assertEqual(len(L["BAR_CELL_X"]), 16)
+        for a, b in zip(L["BAR_CELL_X"], L["BAR_CELL_X"][1:]):
+            self.assertGreater(b - a, cell["w"])   # cells do not touch
+        row = (L["BAR_CELL_Y"] + cell["h"] // 2) * o.STRIDE
 
-        def lit(tick):
+        def middles(tick):
             fb = o.expected_fb(con.Handoff(), None, 0, tick)
-            want = bytes(reversed(C["BAR_LIT"]))
-            return sum(1 for x in range(L["BAR_X"], L["BAR_X"] + L["BAR_W"])
-                       if fb[row + x * 3:row + x * 3 + 3] == want)
+            return [tuple(reversed(fb[row + (x + cell["w"] // 2) * 3:row + (x + cell["w"] // 2) * 3 + 3]))
+                    for x in L["BAR_CELL_X"]]
 
-        self.assertEqual([lit(t) for t in (0, 7, 15, 16, 0x1F)],
-                         [L["BAR_W"] * k // 16 for k in (1, 8, 16, 1, 16)])
+        for tick in (0, 1, 7, 15, 16, 0x1F, 0x89AB_CDE5):
+            want = [C["BAR_DIM"]] * 16
+            want[tick % 16] = C["BAR_LIT"]
+            self.assertEqual(middles(tick), want, tick)
+        self.assertNotEqual(C["BAR_LIT"], C["BAR_DIM"])
+        self.assertNotEqual(C["BAR_DIM"], C["BAR_DARK"])
+
+    def test_self_test_sum_and_its_chip(self):
+        self.assertEqual(o.table_sum(), o.SELFTEST_SUM)
+        self.assertEqual(o.SELFTEST_SUM, con.SELFTEST_SUM)
+        changed = list(o.SELFTEST_TABLE)
+        changed[-1] ^= 1
+        self.assertNotEqual(o.table_sum(changed), o.SELFTEST_SUM)
+        good = o.expected_fb(con.Handoff())
+        bad = o.expected_fb(con.Handoff(), selftest=o.table_sum(changed))
+        box = box_of_difference(good, bad)
+        # the sum's last digit and the chip, on the first row of panels
+        self.assertGreater(box[0], L["SELF_X"])
+        self.assertLessEqual(box[2], L["SELF_CHIP_X"] + A["masks"]["OK1_FILL"]["w"])
+        self.assertLess(abs((box[1] + box[3]) // 2 - L["ROW1_Y"]), 6)
+        # a wrong sum that happens to print the same digits cannot exist: the sum is what is printed
+        self.assertNotEqual(o.expected_fb(con.Handoff(), selftest=0), good)
 
 
 class TagListTests(unittest.TestCase):
@@ -453,6 +494,22 @@ class TagListTests(unittest.TestCase):
         self.assertEqual(good[strip[0]:strip[1]], clean)
         self.assertNotEqual(bad[strip[0]:strip[1]], clean)
         self.assertNotEqual(empty[strip[0]:strip[1]], clean)
+
+    def test_no_word_is_left_out_of_the_head_line(self):
+        # Whatever the first word is, the second is drawn: cut, if it must be.
+        # (Until the reviewed build of 2026-11-19 a first word of 52 characters
+        # or more left the second one out without a mark.)
+        for first in (b"a=1", b"f" * 40 + b"=1", b"f" * 60 + b"=1", b"f" * 500 + b"=1", b"f" * 51):
+            one = self.screen(con.cmdline_tag(first) + con.end_tag())
+            two = self.screen(con.cmdline_tag(first + b" second=22") + con.end_tag())
+            box = box_of_difference(one, two)
+            self.assertIsNotNone(box, first[:8])
+            self.assertLess(abs((box[1] + box[3]) // 2 - L["HEAD_Y"]), 8)
+            self.assertLess(box[2], o.W - 16)
+        s = o.Screen()
+        long_word = [("f", "NAME")] * 60
+        pen, count = o._draw_word(s, L["HEAD_X"] << 4, L["HEAD_Y"], long_word, L["HEAD_FIRST_CHARS"], C["BG_BODY"])
+        self.assertEqual(count, L["HEAD_FIRST_CHARS"])
 
     def test_long_words_are_cut_and_stay_in_their_column(self):
         long_name = b"n" * 200

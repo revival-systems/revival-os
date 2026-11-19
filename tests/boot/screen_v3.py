@@ -157,6 +157,13 @@ class Screen:
                        font["cell_h"], C["BG_STATUS"])
         self.glyph(font, pen, L["TICK_Y"], ord(digit), C["AMBER"], C["BG_STATUS"])
 
+    def bar_cell(self, cell: int, lit: bool) -> None:
+        """One of the bar's cells, lit or dim. A cell's pixels are the same
+        pixels either way, so drawing it replaces whatever it showed."""
+        m = A["masks"]["BAR_CELL"]
+        self.mask(L["BAR_CELL_X"][cell], L["BAR_CELL_Y"], m["w"], m["h"], m["off"],
+                  C["BAR_LIT"] if lit else C["BAR_DIM"], C["BAR_DARK"])
+
     def word(self, m: dict, x: int, yc: int, fg, bg) -> None:
         """A stored word, its left edge at x and its middle line at yc."""
         self.mask(x + m["dx"], yc - m["up"], m["w"], m["h"], m["off"], fg, bg)
@@ -259,12 +266,25 @@ WARN_WORDS = {"out": "OUT",        # r2 does not point into the tag page
               "kind": "KIND"}      # the tag that ends the list has a kind
 
 
+# The table the image sums to test itself: the first image's, word for word.
+SELFTEST_TABLE = (0x5245_5649, 0x414C_204F, 0x5350_4841, 0x5345_3120, 1, 2, 3, 4)
+
+
+def table_sum(table=SELFTEST_TABLE) -> int:
+    """The image's sum over `table`: SELFTEST_SUM for the table as built."""
+    acc = 0x1234_5678
+    for i, word in enumerate(table):
+        acc = (((acc << 5) | (acc >> 27)) & 0xFFFF_FFFF) ^ ((word + i) & 0xFFFF_FFFF)
+    return acc
+
+
 def draw(handoff: con.Handoff, page: bytes | None = None, mdp: int | None = 0,
-         tick: int = 0) -> Screen:
+         tick: int = 0, selftest: int = SELFTEST_SUM) -> Screen:
     """The screen for this handoff, tag page, display-register value and
     counter value. mdp None: the screen as it stands while that register has
     not been read: the status word is "Reading", and there is no register
-    value and no counter."""
+    value and no counter. selftest: the sum the image worked out over its own
+    table; any value but the right one gets a red BAD chip."""
     if handoff.entry != LINK_ENTRY:
         raise ValueError("an image entered at another address draws stripes: moved_fb()")
     if page is None:
@@ -277,8 +297,11 @@ def draw(handoff: con.Handoff, page: bytes | None = None, mdp: int | None = 0,
     body = C["BG_BODY"]
 
     # self-test
-    s.text(f["ROW1"], L["SELF_X"], L["ROW1_Y"], f"{SELFTEST_SUM:08X}", C["WHITE"], C["BG_ROW1"])
-    s.chip_word(L["SELF_CHIP_X"], L["SELF_CHIP_Y"], "OK1", "OK", "GREEN", C["BG_ROW1"])
+    s.text(f["ROW1"], L["SELF_X"], L["ROW1_Y"], f"{selftest & 0xFFFF_FFFF:08X}", C["WHITE"], C["BG_ROW1"])
+    if selftest == SELFTEST_SUM:
+        s.chip_word(L["SELF_CHIP_X"], L["SELF_CHIP_Y"], "OK1", "OK", "GREEN", C["BG_ROW1"])
+    else:
+        s.chip_word(L["SELF_CHIP_X"], L["SELF_CHIP_Y"], "OK1", "BAD", "RED", C["BG_ROW1"])
 
     # registers
     for value, yc in zip((h.r0, h.r1, h.r2, h.r3), L["REG_Y"]):
@@ -356,12 +379,13 @@ def draw(handoff: con.Handoff, page: bytes | None = None, mdp: int | None = 0,
     pen = L["HEAD_X"] << 4
     left = L["HEAD_CHARS"]
     for i, piece in enumerate(pieces[:shown]):
-        if i < 2:
-            if i == 1:
-                pen += 2 * f["PAR"]["space16"]
-                left = max(0, left - 2)
-            pen, count = _draw_word(s, pen, L["HEAD_Y"], piece, left, body)
+        if i == 0:
+            # The first word leaves room: the second always gets a place.
+            pen, count = _draw_word(s, pen, L["HEAD_Y"], piece, L["HEAD_FIRST_CHARS"], body)
             left -= count
+        elif i == 1:
+            pen += 2 * f["PAR"]["space16"]
+            pen, count = _draw_word(s, pen, L["HEAD_Y"], piece, left - 2, body)
         elif i < 2 + 2 * rows:
             row, col = divmod(i - 2, 2)
             yc = L["ROW_Y"][rows - L["ROWS"]][row]
@@ -394,15 +418,14 @@ def draw(handoff: con.Handoff, page: bytes | None = None, mdp: int | None = 0,
     tick &= 0xFFFF_FFFF
     for i, digit in enumerate(f"{tick:08X}"):
         s.tick_digit(i, digit)
-    lit = L["BAR_W"] * ((tick & 15) + 1) // L["BAR_CELLS"]
-    s.fill_rect(L["BAR_X"], L["BAR_Y"], lit, L["BAR_H"], C["BAR_LIT"])
-    s.fill_rect(L["BAR_X"] + lit, L["BAR_Y"], L["BAR_W"] - lit, L["BAR_H"], C["BAR_DARK"])
+    for cell in range(len(L["BAR_CELL_X"])):
+        s.bar_cell(cell, cell == tick % len(L["BAR_CELL_X"]))
     return s
 
 
 def expected_fb(handoff: con.Handoff, page: bytes | None = None, mdp: int | None = 0,
-                tick: int = 0) -> bytes:
-    return bytes(draw(handoff, page, mdp, tick).fb)
+                tick: int = 0, selftest: int = SELFTEST_SUM) -> bytes:
+    return bytes(draw(handoff, page, mdp, tick, selftest).fb)
 
 
 _BACKGROUND: list = []

@@ -50,6 +50,7 @@ import math
 import sys
 from pathlib import Path
 
+import PIL
 from PIL import Image, ImageChops, ImageDraw, ImageFilter, ImageFont
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -118,6 +119,15 @@ def rr(w, h, r, width=None, pad=0):
     return big.resize((w + 2 * pad, h + 2 * pad), Image.BOX)
 
 
+def whole(pitch):
+    """The design pitch nearest to `pitch` (in design pixels) that is a whole
+    number of panel pixels. Every fixed-pitch text uses one, so that each
+    letter starts on a whole pixel and the gaps between letters are all the
+    same: with a pitch of 7.3 pixels every third or fourth gap is a pixel
+    wider, and `sysscope` reads as `syss cope`."""
+    return round(pitch * SX) / SX
+
+
 def fit_w(path, sample, width, tall=TALL):
     """(font, squeeze) in which `sample` is `width` design pixels wide."""
     probe = ImageFont.truetype(path, 100)
@@ -130,6 +140,30 @@ def fit_p(path, pitch, fill=0.92, tall=TALL):
     probe = ImageFont.truetype(path, 100)
     size = 100.0 * (pitch * SX * fill) / probe.getlength("0") * tall
     return ImageFont.truetype(path, size), 1.0 / tall
+
+
+def clean_icon(m):
+    """An icon without what came with it from the design picture. The icons
+    were cut out of that picture as brightness, so each carries a little of
+    what was around it: a piece of its panel's top border as a line above it,
+    and the panel's own brightness as a haze. Rows above the first and below
+    the last row with real ink are emptied, the haze (the brightest pixel of
+    the icon's outer ring) is taken off everything, and what is left of it
+    below one coverage level is dropped."""
+    w, h = m.size
+    px = [[m.getpixel((x, y)) for x in range(w)] for y in range(h)]
+    inked = [y for y in range(h) if max(px[y]) >= 128]
+    for y in range(h):
+        if y < inked[0] or y > inked[-1]:
+            px[y] = [0] * w
+    ring = px[inked[0]] + px[inked[-1]] + [row[0] for row in px] + [row[-1] for row in px]
+    haze = min(64, max(ring))
+    out = Image.new("L", (w, h), 0)
+    for y in range(h):
+        for x in range(w):
+            v = (px[y][x] - haze) * 255 // (255 - haze)
+            out.putpixel((x, y), v if v >= 17 else 0)
+    return out
 
 
 class Canvas:
@@ -183,6 +217,8 @@ class Canvas:
     def art(self, name, colour):
         a = self.art_index[name]
         m = self.sheet.crop((a["x"], 0, a["x"] + a["w"], a["h"]))
+        if name != "logo":
+            m = clean_icon(m)
         x0, y0, x1, y1 = a["from"]
         cx, cy = (x0 + x1) / 2 * SX, (y0 + y1) / 2 * SY
         self.blend(colour, round(cx - a["w"] / 2), round(cy - a["h"] / 2), m)
@@ -317,6 +353,9 @@ def grid_font(fx, pitch, chars, strict=False):
     """A fixed-pitch font: every glyph centred in a cell `pitch` wide (pitch in
     panel pixels, may be fractional). With `strict`, all ink must lie inside
     the whole pixels of its own cell, so one glyph can be redrawn alone."""
+    if abs(pitch - round(pitch)) > 1e-6:
+        raise ValueError(f"a fixed-pitch font needs a whole-pixel pitch, not {pitch}")
+    pitch = round(pitch)
     raw = {ch: glyph_mask(ch, fx) for ch in chars if ch != " "}
     any_mask = next(iter(raw.values()))
     _, top, _, bottom = ink_box(list(raw.values()))
@@ -397,25 +436,28 @@ def build():
     f_brand = fit_w(F_POP_B, "REVIVAL OS", 276, tall=1.30)
     f_title = fit_w(F_POP_B, "CPU REGISTERS", 198, tall=1.32)
     f_row1 = fit_w(F_COND_B, "PHASE 2: IMAGE 2", 228)
-    f_val = fit_p(F_COND_B, 16.5)
-    f_val2 = fit_p(F_COND_B, 15.25)
+    # The design's pitches, each moved to the nearest whole panel pixel.
+    p_val, p_val2, p_small, p_par = whole(16.5), whole(15.25), whole(13.6), whole(13.55)
+    p_hdr1, p_hdr2, p_tick = whole(12.8), whole(10.77), whole(20.6)
+    f_val = fit_p(F_COND_B, p_val)
+    f_val2 = fit_p(F_COND_B, p_val2)
     f_lab = fit_w(F_COND_B, "REVISION", 113)
-    f_small = fit_p(F_COND_B, 13.6)
-    f_par = fit_p(F_MONO_B, 13.55, fill=1.0)
-    f_hdr1 = fit_p(F_MONO, 12.8, fill=1.0, tall=1.3)
-    f_hdr2 = fit_p(F_MONO, 10.77, fill=1.0, tall=1.3)
+    f_small = fit_p(F_COND_B, p_small)
+    f_par = fit_p(F_MONO_B, p_par, fill=1.0)
+    f_hdr1 = fit_p(F_MONO, p_hdr1, fill=1.0, tall=1.3)
+    f_hdr2 = fit_p(F_MONO, p_hdr2, fill=1.0, tall=1.3)
     f_chip = fit_w(F_COND_B, "SVC", 38)
     f_ok = fit_w(F_COND_B, "OK", 36)
     f_tick_l = fit_w(F_POP_B, "TICK", 60, tall=1.32)
     f_stat = fit_w(F_COND_B, "STATUS:", 86)
-    PP = 13.55 * SX
+    PP = round(p_par * SX)   # the command line's pitch, in panel pixels
     L = {}  # the layout: every number the image needs to place what it draws
 
     # ---- header ----------------------------------------------------------
     c.art("logo", (206, 246, 252))
     c.text(X(165), Y(52), "REVIVAL OS", (224, 246, 252), f_brand, glow=0.55, tracking=1.3)
-    c.grid(X(738), Y(33), "Boot Console v0.1", (160, 222, 230), f_hdr1, 12.8 * SX)
-    c.grid(X(540), Y(65), "Target: Samsung GT-I9195 (S4 Mini LTE)", (204, 212, 218), f_hdr2, 10.77 * SX)
+    c.grid(X(738), Y(33), "Boot Console v0.1", (160, 222, 230), f_hdr1, p_hdr1 * SX)
+    c.grid(X(540), Y(65), "Target: Samsung GT-I9195 (S4 Mini LTE)", (204, 212, 218), f_hdr2, p_hdr2 * SX)
 
     # ---- row 1: phase | self-test ---------------------------------------
     c.panel(30, 97, 437, 150, CYAN, body=ROW1_BODY)
@@ -434,7 +476,7 @@ def build():
     c.text(X(108), Y(190), "CPU REGISTERS", CYAN, f_title, glow=0.4, tracking=0.2)
     L["REG_X"], L["REG_Y"] = X(168), [Y(v) for v in (234, 262, 290, 319)]
     for name, yc in zip(("R0", "R1", "R2", "R3"), L["REG_Y"]):
-        c.grid(X(65), yc, name, LABEL, f_val, 16.5 * SX)
+        c.grid(X(65), yc, name, LABEL, f_val, p_val * SX)
     c.panel(428, 170, 967, 341, CYAN, strip_to=213)
     c.art("gear", CYAN)
     c.text(X(514), Y(190), "CPU STATUS", CYAN, f_title, glow=0.4, tracking=0.2)
@@ -476,6 +518,10 @@ def build():
     # (here), and a command line with no terminating zero (the panel below).
     L["LIST_RIGHT_X"], L["LIST_Y"] = X(955), Y(656)
     L["HEAD_X"], L["HEAD_Y"], L["HEAD_CHARS"] = X(220), Y(703), int((X(955) - X(220)) / PP)
+    # The first word may take this much of the head line and no more, so that
+    # after it and two spaces the second word still has eight characters:
+    # enough for a cut word to show how it starts. No word is left out.
+    L["HEAD_FIRST_CHARS"] = L["HEAD_CHARS"] - 2 - 8
     L["COL_X"] = [X(62), X(547)]
     L["COL_CHARS"] = [int((X(509) - 4 - X(62)) / PP), int((X(957) - X(547)) / PP)]
     L["ROW0_Y"], L["ROW_SPAN"] = Y(738), Y(934) - Y(738)
@@ -516,15 +562,20 @@ def build():
     bar_dark = mix(STATUS_BODY, BAR, 0.12)
     c.blend(bar_dark, bx, by, rr(bw, bh, 6))
     c.blend(mix(STATUS_BODY, BAR, 0.75), bx, by, rr(bw, bh, 6, 1.1))
-    L["BAR_X"], L["BAR_Y"], L["BAR_W"], L["BAR_H"] = bx + 4, by + 4, bw - 8, bh - 8
-    L["BAR_CELLS"] = 16
+    # Inside the track: sixteen cells. The image draws them, one lit and
+    # fifteen dim; the background holds only the empty track.
+    cell_w, cell_h, cell_step = 6, bh - 10, 8
+    first = bx + (bw - (15 * cell_step + cell_w)) // 2
+    L["BAR_CELL_X"] = [first + i * cell_step for i in range(16)]
+    L["BAR_CELL_Y"] = by + 5
+    bar_cell = rr(cell_w, cell_h, 2)
 
     fonts = {
-        "VAL_REG": grid_font(f_val, 16.5 * SX, HEX + "-+"),
-        "VAL": grid_font(f_val2, 15.25 * SX, HEX + "-+"),
-        "SMALL": grid_font(f_small, 13.6 * SX, HEX),
-        "ROW1": grid_font(f_row1, f_row1[0].getlength("0") * f_row1[1] + 0.5, HEX),
-        "TICK": strict_font(F_COND_B, 20.6, HEX),
+        "VAL_REG": grid_font(f_val, p_val * SX, HEX + "-+"),
+        "VAL": grid_font(f_val2, p_val2 * SX, HEX + "-+"),
+        "SMALL": grid_font(f_small, p_small * SX, HEX),
+        "ROW1": grid_font(f_row1, round(f_row1[0].getlength("0") * f_row1[1] + 0.5), HEX),
+        "TICK": strict_font(F_COND_B, p_tick, HEX),
         "PAR": grid_font(f_par, PP, "".join(chr(v) for v in range(0x20, 0x7F))),
         "CHIP": prop_font(f_chip, "ABCDEFGHIJKLMNOPQRSTUVWXYZ01:?"),
     }
@@ -537,6 +588,7 @@ def build():
         "OK2_FILL": shape_mask(rr(ok2[0], ok2[1], 5)), "OK2_LINE": shape_mask(rr(ok2[0], ok2[1], 5, 1.1)),
         "WARN_FILL": shape_mask(rr(warn[0], warn[1], 5)), "WARN_LINE": shape_mask(rr(warn[0], warn[1], 5, 1.1)),
         "READING": word_mask("Reading", f_stat, 0.3), "RUNNING": word_mask("Running", f_stat, 0.3),
+        "BAR_CELL": shape_mask(bar_cell),
     }
     # The box the image clears before it draws a status word: it holds both words.
     words = (masks["READING"], masks["RUNNING"])
@@ -548,7 +600,7 @@ def build():
     colours = {
         "AMBER": AMBER, "AMBER_SOFT": mix(AMBER, WHITE, 0.25), "WHITE": WHITE, "NAME": NAME, "CYAN": CYAN,
         "LABEL": LABEL, "GREEN": GREEN, "PURPLE": PURPLE, "GREY": GREY, "RED": RED, "DIM": DIM,
-        "BAR_LIT": BAR,
+        "BAR_LIT": BAR, "BAR_DIM": mix(bar_dark, BAR, 0.24),
         # a chip: its fill, its outline and its text, lit and not lit, for each colour it can have
         "CHIP_FILL_LIT": 0.24, "CHIP_FILL_OFF": 0.12, "CHIP_LINE_LIT": 0.95, "CHIP_LINE_OFF": 0.70,
         "CHIP_TEXT_OFF": 0.55,
@@ -558,7 +610,7 @@ def build():
         "BG_ROW1": (L["SELF_X"] + 30, L["ROW1_Y"]), "BG_BODY": (L["REG_X"] + 20, L["REG_Y"][1] + 9),
         "BG_LIST": (L["LIST_RIGHT_X"] - 40, L["LIST_Y"]), "BG_CFG": (L["MDP_X"] + 60, L["MDP_Y"]),
         "BG_TEXT": (L["TEXT_RIGHT_X"] - 40, L["TEXT_Y"]),
-        "BG_STATUS": (L["TICK_X"] + 20, L["TICK_Y"]), "BAR_DARK": (L["BAR_X"] + 20, L["BAR_Y"] + 4),
+        "BG_STATUS": (L["TICK_X"] + 20, L["TICK_Y"]), "BAR_DARK": (L["BAR_CELL_X"][8] + 2, L["BAR_CELL_Y"] + 4),
     }
     return c.img, L, fonts, masks, colours, probes
 
@@ -615,6 +667,15 @@ def main(argv):
         blob += pack_mask(m["mask"])
     index["layout"] = L
     index["colours"] = {k: list(v) for k, v in colours.items()}
+    # What drew the pictures. The same tool with another Pillow or another
+    # font file may draw them differently; this says what to install to get
+    # these bytes again.
+    index["made_with"] = {
+        "pillow": PIL.__version__,
+        "fonts": {Path(path).name: hashlib.sha256(Path(path).read_bytes()).hexdigest()
+                  for path in (F_MONO, F_MONO_B, F_COND_B, F_POP_B)},
+        "art_png": hashlib.sha256((OUT / "art.png").read_bytes()).hexdigest(),
+    }
     index["blob_len"] = len(blob)
     index["blob_sha256"] = hashlib.sha256(blob).hexdigest()
 

@@ -66,6 +66,9 @@ const MOVED_STRIPES: usize = 20;
 /// The background the values of the upper panels are drawn on.
 const BODY: Rgb = assets::BG_BODY;
 
+/// Cells in the bar beside the counter.
+const BAR_CELLS: usize = assets::BAR_CELL_X.len();
+
 // --- self-test: the first image's table and sum ------------------------------
 // Same table and algorithm as boot/samsung-serranolte/payload.rs, so the sum is
 // the value the phone has already shown twice: 0x22BECBA4.
@@ -173,15 +176,20 @@ pub extern "C" fn payload_main(handoff: *const u32) {
     ui.status(&assets::MASK_RUNNING, assets::GREEN);
 
     // The counter. All eight digits are drawn once; after that only the
-    // digits that change are redrawn, one cell each. The bar beside it shows
-    // the counter's last four bits as a length, so that a step can be seen
-    // from further away than a digit can be read.
+    // digits that change are redrawn, one cell each. The bar beside it has
+    // sixteen cells, one of them lit: the one the counter's last four bits
+    // name. It moves one cell at each step, so that a step can be seen from
+    // further away than a digit can be read.
     let mut digit: usize = 0;
     while digit < 8 {
         ui.tick_digit(digit, 0);
         digit += 1;
     }
-    ui.bar(0);
+    let mut cell: usize = 0;
+    while cell < BAR_CELLS {
+        ui.bar_cell(cell, cell == 0);
+        cell += 1;
+    }
     let mut tick: u32 = 0;
     loop {
         screen_tick_wait();
@@ -195,7 +203,8 @@ pub extern "C" fn payload_main(handoff: *const u32) {
             }
             digit += 1;
         }
-        ui.bar(next);
+        ui.bar_cell(tick as usize % BAR_CELLS, false);
+        ui.bar_cell(next as usize % BAR_CELLS, true);
         tick = next;
     }
 }
@@ -726,8 +735,9 @@ impl<'a> Ui<'a> {
     /// Put the next word of `pieces`, which takes `width` characters, in the
     /// next free place: the first two words on the head line, then the two
     /// columns row by row, then the three cells of the lower panel. A word
-    /// with no place left is read past and not drawn. Either way exactly one
-    /// word of `pieces` is used up.
+    /// that has a place is always drawn, cut if it is too long for it. A word
+    /// with no place left is read past and not drawn; `tags` says how many
+    /// those were. Either way exactly one word of `pieces` is used up.
     fn place_word(&self, list: &mut List, pieces: &mut Cmdline, width: usize) {
         let index = list.placed;
         list.placed += 1;
@@ -735,12 +745,17 @@ impl<'a> Ui<'a> {
 
         // Where the word goes: pen, row middle, characters that fit, background.
         let place: Option<(usize, usize, usize, Rgb)> = if index < HEAD_WORDS {
-            if index != 0 {
+            let room = if index == 0 {
+                // The first word may not take the whole line: what it leaves
+                // is enough for the second to show at least how it starts.
+                assets::HEAD_FIRST_CHARS
+            } else {
                 // Two spaces between the words of the head line.
                 list.head_pen += 2 * assets::FONT_PAR.space16;
                 list.head_room = list.head_room.saturating_sub(2);
-            }
-            Some((list.head_pen, assets::HEAD_Y, list.head_room, BODY))
+                list.head_room
+            };
+            Some((list.head_pen, assets::HEAD_Y, room, BODY))
         } else if index < HEAD_WORDS + in_columns {
             let row = (index - HEAD_WORDS) / 2;
             let col = (index - HEAD_WORDS) % 2;
@@ -861,15 +876,16 @@ impl<'a> Ui<'a> {
         );
     }
 
-    /// The bar beside the counter: as many sixteenths of it lit as the
-    /// counter's last four bits say, plus one. It is not a progress bar; the
-    /// image has nothing to be part-way through.
-    fn bar(&self, tick: u32) {
-        let lit = assets::BAR_W * ((tick & 0xF) as usize + 1) / assets::BAR_CELLS;
-        let dark = assets::BAR_W.saturating_sub(lit);
-        let (x, y, h) = (assets::BAR_X, assets::BAR_Y, assets::BAR_H);
-        self.screen.fill_rect(x, y, lit, h, assets::BAR_LIT);
-        self.screen.fill_rect(x + lit, y, dark, h, assets::BAR_DARK);
+    /// One cell of the bar beside the counter, lit or dim. A cell's pixels
+    /// are the same pixels either way, so drawing it replaces what it showed.
+    /// The bar is not a progress bar: the image has nothing to be part-way
+    /// through. Its lit cell only shows that the counter stepped.
+    fn bar_cell(&self, cell: usize, lit: bool) {
+        if let Some(&x) = assets::BAR_CELL_X.get(cell) {
+            let colour = if lit { assets::BAR_LIT } else { assets::BAR_DIM };
+            let shape = &assets::MASK_BAR_CELL;
+            self.screen.stored(self.blob, shape, x, assets::BAR_CELL_Y, colour, assets::BAR_DARK);
+        }
     }
 }
 
