@@ -194,9 +194,10 @@ SCREEN_SRC  := $(wildcard $(SCREEN_DIR)/*.rs) $(SCREEN_DIR)/assets.bin \
 SCREEN_OPT  ?= 2
 SCREEN_MAX_BYTES := 131072
 SCREEN_OPT_STAMP := $(SCREEN_OUT)/opt-level-$(SCREEN_OPT).stamp
-# NOT FROZEN YET: no build of this image has been reviewed. When one has, its
-# two hashes go here, in the pull request that reviews it, and test
-# screen-frozen then fails if either changes.
+# The two hashes of the reviewed build. While they are empty no build has been
+# frozen, and screen-frozen prints the hashes as a NOTE and tests nothing.
+# Once they are set, screen-frozen fails if either changes: the image is
+# frozen, and a change to it needs a new review.
 SCREEN_BIN_SHA256 :=
 SCREEN_IMG_SHA256 :=
 # gfx.rs, the module that does not know the board, built for this machine with
