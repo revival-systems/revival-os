@@ -32,7 +32,7 @@ A, L, C = o.A, o.L, o.C
 # 2026-11-19, with the counter at 0x56. It changes whenever the stored
 # pictures or the drawing rules change; such a change is then a decision, made
 # here, and not an accident.
-PHONE_SCREEN_SHA256 = "ccb0b113f7e57de2cc116fc174ebbc0c051477865c501a7797203945787f279a"
+PHONE_SCREEN_SHA256 = "497dabc13c9567ac6d9790c93053dbc4dbc44cad4a33e55cc7a637959710f28c"
 
 
 def parse_assets_rs(text: str) -> dict:
@@ -48,6 +48,14 @@ def parse_assets_rs(text: str) -> dict:
         rs[name] = [[int(v) for v in row.split(",")] for row in re.findall(r"\[([^\[\]]*)\]", body)]
     for name, body in re.findall(r"^pub const (\w+): Rgb = \[([^\]]*)\];", text, re.M):
         rs[name] = [int(v) for v in body.split(",")]
+    def fields(body):
+        return {key.strip(): int(value) for key, value in (item.split(":") for item in body.split(","))}
+
+    for name, body in re.findall(r"^pub const (\w+): Picture = Picture \{([^}]*)\};", text, re.M):
+        rs[name] = fields(body)
+    for name, body in re.findall(r"^pub (?:const|static) (\w+): \[Picture; \d+\] = \[(.*?)^\];", text,
+                                 re.M | re.S):
+        rs[name] = [fields(b) for b in re.findall(r"Picture \{([^}]*)\}", body)]
     for name, body in re.findall(r"^pub const MASK_(\w+): Mask = Mask \{([^}]*)\};", text, re.M):
         rs["MASK_" + name] = {key.strip(): int(value)
                               for key, value in (item.split(":") for item in body.split(","))}
@@ -101,7 +109,8 @@ class AssetsTests(unittest.TestCase):
 
     def test_rust_header_agrees_with_json(self):
         for rust, key in (("WIDTH", "width"), ("HEIGHT", "height"), ("PALETTE_OFF", "palette_off"),
-                          ("BG_OFF", "bg_off"), ("BG_LEN", "bg_len")):
+                          ("BG_OFF", "bg_off"), ("BG_LEN", "bg_len"),
+                          ("SPRITE_PALETTE_OFF", "sprite_palette_off")):
             self.assertEqual(self.rs[rust], A[key], rust)
         self.assertEqual((o.W, o.H, o.STRIDE), (con.WIDTH, con.HEIGHT, con.STRIDE))
 
@@ -117,6 +126,22 @@ class AssetsTests(unittest.TestCase):
                 table[ord(char) - 0x20] = index
             self.assertEqual(rust["map"], table, name)
 
+    def test_rust_pictures_agree_with_json(self):
+        """The image names its chips; the oracle looks them up by another
+        name. Each Rust name must lead to the picture the oracle's name does."""
+        sprites = dict(A["sprites"])
+        for mode in list(con.MODE_NAMES.values()) + ["UNKNOWN"]:
+            self.assertEqual(self.rs["CHIP_MODE_" + mode], sprites.pop("MODE_" + mode), mode)
+        for letter in "IFATMCV":
+            pair = self.rs["CHIP_BIT_" + letter]
+            self.assertEqual(pair, [sprites.pop(f"BIT_{letter}0"), sprites.pop(f"BIT_{letter}1")], letter)
+        for word in o.WARN_WORDS.values():
+            self.assertEqual(self.rs["CHIP_WARN_" + word], sprites.pop("WARN_" + word), word)
+        for name in ("OK_ROW1", "BAD_ROW1", "OK_BODY"):
+            self.assertEqual(self.rs["CHIP_" + name], sprites.pop(name), name)
+        self.assertEqual(self.rs["BAR"], [sprites.pop(f"BAR_{n:02d}") for n in range(1, 17)])
+        self.assertEqual(sprites, {})   # and the oracle has no picture the image cannot name
+
     def test_rust_masks_layout_and_colours_agree_with_json(self):
         self.assertEqual({name for name in self.rs if name.startswith("MASK_")},
                          {"MASK_" + name for name in A["masks"]})
@@ -127,13 +152,19 @@ class AssetsTests(unittest.TestCase):
         for name, value in A["colours"].items():
             self.assertEqual(self.rs[name], value, name)
         # and nothing in the Rust file that the index does not have
-        known = ({"BLOB_LEN", "BLOB_SHA256", "WIDTH", "HEIGHT", "PALETTE_OFF", "BG_OFF", "BG_LEN"}
-                 | set(L) | set(A["colours"]) | {"MASK_" + n for n in A["masks"]}
+        chips = ({"CHIP_MODE_" + m for m in list(con.MODE_NAMES.values()) + ["UNKNOWN"]}
+                 | {"CHIP_BIT_" + letter for letter in "IFATMCV"}
+                 | {"CHIP_WARN_" + w for w in o.WARN_WORDS.values()}
+                 | {"CHIP_OK_ROW1", "CHIP_BAD_ROW1", "CHIP_OK_BODY", "BAR"})
+        known = ({"BLOB_LEN", "BLOB_SHA256", "WIDTH", "HEIGHT", "PALETTE_OFF", "BG_OFF", "BG_LEN",
+                  "SPRITE_PALETTE_OFF"}
+                 | chips | set(L) | set(A["colours"]) | {"MASK_" + n for n in A["masks"]}
                  | {"FONT_" + n for n in A["fonts"]})
         self.assertEqual(set(self.rs), known)
 
     def test_pictures_fill_the_blob_exactly(self):
-        spans = [(A["palette_off"], 768), (A["bg_off"], A["bg_len"])]
+        spans = [(A["palette_off"], 768), (A["bg_off"], A["bg_len"]), (A["sprite_palette_off"], 768)]
+        spans += [(pic["off"], pic["len"]) for pic in A["sprites"].values()]
         for font in A["fonts"].values():
             glyph = font["cell_h"] * ((font["cell_w"] + 1) // 2)
             spans.append((font["off"], glyph * len(font["chars"])))
@@ -145,8 +176,9 @@ class AssetsTests(unittest.TestCase):
             at += size
         self.assertEqual(at, len(o.BLOB))
 
-    def test_background_stream_is_exactly_one_screen(self):
-        stream = o.BLOB[A["bg_off"]:A["bg_off"] + A["bg_len"]]
+    def stream_size(self, off, length):
+        """(bytes used, pixels given) by the operations of a packed picture."""
+        stream = o.BLOB[off:off + length]
         i = pixels = 0
         while i < len(stream):
             kind, n = stream[i] >> 6, stream[i] & 0x3F
@@ -156,9 +188,61 @@ class AssetsTests(unittest.TestCase):
                 i += 1
             i += {0: 0, 1: 1, 2: n + 1, 3: 0}[kind]
             pixels += n + 1
-        self.assertEqual((i, pixels), (len(stream), o.W * o.H))
-        # every byte of the panel is written by the background alone
+        return i, pixels
+
+    def test_background_stream_is_exactly_one_screen(self):
+        self.assertEqual(self.stream_size(A["bg_off"], A["bg_len"]), (A["bg_len"], o.W * o.H))
+        # every pixel of the panel is written by the background alone
         self.assertEqual(len(o.background_fb()), o.FB_BYTES)
+        self.assertEqual(len(o.picture_numbers(A["bg_off"], A["bg_len"], o.W, o.H)), o.W * o.H)
+
+    def test_each_small_picture_is_exactly_its_size(self):
+        for name, pic in A["sprites"].items():
+            self.assertEqual(self.stream_size(pic["off"], pic["len"]), (pic["len"], pic["w"] * pic["h"]), name)
+            self.assertLessEqual(pic["w"], 1024, name)
+
+    def test_chips_of_a_kind_have_one_size_and_fit_their_places(self):
+        def size(name):
+            return A["sprites"][name]["w"], A["sprites"][name]["h"]
+
+        bits = {size(n) for n in A["sprites"] if n.startswith(("BIT_", "MODE_"))}
+        self.assertEqual(len(bits), 1)
+        self.assertEqual(len({size(n) for n in A["sprites"] if n.startswith("WARN_")}), 1)
+        self.assertEqual(size("OK_ROW1"), size("BAD_ROW1"))
+        (w, h), = bits
+        # Neighbours may share a few pixels of glow, never more; every chip is on the panel.
+        for a, b in zip(L["CHIP_X"], L["CHIP_X"][1:]):
+            self.assertGreaterEqual(b - a, w - 6)
+        self.assertLessEqual(L["CHIP_X"][-1] + w, o.W)
+        self.assertGreaterEqual(L["CHIP_Y"][1] - L["CHIP_Y"][0], h - 6)
+        for name, x, y in (("OK_ROW1", L["SELF_CHIP_X"], L["SELF_CHIP_Y"]),
+                           ("OK_BODY", L["ENTRY_CHIP_X"], L["ENTRY_CHIP_Y"]),
+                           ("WARN_SIZE", L["WARN_X"], L["WARN_Y"])):
+            self.assertLessEqual(x + size(name)[0], o.W, name)
+            self.assertGreater(min(x, y), 0, name)
+        # A chip has pixels it does not draw (its corners) and pixels it does.
+        numbers = o.picture_numbers(A["sprites"]["BIT_I1"]["off"], A["sprites"]["BIT_I1"]["len"], w, h)
+        self.assertEqual(numbers[0], 0)
+        self.assertNotEqual(numbers[(h // 2) * w + w // 2], 0)
+
+    def test_one_bar_picture_replaces_another(self):
+        """The sixteen pictures of the bar draw the same pixels, so the one
+        drawn last is all that shows; and each is filled further than the one
+        before."""
+        pics = [A["sprites"][f"BAR_{n:02d}"] for n in range(1, 17)]
+        self.assertEqual(len({(p["w"], p["h"]) for p in pics}), 1)
+        w, h = pics[0]["w"], pics[0]["h"]
+        numbers = [o.picture_numbers(p["off"], p["len"], w, h) for p in pics]
+        drawn = [bytes(1 if c else 0 for c in n) for n in numbers]
+        self.assertEqual(len(set(drawn)), 1)
+        self.assertGreater(sum(drawn[0]), w * h * 9 // 10)   # nearly the whole box; only corners are left out
+        middle = [n[(h // 2) * w:(h // 2 + 1) * w] for n in numbers]
+        dark = middle[0][-3]                                   # the unfilled end of the shortest bar
+        filled = [sum(1 for c in row if c != dark) for row in middle]
+        self.assertEqual(filled, sorted(filled))
+        self.assertEqual(len(set(filled)), 16)
+        self.assertLess(filled[0], w // 8)
+        self.assertGreaterEqual(filled[15], w - 2)
 
     def test_a_pixel_is_blue_green_red(self):
         s = o.Screen()
@@ -212,22 +296,6 @@ class AssetsTests(unittest.TestCase):
             self.assertNotIn("/", name)
         self.assertEqual(made["art_png"], hashlib.sha256((SCREEN_DIR / "art.png").read_bytes()).hexdigest())
 
-    def test_chip_words_fit_their_chips(self):
-        chip = A["fonts"]["CHIP"]
-
-        def width(text):
-            return sum(chip["adv16"][chip["chars"].index(c)] for c in text)
-
-        bits = [f"{letter}:{bit}" for letter in "IFATMCV" for bit in "01"]
-        for text in list(con.MODE_NAMES.values()) + ["???"] + bits:
-            self.assertLessEqual(width(text), A["masks"]["BIT_FILL"]["w"] << 4, text)
-        for text in o.WARN_WORDS.values():
-            self.assertLessEqual(width(text), A["masks"]["WARN_FILL"]["w"] << 4, text)
-        for word, shape in (("OK", "OK1_FILL"), ("BAD", "OK1_FILL"), ("OK", "OK2_FILL")):
-            self.assertLessEqual(A["masks"][word]["w"], A["masks"][shape]["w"])
-            self.assertLessEqual(A["masks"][word]["h"], A["masks"][shape]["h"])
-        self.assertEqual((A["masks"]["BIT_FILL"]["w"], A["masks"]["BIT_FILL"]["h"]), (L["CHIP_W"], L["CHIP_H"]))
-
     def test_words_stay_inside_their_places(self):
         step = A["fonts"]["PAR"]["space16"]
 
@@ -258,7 +326,23 @@ class CheckedScreen(o.Screen):
         super().__init__()
         self.wrong = []
         self.drawn = set()
-        self.outlines = {m["off"] for name, m in A["masks"].items() if name.endswith("_LINE")}
+
+    def sprite(self, name, x, y):
+        # A chip is laid over the flat colour it was made for, or over the
+        # glow of the chip beside it. The bar's pictures replace each other.
+        pic = A["sprites"][name]
+        under = (None if name.startswith("BAR_") else C["BG_ROW1"] if name.endswith("_ROW1")
+                 else C["BG_WARN"] if name.startswith("WARN_") else C["BG_BODY"])
+        numbers = o.picture_numbers(pic["off"], pic["len"], pic["w"], pic["h"])
+        for at, number in enumerate(numbers):
+            if number:
+                px, py = x + at % pic["w"], y + at // pic["w"]
+                where = py * o.STRIDE + px * o.BPP
+                have = (self.fb[where + 2], self.fb[where + 1], self.fb[where])
+                if under is not None and have != tuple(under) and (px, py) not in self.drawn:
+                    self.wrong.append((px, py, have, tuple(under)))
+                self.drawn.add((px, py))
+        super().sprite(name, x, y)
 
     def mask(self, x, y, w, h, off, fg, bg):
         row_bytes = (w + 1) // 2
@@ -268,9 +352,8 @@ class CheckedScreen(o.Screen):
                 if (byte >> 4 if i % 2 == 0 else byte & 0xF) and 0 <= x + i < o.W and 0 <= y + j < o.H:
                     at = (y + j) * o.STRIDE + (x + i) * o.BPP
                     have = (self.fb[at + 2], self.fb[at + 1], self.fb[at])
-                    # An outline lies on the edge of its own chip, and a letter
-                    # may touch its neighbour: those pixels were drawn before.
-                    if have != tuple(bg) and off not in self.outlines and (x + i, y + j) not in self.drawn:
+                    # A letter may touch its neighbour: that pixel was drawn before.
+                    if have != tuple(bg) and (x + i, y + j) not in self.drawn:
                         self.wrong.append((x + i, y + j, have, tuple(bg)))
                     self.drawn.add((x + i, y + j))
         super().mask(x, y, w, h, off, fg, bg)
@@ -338,16 +421,28 @@ class ScreenTests(unittest.TestCase):
                 self.assertLessEqual(box[3], L["REG_Y"][index] + 12, name)
 
     def test_status_bits_are_chips(self):
+        chip = A["sprites"]["BIT_A1"]
         a = o.expected_fb(con.Handoff(sctlr=0))
         b = o.expected_fb(con.Handoff(sctlr=1 << 1))   # SCTLR.A, the fourth chip
         box = box_of_difference(a, b)
         # the value itself changes too; the chip that changes is the fourth one
-        self.assertEqual(box[2], L["CHIP_X"][3] + L["CHIP_W"])
-        self.assertGreaterEqual(box[1], L["STAT_Y"][1] - L["CHIP_H"] // 2)
-        self.assertLessEqual(box[3], L["STAT_Y"][1] + L["CHIP_H"] // 2 + 1)
+        self.assertLessEqual(box[2], L["CHIP_X"][3] + chip["w"])
+        self.assertGreater(box[2], L["CHIP_X"][3] + chip["w"] // 2)
+        self.assertGreaterEqual(box[1], L["CHIP_Y"][1])
+        self.assertLessEqual(box[3], L["CHIP_Y"][1] + chip["h"])
         # a bit with no chip changes the value only
         c = o.expected_fb(con.Handoff(sctlr=1 << 20))
         self.assertLess(box_of_difference(a, c)[2], L["CHIP_X"][0])
+        # every mode has its own chip, and so does a mode with no name
+        def mode_chip(mode):
+            fb = o.expected_fb(con.Handoff(cpsr=mode))
+            return b"".join(fb[(L["CHIP_Y"][0] + j) * o.STRIDE + L["CHIP_X"][0] * 3:
+                               (L["CHIP_Y"][0] + j) * o.STRIDE + (L["CHIP_X"][0] + chip["w"] - 6) * 3]
+                            for j in range(chip["h"]))
+
+        modes = {mode_chip(mode) for mode in list(con.MODE_NAMES) + [0x00]}
+        self.assertEqual(len(modes), len(con.MODE_NAMES) + 1)
+        self.assertEqual(mode_chip(0x00), mode_chip(0x15))
 
     def test_display_register_states(self):
         page = phone_page()
@@ -373,36 +468,38 @@ class ScreenTests(unittest.TestCase):
             band = fb[o.TICK_TOP * o.STRIDE:(o.TICK_TOP + o.TICK_ROWS) * o.STRIDE]
             self.assertEqual(o.tick_of_band(band), tick)
             if tick:
-                cell = A["masks"]["BAR_CELL"]
+                bar = A["sprites"]["BAR_01"]
                 box = box_of_difference(zero, fb)
                 self.assertGreaterEqual(box[0], L["TICK_X"])
-                self.assertLessEqual(box[2], L["BAR_CELL_X"][-1] + cell["w"])
-                self.assertGreaterEqual(box[1], min(o.TICK_TOP, L["BAR_CELL_Y"]))
-                self.assertLessEqual(box[3], max(o.TICK_TOP + o.TICK_ROWS, L["BAR_CELL_Y"] + cell["h"]))
+                self.assertLessEqual(box[2], L["BAR_X"] + bar["w"])
+                self.assertGreaterEqual(box[1], min(o.TICK_TOP, L["BAR_Y"]))
+                self.assertLessEqual(box[3], max(o.TICK_TOP + o.TICK_ROWS, L["BAR_Y"] + bar["h"]))
         self.assertEqual(o.tick_of(o.expected_fb(PHONE, page, o.FB_BASE, 1 << 32)), 0)
         self.assertIsNone(o.tick_of(o.background_fb()))
         self.assertIsNone(o.tick_of(o.moved_fb()))
         with self.assertRaises(ValueError):
             o.tick_of(zero[:-1])
 
-    def test_bar_has_one_lit_cell_and_it_names_the_counters_last_four_bits(self):
-        cell = A["masks"]["BAR_CELL"]
-        self.assertEqual(len(L["BAR_CELL_X"]), 16)
-        for a, b in zip(L["BAR_CELL_X"], L["BAR_CELL_X"][1:]):
-            self.assertGreater(b - a, cell["w"])   # cells do not touch
-        row = (L["BAR_CELL_Y"] + cell["h"] // 2) * o.STRIDE
+    def test_bar_is_filled_as_far_as_the_counters_last_four_bits_say(self):
+        bar = A["sprites"]["BAR_01"]
+        row = (L["BAR_Y"] + bar["h"] // 2) * o.STRIDE + L["BAR_X"] * 3
 
-        def middles(tick):
+        def middle(tick):
             fb = o.expected_fb(con.Handoff(), None, 0, tick)
-            return [tuple(reversed(fb[row + (x + cell["w"] // 2) * 3:row + (x + cell["w"] // 2) * 3 + 3]))
-                    for x in L["BAR_CELL_X"]]
+            return fb[row:row + bar["w"] * 3]
 
-        for tick in (0, 1, 7, 15, 16, 0x1F, 0x89AB_CDE5):
-            want = [C["BAR_DIM"]] * 16
-            want[tick % 16] = C["BAR_LIT"]
-            self.assertEqual(middles(tick), want, tick)
-        self.assertNotEqual(C["BAR_LIT"], C["BAR_DIM"])
-        self.assertNotEqual(C["BAR_DIM"], C["BAR_DARK"])
+        # sixteen different lengths, and the seventeenth step is the first again
+        self.assertEqual(len({middle(t) for t in range(16)}), 16)
+        self.assertEqual(middle(16), middle(0))
+        self.assertEqual(middle(0x89AB_CDE5), middle(5))
+        # one piece: along the bar's middle the colour changes from filled to
+        # unfilled once (a few pixels of soft edge between), not sixteen times
+        for tick in (0, 6, 14):
+            line = middle(tick)
+            pixels = [line[i:i + 3] for i in range(0, len(line), 3)]
+            changes = sum(1 for a, b in zip(pixels, pixels[1:]) if a != b)
+            self.assertLessEqual(changes, 12, tick)
+        self.assertEqual(len(set(middle(15)[6:-6][i:i + 3] for i in range(0, bar["w"] * 3 - 12, 3))), 1)
 
     def test_self_test_sum_and_its_chip(self):
         self.assertEqual(o.table_sum(), o.SELFTEST_SUM)
@@ -415,7 +512,7 @@ class ScreenTests(unittest.TestCase):
         box = box_of_difference(good, bad)
         # the sum's last digit and the chip, on the first row of panels
         self.assertGreater(box[0], L["SELF_X"])
-        self.assertLessEqual(box[2], L["SELF_CHIP_X"] + A["masks"]["OK1_FILL"]["w"])
+        self.assertLessEqual(box[2], L["SELF_CHIP_X"] + A["sprites"]["OK_ROW1"]["w"])
         self.assertLess(abs((box[1] + box[3]) // 2 - L["ROW1_Y"]), 6)
         # a wrong sum that happens to print the same digits cannot exist: the sum is what is printed
         self.assertNotEqual(o.expected_fb(con.Handoff(), selftest=0), good)
@@ -476,14 +573,19 @@ class TagListTests(unittest.TestCase):
         self.assertEqual(set(screens) - {None}, set(o.WARN_WORDS))
         # the chip's place holds the background on a good list, and seven
         # different pictures on the seven bad ones
+        chip = A["sprites"]["WARN_SIZE"]
         chips = {}
         for key, fb in screens.items():
             rows = [fb[(L["WARN_Y"] + j) * o.STRIDE + L["WARN_X"] * 3:
-                       (L["WARN_Y"] + j) * o.STRIDE + (L["WARN_X"] + A["masks"]["WARN_FILL"]["w"]) * 3]
-                    for j in range(A["masks"]["WARN_FILL"]["h"])]
+                       (L["WARN_Y"] + j) * o.STRIDE + (L["WARN_X"] + chip["w"]) * 3]
+                    for j in range(chip["h"])]
             chips[key] = b"".join(rows)
         self.assertEqual(len(set(chips.values())), len(chips))
-        self.assertEqual(set(chips[None]), set(reversed(C["BG_BODY"])))
+        chips["background"] = b"".join(
+            o.background_fb()[(L["WARN_Y"] + j) * o.STRIDE + L["WARN_X"] * 3:
+                              (L["WARN_Y"] + j) * o.STRIDE + (L["WARN_X"] + chip["w"]) * 3]
+            for j in range(chip["h"]))
+        self.assertEqual(chips[None], chips["background"])   # a good list leaves the place empty
 
     def test_unterminated_command_line_is_marked(self):
         strip = (L["TEXT_Y"] - 10) * o.STRIDE, (L["TEXT_Y"] + 10) * o.STRIDE

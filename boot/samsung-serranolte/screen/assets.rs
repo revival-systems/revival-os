@@ -4,21 +4,97 @@
 //! assets.json holds the same facts for the host oracle; a unit test
 //! (tests/boot/test_screen_v3.py) fails if the three files disagree.
 
-use crate::gfx::{Font, Mask, Rgb};
+use crate::gfx::{Font, Mask, Picture, Rgb};
 
-/// The stored pictures: palette, background, letters and masks.
+/// The stored pictures: palettes, background, chips, bar, letters and masks.
 pub static BLOB: &[u8] = include_bytes!("assets.bin");
-pub const BLOB_LEN: usize = 58698;
-pub const BLOB_SHA256: &str = "4be7e414173326e2050cb532431e5662c5265678b10055d61aa0117e8b003f4f";
+pub const BLOB_LEN: usize = 81144;
+pub const BLOB_SHA256: &str = "71c8e6008a1163588f2b00a9bf730894a70ba25d75cf62ea0d8521681a4dd58d";
 
 pub const WIDTH: usize = 540;
 pub const HEIGHT: usize = 960;
 pub const PALETTE_OFF: usize = 0;
 pub const BG_OFF: usize = 768;
-pub const BG_LEN: usize = 29883;
+pub const BG_LEN: usize = 33120;
+pub const SPRITE_PALETTE_OFF: usize = 33888;
+
+pub const CHIP_MODE_USR: Picture = Picture { off: 34656, len: 631, w: 32, h: 30 };
+pub const CHIP_MODE_FIQ: Picture = Picture { off: 35287, len: 617, w: 32, h: 30 };
+pub const CHIP_MODE_IRQ: Picture = Picture { off: 35904, len: 621, w: 32, h: 30 };
+pub const CHIP_MODE_SVC: Picture = Picture { off: 36525, len: 647, w: 32, h: 30 };
+pub const CHIP_MODE_MON: Picture = Picture { off: 37172, len: 676, w: 32, h: 30 };
+pub const CHIP_MODE_ABT: Picture = Picture { off: 37848, len: 619, w: 32, h: 30 };
+pub const CHIP_MODE_HYP: Picture = Picture { off: 38467, len: 606, w: 32, h: 30 };
+pub const CHIP_MODE_UND: Picture = Picture { off: 39073, len: 639, w: 32, h: 30 };
+pub const CHIP_MODE_SYS: Picture = Picture { off: 39712, len: 638, w: 32, h: 30 };
+pub const CHIP_MODE_UNKNOWN: Picture = Picture { off: 40350, len: 628, w: 32, h: 30 };
+/// Bit I: [0] when it is clear, [1] when it is set.
+pub const CHIP_BIT_I: [Picture; 2] = [
+    Picture { off: 40978, len: 542, w: 32, h: 30 },
+    Picture { off: 41520, len: 557, w: 32, h: 30 },
+];
+/// Bit F: [0] when it is clear, [1] when it is set.
+pub const CHIP_BIT_F: [Picture; 2] = [
+    Picture { off: 42077, len: 564, w: 32, h: 30 },
+    Picture { off: 42641, len: 585, w: 32, h: 30 },
+];
+/// Bit A: [0] when it is clear, [1] when it is set.
+pub const CHIP_BIT_A: [Picture; 2] = [
+    Picture { off: 43226, len: 574, w: 32, h: 30 },
+    Picture { off: 43800, len: 587, w: 32, h: 30 },
+];
+/// Bit T: [0] when it is clear, [1] when it is set.
+pub const CHIP_BIT_T: [Picture; 2] = [
+    Picture { off: 44387, len: 557, w: 32, h: 30 },
+    Picture { off: 44944, len: 576, w: 32, h: 30 },
+];
+/// Bit M: [0] when it is clear, [1] when it is set.
+pub const CHIP_BIT_M: [Picture; 2] = [
+    Picture { off: 45520, len: 561, w: 32, h: 30 },
+    Picture { off: 46081, len: 581, w: 32, h: 30 },
+];
+/// Bit C: [0] when it is clear, [1] when it is set.
+pub const CHIP_BIT_C: [Picture; 2] = [
+    Picture { off: 46662, len: 578, w: 32, h: 30 },
+    Picture { off: 47240, len: 582, w: 32, h: 30 },
+];
+/// Bit V: [0] when it is clear, [1] when it is set.
+pub const CHIP_BIT_V: [Picture; 2] = [
+    Picture { off: 47822, len: 583, w: 32, h: 30 },
+    Picture { off: 48405, len: 592, w: 32, h: 30 },
+];
+pub const CHIP_WARN_OUT: Picture = Picture { off: 48997, len: 750, w: 52, h: 26 };
+pub const CHIP_WARN_ODD: Picture = Picture { off: 49747, len: 784, w: 52, h: 26 };
+pub const CHIP_WARN_DTB: Picture = Picture { off: 50531, len: 740, w: 52, h: 26 };
+pub const CHIP_WARN_SIZE: Picture = Picture { off: 51271, len: 780, w: 52, h: 26 };
+pub const CHIP_WARN_PAST: Picture = Picture { off: 52051, len: 830, w: 52, h: 26 };
+pub const CHIP_WARN_MANY: Picture = Picture { off: 52881, len: 826, w: 52, h: 26 };
+pub const CHIP_WARN_KIND: Picture = Picture { off: 53707, len: 792, w: 52, h: 26 };
+pub const CHIP_OK_ROW1: Picture = Picture { off: 54499, len: 683, w: 39, h: 32 };
+pub const CHIP_BAD_ROW1: Picture = Picture { off: 55182, len: 709, w: 39, h: 32 };
+pub const CHIP_OK_BODY: Picture = Picture { off: 55891, len: 582, w: 34, h: 26 };
+/// The bar: BAR[n] has n + 1 sixteenths of it filled.
+pub static BAR: [Picture; 16] = [
+    Picture { off: 56473, len: 181, w: 134, h: 17 },
+    Picture { off: 56654, len: 200, w: 134, h: 17 },
+    Picture { off: 56854, len: 200, w: 134, h: 17 },
+    Picture { off: 57054, len: 200, w: 134, h: 17 },
+    Picture { off: 57254, len: 200, w: 134, h: 17 },
+    Picture { off: 57454, len: 200, w: 134, h: 17 },
+    Picture { off: 57654, len: 200, w: 134, h: 17 },
+    Picture { off: 57854, len: 198, w: 134, h: 17 },
+    Picture { off: 58052, len: 215, w: 134, h: 17 },
+    Picture { off: 58267, len: 216, w: 134, h: 17 },
+    Picture { off: 58483, len: 216, w: 134, h: 17 },
+    Picture { off: 58699, len: 216, w: 134, h: 17 },
+    Picture { off: 58915, len: 216, w: 134, h: 17 },
+    Picture { off: 59131, len: 216, w: 134, h: 17 },
+    Picture { off: 59347, len: 216, w: 134, h: 17 },
+    Picture { off: 59563, len: 163, w: 134, h: 17 },
+];
 
 pub static FONT_VAL_REG: Font = Font {
-    off: 30651,
+    off: 59726,
     cell_w: 15,
     cell_h: 15,
     up: 8,
@@ -35,7 +111,7 @@ pub static FONT_VAL_REG: Font = Font {
     adv16: &[144, 144, 144, 144, 144, 144, 144, 144, 144, 144, 144, 144, 144, 144, 144, 144, 144, 144],
 };
 pub static FONT_VAL: Font = Font {
-    off: 32811,
+    off: 61886,
     cell_w: 14,
     cell_h: 13,
     up: 6,
@@ -52,7 +128,7 @@ pub static FONT_VAL: Font = Font {
     adv16: &[128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128],
 };
 pub static FONT_SMALL: Font = Font {
-    off: 34449,
+    off: 63524,
     cell_w: 13,
     cell_h: 12,
     up: 6,
@@ -69,7 +145,7 @@ pub static FONT_SMALL: Font = Font {
     adv16: &[112, 112, 112, 112, 112, 112, 112, 112, 112, 112, 112, 112, 112, 112, 112, 112],
 };
 pub static FONT_ROW1: Font = Font {
-    off: 35793,
+    off: 64868,
     cell_w: 15,
     cell_h: 15,
     up: 8,
@@ -86,7 +162,7 @@ pub static FONT_ROW1: Font = Font {
     adv16: &[144, 144, 144, 144, 144, 144, 144, 144, 144, 144, 144, 144, 144, 144, 144, 144],
 };
 pub static FONT_TICK: Font = Font {
-    off: 37713,
+    off: 66788,
     cell_w: 11,
     cell_h: 16,
     up: 8,
@@ -103,7 +179,7 @@ pub static FONT_TICK: Font = Font {
     adv16: &[176, 176, 176, 176, 176, 176, 176, 176, 176, 176, 176, 176, 176, 176, 176, 176],
 };
 pub static FONT_PAR: Font = Font {
-    off: 39249,
+    off: 68324,
     cell_w: 13,
     cell_h: 17,
     up: 7,
@@ -119,61 +195,32 @@ pub static FONT_PAR: Font = Font {
     ],
     adv16: &[112, 112, 112, 112, 112, 112, 112, 112, 112, 112, 112, 112, 112, 112, 112, 112, 112, 112, 112, 112, 112, 112, 112, 112, 112, 112, 112, 112, 112, 112, 112, 112, 112, 112, 112, 112, 112, 112, 112, 112, 112, 112, 112, 112, 112, 112, 112, 112, 112, 112, 112, 112, 112, 112, 112, 112, 112, 112, 112, 112, 112, 112, 112, 112, 112, 112, 112, 112, 112, 112, 112, 112, 112, 112, 112, 112, 112, 112, 112, 112, 112, 112, 112, 112, 112, 112, 112, 112, 112, 112, 112, 112, 112, 112, 112],
 };
-pub static FONT_CHIP: Font = Font {
-    off: 50554,
-    cell_w: 16,
-    cell_h: 14,
-    up: 6,
-    pad: 2,
-    space16: 51,
-    map: [
-        255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
-        26, 27, 255, 255, 255, 255, 255, 255, 255, 255, 28, 255, 255, 255, 255, 29,
-        255, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14,
-        15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 255, 255, 255, 255, 255,
-        255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
-        255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
-    ],
-    adv16: &[114, 112, 108, 122, 101, 101, 121, 123, 55, 55, 114, 94, 147, 123, 125, 108, 125, 113, 106, 101, 120, 114, 162, 114, 107, 107, 103, 103, 59, 85],
-};
 
-pub const MASK_OK: Mask = Mask { off: 53914, w: 20, h: 15, dx: 0, up: 8 };
-pub const MASK_BAD: Mask = Mask { off: 54064, w: 28, h: 14, dx: 0, up: 8 };
-pub const MASK_HIDDEN: Mask = Mask { off: 54260, w: 53, h: 13, dx: 0, up: 7 };
-pub const MASK_MEM: Mask = Mask { off: 54611, w: 30, h: 13, dx: 0, up: 7 };
-pub const MASK_AT: Mask = Mask { off: 54806, w: 18, h: 13, dx: -1, up: 7 };
-pub const MASK_SZ: Mask = Mask { off: 54923, w: 14, h: 12, dx: 0, up: 6 };
-pub const MASK_BIT_FILL: Mask = Mask { off: 55007, w: 25, h: 20, dx: 0, up: 0 };
-pub const MASK_BIT_LINE: Mask = Mask { off: 55267, w: 25, h: 20, dx: 0, up: 0 };
-pub const MASK_OK1_FILL: Mask = Mask { off: 55527, w: 33, h: 26, dx: 0, up: 0 };
-pub const MASK_OK1_LINE: Mask = Mask { off: 55969, w: 33, h: 26, dx: 0, up: 0 };
-pub const MASK_OK2_FILL: Mask = Mask { off: 56411, w: 28, h: 20, dx: 0, up: 0 };
-pub const MASK_OK2_LINE: Mask = Mask { off: 56691, w: 28, h: 20, dx: 0, up: 0 };
-pub const MASK_WARN_FILL: Mask = Mask { off: 56971, w: 46, h: 20, dx: 0, up: 0 };
-pub const MASK_WARN_LINE: Mask = Mask { off: 57431, w: 46, h: 20, dx: 0, up: 0 };
-pub const MASK_READING: Mask = Mask { off: 57891, w: 47, h: 16, dx: 0, up: 6 };
-pub const MASK_RUNNING: Mask = Mask { off: 58275, w: 48, h: 16, dx: 0, up: 6 };
-pub const MASK_BAR_CELL: Mask = Mask { off: 58659, w: 6, h: 13, dx: 0, up: 0 };
+pub const MASK_HIDDEN: Mask = Mask { off: 79629, w: 53, h: 13, dx: 0, up: 7 };
+pub const MASK_MEM: Mask = Mask { off: 79980, w: 30, h: 13, dx: 0, up: 7 };
+pub const MASK_AT: Mask = Mask { off: 80175, w: 18, h: 13, dx: -1, up: 7 };
+pub const MASK_SZ: Mask = Mask { off: 80292, w: 14, h: 12, dx: 0, up: 6 };
+pub const MASK_READING: Mask = Mask { off: 80376, w: 47, h: 16, dx: 0, up: 6 };
+pub const MASK_RUNNING: Mask = Mask { off: 80760, w: 48, h: 16, dx: 0, up: 6 };
 
 pub const SELF_X: usize = 365;
 pub const ROW1_Y: usize = 93;
-pub const SELF_CHIP_X: usize = 443;
-pub const SELF_CHIP_Y: usize = 80;
+pub const SELF_CHIP_X: usize = 440;
+pub const SELF_CHIP_Y: usize = 77;
 pub const REG_X: usize = 91;
 pub const REG_Y: [usize; 4] = [176, 196, 218, 239];
 pub const STAT_X: usize = 291;
 pub const STAT_Y: [usize; 2] = [187, 224];
-pub const CHIP_X: [usize; 5] = [371, 401, 430, 459, 490];
-pub const CHIP_W: usize = 25;
-pub const CHIP_H: usize = 20;
+pub const CHIP_X: [usize; 5] = [368, 398, 427, 456, 487];
+pub const CHIP_Y: [usize; 2] = [172, 209];
 pub const INFO_X: usize = 110;
 pub const INFO_Y: [usize; 7] = [320, 340, 361, 382, 403, 423, 444];
-pub const ENTRY_CHIP_X: usize = 191;
-pub const ENTRY_CHIP_Y: usize = 331;
+pub const ENTRY_CHIP_X: usize = 188;
+pub const ENTRY_CHIP_Y: usize = 328;
 pub const SZ_LABEL_X: usize = 183;
 pub const SZ_X: usize = 202;
-pub const WARN_X: usize = 191;
-pub const WARN_Y: usize = 351;
+pub const WARN_X: usize = 213;
+pub const WARN_Y: usize = 274;
 pub const MEM_X: usize = 293;
 pub const MEM_SIZE_X: usize = 332;
 pub const MEM_AT_X: usize = 415;
@@ -203,8 +250,8 @@ pub const TICK_X: usize = 104;
 pub const TICK_Y: usize = 908;
 pub const STATUS_X: usize = 286;
 pub const STATUS_Y: usize = 908;
-pub const BAR_CELL_X: [usize; 16] = [375, 383, 391, 399, 407, 415, 423, 431, 439, 447, 455, 463, 471, 479, 487, 495];
-pub const BAR_CELL_Y: usize = 900;
+pub const BAR_X: usize = 371;
+pub const BAR_Y: usize = 898;
 pub const STATUS_BOX_X: usize = 286;
 pub const STATUS_BOX_Y: usize = 902;
 pub const STATUS_BOX_W: usize = 48;
@@ -221,32 +268,10 @@ pub const PURPLE: Rgb = [196, 178, 240];
 pub const GREY: Rgb = [150, 164, 180];
 pub const RED: Rgb = [244, 104, 104];
 pub const DIM: Rgb = [126, 138, 160];
-pub const BAR_LIT: Rgb = [40, 232, 250];
-pub const BAR_DIM: Rgb = [17, 100, 116];
 pub const BG_ROW1: Rgb = [9, 30, 42];
 pub const BG_BODY: Rgb = [3, 14, 25];
 pub const BG_LIST: Rgb = [16, 35, 50];
 pub const BG_CFG: Rgb = [4, 22, 24];
 pub const BG_TEXT: Rgb = [14, 43, 41];
+pub const BG_WARN: Rgb = [16, 35, 50];
 pub const BG_STATUS: Rgb = [6, 34, 50];
-pub const BAR_DARK: Rgb = [10, 58, 74];
-pub const CHIP_GREEN_FILL_LIT: Rgb = [31, 64, 52];
-pub const CHIP_GREEN_FILL_OFF: Rgb = [17, 39, 38];
-pub const CHIP_GREEN_LINE_LIT: Rgb = [112, 212, 130];
-pub const CHIP_GREEN_LINE_OFF: Rgb = [84, 160, 103];
-pub const CHIP_GREEN_TEXT_OFF: Rgb = [177, 228, 192];
-pub const CHIP_PURPLE_FILL_LIT: Rgb = [49, 53, 77];
-pub const CHIP_PURPLE_FILL_OFF: Rgb = [26, 34, 51];
-pub const CHIP_PURPLE_LINE_LIT: Rgb = [186, 170, 229];
-pub const CHIP_PURPLE_LINE_OFF: Rgb = [138, 129, 176];
-pub const CHIP_PURPLE_TEXT_OFF: Rgb = [212, 208, 239];
-pub const CHIP_GREY_FILL_LIT: Rgb = [38, 50, 62];
-pub const CHIP_GREY_FILL_OFF: Rgb = [21, 32, 44];
-pub const CHIP_GREY_LINE_LIT: Rgb = [143, 156, 172];
-pub const CHIP_GREY_LINE_OFF: Rgb = [106, 119, 134];
-pub const CHIP_GREY_TEXT_OFF: Rgb = [192, 201, 212];
-pub const CHIP_RED_FILL_LIT: Rgb = [61, 36, 44];
-pub const CHIP_RED_FILL_OFF: Rgb = [32, 25, 34];
-pub const CHIP_RED_LINE_LIT: Rgb = [232, 100, 100];
-pub const CHIP_RED_LINE_OFF: Rgb = [172, 77, 80];
-pub const CHIP_RED_TEXT_OFF: Rgb = [234, 174, 178];

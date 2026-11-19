@@ -9,9 +9,10 @@
 //! What it does: shows what the console image (image 2) shows, in the owner's
 //! design: panels, colours and smooth letters instead of white text on black.
 //! The design is not computed here. It is stored pictures (assets.rs says
-//! where they are): one background of everything that never changes, and
-//! letters and small shapes for the values the phone finds out. This file
-//! decides which value goes where; gfx.rs copies the pictures to the panel.
+//! where they are): one background of everything that never changes, a small
+//! picture for each chip and for each length of the bar, and letters for the
+//! values the phone finds out. This file decides which picture goes where;
+//! gfx.rs copies the pictures to the panel.
 //!
 //! What it touches: exactly what the console image touches. Outside its own
 //! stack it WRITES only to the framebuffer at `board::FB_BASE`. It READS the
@@ -50,7 +51,7 @@ use core::panic::PanicInfo;
 use core::ptr::{read_volatile, write_volatile};
 
 use atags::{Cmdline, Piece, Step, Walk};
-use gfx::{Font, Mask, Rgb, Screen};
+use gfx::{Font, Mask, Picture, Rgb, Screen};
 
 // The stored pictures were made for this panel and this pixel format.
 const _: () = assert!(assets::WIDTH == board::FB_WIDTH && assets::HEIGHT == board::FB_HEIGHT);
@@ -66,8 +67,9 @@ const MOVED_STRIPES: usize = 20;
 /// The background the values of the upper panels are drawn on.
 const BODY: Rgb = assets::BG_BODY;
 
-/// Cells in the bar beside the counter.
-const BAR_CELLS: usize = assets::BAR_CELL_X.len();
+/// In the small colour pictures, colour number 0 is a pixel the picture does
+/// not have.
+const SPRITE_HOLE: usize = 0;
 
 // --- self-test: the first image's table and sum ------------------------------
 // Same table and algorithm as boot/samsung-serranolte/payload.rs, so the sum is
@@ -90,39 +92,6 @@ fn table_sum() -> u32 {
     }
     acc
 }
-
-/// The three colours of a chip: its filled shape, its outline, and what is
-/// written on it.
-struct Chip {
-    fill: Rgb,
-    line: Rgb,
-    text: Rgb,
-}
-
-/// A bit that is 1, and "OK".
-const CHIP_GREEN: Chip = Chip {
-    fill: assets::CHIP_GREEN_FILL_LIT,
-    line: assets::CHIP_GREEN_LINE_LIT,
-    text: assets::GREEN,
-};
-/// A bit that is 0.
-const CHIP_GREY: Chip = Chip {
-    fill: assets::CHIP_GREY_FILL_OFF,
-    line: assets::CHIP_GREY_LINE_OFF,
-    text: assets::CHIP_GREY_TEXT_OFF,
-};
-/// The processor mode.
-const CHIP_PURPLE: Chip = Chip {
-    fill: assets::CHIP_PURPLE_FILL_LIT,
-    line: assets::CHIP_PURPLE_LINE_LIT,
-    text: assets::PURPLE,
-};
-/// Something wrong.
-const CHIP_RED: Chip = Chip {
-    fill: assets::CHIP_RED_FILL_LIT,
-    line: assets::CHIP_RED_LINE_LIT,
-    text: assets::RED,
-};
 
 /// Image entry, called by kstart.S with the address of the seven words it
 /// captured: r0, r1, r2, r3, CPSR, SCTLR and the address it was entered at.
@@ -176,20 +145,16 @@ pub extern "C" fn payload_main(handoff: *const u32) {
     ui.status(&assets::MASK_RUNNING, assets::GREEN);
 
     // The counter. All eight digits are drawn once; after that only the
-    // digits that change are redrawn, one cell each. The bar beside it has
-    // sixteen cells, one of them lit: the one the counter's last four bits
-    // name. It moves one cell at each step, so that a step can be seen from
+    // digits that change are redrawn, one cell each. The bar beside it is
+    // filled as far as the counter's last four bits say: a sixteenth more at
+    // each step, then from one sixteenth again. It lets a step be seen from
     // further away than a digit can be read.
     let mut digit: usize = 0;
     while digit < 8 {
         ui.tick_digit(digit, 0);
         digit += 1;
     }
-    let mut cell: usize = 0;
-    while cell < BAR_CELLS {
-        ui.bar_cell(cell, cell == 0);
-        cell += 1;
-    }
+    ui.bar(0);
     let mut tick: u32 = 0;
     loop {
         screen_tick_wait();
@@ -203,8 +168,7 @@ pub extern "C" fn payload_main(handoff: *const u32) {
             }
             digit += 1;
         }
-        ui.bar_cell(tick as usize % BAR_CELLS, false);
-        ui.bar_cell(next as usize % BAR_CELLS, true);
+        ui.bar(next);
         tick = next;
     }
 }
@@ -404,51 +368,12 @@ impl<'a> Ui<'a> {
         self.screen.word(self.blob, mask, x, yc, fg, bg);
     }
 
-    /// A chip with its top left corner at (x, y): its filled shape over
-    /// `under`, then its outline. What is written on it goes over `chip.fill`.
-    fn chip(&self, x: usize, y: usize, fill: &Mask, line: &Mask, chip: &Chip, under: Rgb) {
-        self.screen.stored(self.blob, fill, x, y, chip.fill, under);
-        self.screen.stored(self.blob, line, x, y, chip.line, chip.fill);
-    }
-
-    /// A chip with a stored word in its middle.
-    fn chip_word(
-        &self,
-        x: usize,
-        y: usize,
-        fill: &Mask,
-        line: &Mask,
-        word: &Mask,
-        chip: &Chip,
-        under: Rgb,
-    ) {
-        self.chip(x, y, fill, line, chip, under);
-        let word_x = x + fill.w.saturating_sub(word.w) / 2;
-        let word_y = y + fill.h.saturating_sub(word.h) / 2;
-        self.screen.stored(self.blob, word, word_x, word_y, chip.text, chip.fill);
-    }
-
-    /// A chip with `text` in the chip font in its middle.
-    fn chip_text(
-        &self,
-        x: usize,
-        y: usize,
-        fill: &Mask,
-        line: &Mask,
-        text: &[u8],
-        chip: &Chip,
-        under: Rgb,
-    ) {
-        self.chip(x, y, fill, line, chip, under);
-        let font = &assets::FONT_CHIP;
-        let mut width: usize = 0;
-        for &code in text {
-            width += font.advance(code);
-        }
-        let mut pen = (x << 4) + (fill.w << 4).saturating_sub(width) / 2;
-        let yc = y + fill.h / 2;
-        for &code in text {
-            pen = self.screen.glyph(self.blob, font, pen, yc, code, chip.text, chip.fill);
+    /// One of the small colour pictures, a chip or the inside of the bar,
+    /// with its top left corner at (x, y).
+    fn sprite(&self, picture: &Picture, x: usize, y: usize) {
+        let from = assets::SPRITE_PALETTE_OFF;
+        if let Some(palette) = self.blob.get(from..from + 768) {
+            self.screen.stored_picture(self.blob, picture, x, y, palette, SPRITE_HOLE);
         }
     }
 
@@ -459,7 +384,8 @@ impl<'a> Ui<'a> {
         let stream = self.blob.get(assets::BG_OFF..assets::BG_OFF + assets::BG_LEN);
         let palette = self.blob.get(assets::PALETTE_OFF..assets::PALETTE_OFF + 768);
         if let (Some(stream), Some(palette)) = (stream, palette) {
-            self.screen.background(stream, palette);
+            let (w, h) = (assets::WIDTH, assets::HEIGHT);
+            self.screen.picture(0, 0, w, h, stream, palette, gfx::NO_HOLE);
         }
     }
 
@@ -473,18 +399,9 @@ impl<'a> Ui<'a> {
             assets::WHITE,
             assets::BG_ROW1,
         );
-        let good = sum == TABLE_SUM;
-        let word = if good { &assets::MASK_OK } else { &assets::MASK_BAD };
-        let chip = if good { &CHIP_GREEN } else { &CHIP_RED };
-        self.chip_word(
-            assets::SELF_CHIP_X,
-            assets::SELF_CHIP_Y,
-            &assets::MASK_OK1_FILL,
-            &assets::MASK_OK1_LINE,
-            word,
-            chip,
-            assets::BG_ROW1,
-        );
+        // Green OK for the right sum; red BAD for any other.
+        let chip = if sum == TABLE_SUM { &assets::CHIP_OK_ROW1 } else { &assets::CHIP_BAD_ROW1 };
+        self.sprite(chip, assets::SELF_CHIP_X, assets::SELF_CHIP_Y);
     }
 
     /// r0 to r3 as kstart.S captured them.
@@ -498,42 +415,34 @@ impl<'a> Ui<'a> {
     /// when the bit is set, grey and 0 when it is not.
     fn cpu_state(&self, cpsr: u32, sctlr: u32) {
         let [cpsr_y, sctlr_y] = assets::STAT_Y;
+        let [top, bottom] = assets::CHIP_Y;
         let [x0, x1, x2, x3, x4] = assets::CHIP_X;
 
         // CPSR: mode, then the IRQ, FIQ and abort masks and the Thumb bit.
         self.text(&assets::FONT_VAL, assets::STAT_X, cpsr_y, &hex8(cpsr), assets::AMBER, BODY);
-        let top = cpsr_y - assets::CHIP_H / 2;
-        self.chip_text(
-            x0,
-            top,
-            &assets::MASK_BIT_FILL,
-            &assets::MASK_BIT_LINE,
-            mode_name(cpsr),
-            &CHIP_PURPLE,
-            BODY,
-        );
-        self.bit(x1, top, b'I', cpsr, 7);
-        self.bit(x2, top, b'F', cpsr, 6);
-        self.bit(x3, top, b'A', cpsr, 8);
-        self.bit(x4, top, b'T', cpsr, 5);
+        self.sprite(mode_chip(cpsr), x0, top);
+        self.bit(&assets::CHIP_BIT_I, x1, top, cpsr, 7);
+        self.bit(&assets::CHIP_BIT_F, x2, top, cpsr, 6);
+        self.bit(&assets::CHIP_BIT_A, x3, top, cpsr, 8);
+        self.bit(&assets::CHIP_BIT_T, x4, top, cpsr, 5);
 
         // SCTLR: MMU, data cache, instruction cache, alignment checking, high
         // vectors.
         self.text(&assets::FONT_VAL, assets::STAT_X, sctlr_y, &hex8(sctlr), assets::AMBER, BODY);
-        let top = sctlr_y - assets::CHIP_H / 2;
-        self.bit(x0, top, b'M', sctlr, 0);
-        self.bit(x1, top, b'C', sctlr, 2);
-        self.bit(x2, top, b'I', sctlr, 12);
-        self.bit(x3, top, b'A', sctlr, 1);
-        self.bit(x4, top, b'V', sctlr, 13);
+        self.bit(&assets::CHIP_BIT_M, x0, bottom, sctlr, 0);
+        self.bit(&assets::CHIP_BIT_C, x1, bottom, sctlr, 2);
+        self.bit(&assets::CHIP_BIT_I, x2, bottom, sctlr, 12);
+        self.bit(&assets::CHIP_BIT_A, x3, bottom, sctlr, 1);
+        self.bit(&assets::CHIP_BIT_V, x4, bottom, sctlr, 13);
     }
 
-    /// One bit of `word` as a chip: its letter, a colon, and 1 or 0.
-    fn bit(&self, x: usize, y: usize, letter: u8, word: u32, bit: u32) {
-        let on = (word >> bit) & 1 != 0;
-        let text = [letter, b':', if on { b'1' } else { b'0' }];
-        let chip = if on { &CHIP_GREEN } else { &CHIP_GREY };
-        self.chip_text(x, y, &assets::MASK_BIT_FILL, &assets::MASK_BIT_LINE, &text, chip, BODY);
+    /// One bit of `word` as a chip. `chips` holds the bit's two pictures: the
+    /// first for a clear bit, the second for a set one.
+    fn bit(&self, chips: &[Picture; 2], x: usize, y: usize, word: u32, bit: u32) {
+        let on = ((word >> bit) & 1) as usize;
+        if let Some(chip) = chips.get(on) {
+            self.sprite(chip, x, y);
+        }
     }
 
     /// The machine number (r1, in decimal, as it is listed), the entry address
@@ -544,40 +453,24 @@ impl<'a> Ui<'a> {
         self.info(mach_y, dec(r1, &mut digits));
         // Reached only when the entry address is the linked one.
         self.info(entry_y, &hex8(entry));
-        self.chip_word(
-            assets::ENTRY_CHIP_X,
-            assets::ENTRY_CHIP_Y,
-            &assets::MASK_OK2_FILL,
-            &assets::MASK_OK2_LINE,
-            &assets::MASK_OK,
-            &CHIP_GREEN,
-            BODY,
-        );
+        self.sprite(&assets::CHIP_OK_BODY, assets::ENTRY_CHIP_X, assets::ENTRY_CHIP_Y);
         self.info(atags_y, &hex8(r2));
     }
 
-    /// One word on a red chip beside the tag list's address: why the list was
-    /// not read, or not read to a proper end.
-    fn warn(&self, word: &[u8]) {
-        self.chip_text(
-            assets::WARN_X,
-            assets::WARN_Y,
-            &assets::MASK_WARN_FILL,
-            &assets::MASK_WARN_LINE,
-            word,
-            &CHIP_RED,
-            BODY,
-        );
+    /// A red chip with one word beside the tag list's address: why the list
+    /// was not read, or not read to a proper end.
+    fn warn(&self, chip: &Picture) {
+        self.sprite(chip, assets::WARN_X, assets::WARN_Y);
     }
 
     /// The bootloader's tag list, if r2 points at one inside the tag page.
     fn tags(&self, r2: u32) {
         if r2 < board::TAGS_PAGE_LO || r2 >= board::TAGS_PAGE_HI {
-            self.warn(b"OUT");
+            self.warn(&assets::CHIP_WARN_OUT);
             return;
         }
         if r2 & 3 != 0 {
-            self.warn(b"ODD");
+            self.warn(&assets::CHIP_WARN_ODD);
             return;
         }
         let count = ((board::TAGS_PAGE_HI - r2) / 4) as usize;
@@ -587,14 +480,14 @@ impl<'a> Ui<'a> {
         // this image; nothing writes it now, and this image never does.
         let words = unsafe { core::slice::from_raw_parts(r2 as *const u32, count) };
         if words.first().copied() == Some(atags::DEVICE_TREE_MAGIC) {
-            self.warn(b"DTB");
+            self.warn(&assets::CHIP_WARN_DTB);
             return;
         }
 
         // The list is read twice. The first time only counts the command
         // line's words: how many there are decides how they are laid out.
         let mut list = List::new(count_words(words));
-        let mut stopped: &[u8] = b"";
+        let mut stopped: Option<&Picture> = None;
         for step in Walk::new(words) {
             match step {
                 Step::Tag { id, body } => self.tag(&mut list, id, body),
@@ -602,14 +495,14 @@ impl<'a> Ui<'a> {
                 // A tag of size 0 ends the walk whatever its kind, as it does
                 // in the Linux kernel; a kind other than 0 is still a
                 // malformed list.
-                Step::End { .. } => stopped = b"KIND",
-                Step::BadSize(_) => stopped = b"SIZE",
-                Step::PastEnd => stopped = b"PAST",
-                Step::TooMany => stopped = b"MANY",
+                Step::End { .. } => stopped = Some(&assets::CHIP_WARN_KIND),
+                Step::BadSize(_) => stopped = Some(&assets::CHIP_WARN_SIZE),
+                Step::PastEnd => stopped = Some(&assets::CHIP_WARN_PAST),
+                Step::TooMany => stopped = Some(&assets::CHIP_WARN_MANY),
             }
         }
-        if !stopped.is_empty() {
-            self.warn(stopped);
+        if let Some(chip) = stopped {
+            self.warn(chip);
         }
 
         // What of the list is not on the screen. Nothing is said when all of
@@ -876,15 +769,14 @@ impl<'a> Ui<'a> {
         );
     }
 
-    /// One cell of the bar beside the counter, lit or dim. A cell's pixels
-    /// are the same pixels either way, so drawing it replaces what it showed.
-    /// The bar is not a progress bar: the image has nothing to be part-way
-    /// through. Its lit cell only shows that the counter stepped.
-    fn bar_cell(&self, cell: usize, lit: bool) {
-        if let Some(&x) = assets::BAR_CELL_X.get(cell) {
-            let colour = if lit { assets::BAR_LIT } else { assets::BAR_DIM };
-            let shape = &assets::MASK_BAR_CELL;
-            self.screen.stored(self.blob, shape, x, assets::BAR_CELL_Y, colour, assets::BAR_DARK);
+    /// The bar beside the counter, filled as far as the counter's last four
+    /// bits say, plus one sixteenth. Each length is a stored picture of the
+    /// whole inside of the bar, so one picture replaces another. The bar is
+    /// not a progress bar: the image has nothing to be part-way through. Its
+    /// length only shows that the counter stepped.
+    fn bar(&self, tick: u32) {
+        if let Some(picture) = assets::BAR.get((tick & 0xF) as usize) {
+            self.sprite(picture, assets::BAR_X, assets::BAR_Y);
         }
     }
 }
@@ -984,18 +876,19 @@ fn printable(code: u8) -> u8 {
     }
 }
 
-fn mode_name(cpsr: u32) -> &'static [u8] {
+/// The chip for the processor mode in `cpsr`.
+fn mode_chip(cpsr: u32) -> &'static Picture {
     match cpsr & 0x1F {
-        0x10 => b"USR",
-        0x11 => b"FIQ",
-        0x12 => b"IRQ",
-        0x13 => b"SVC",
-        0x16 => b"MON",
-        0x17 => b"ABT",
-        0x1A => b"HYP",
-        0x1B => b"UND",
-        0x1F => b"SYS",
-        _ => b"???",
+        0x10 => &assets::CHIP_MODE_USR,
+        0x11 => &assets::CHIP_MODE_FIQ,
+        0x12 => &assets::CHIP_MODE_IRQ,
+        0x13 => &assets::CHIP_MODE_SVC,
+        0x16 => &assets::CHIP_MODE_MON,
+        0x17 => &assets::CHIP_MODE_ABT,
+        0x1A => &assets::CHIP_MODE_HYP,
+        0x1B => &assets::CHIP_MODE_UND,
+        0x1F => &assets::CHIP_MODE_SYS,
+        _ => &assets::CHIP_MODE_UNKNOWN,
     }
 }
 

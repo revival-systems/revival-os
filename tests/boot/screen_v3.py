@@ -32,6 +32,7 @@ Python standard library only. Nothing here touches a device or a network.
 from __future__ import annotations
 
 import argparse
+import functools
 import hashlib
 import json
 import struct
@@ -63,6 +64,39 @@ def check_assets() -> None:
         raise ValueError("assets.bin is not the file assets.json describes")
 
 
+@functools.lru_cache(maxsize=None)
+def picture_numbers(off: int, length: int, w: int, h: int) -> bytes:
+    """The colour numbers of the stored picture of w x h pixels packed in
+    `length` bytes at `off`, row after row. The packed form is a run of
+    operations, each one byte with its kind in the top two bits and n in the
+    low six:
+      00 n        the next n+1 pixels equal the pixel one row up
+      01 n c      the next n+1 pixels have colour number c
+      10 n c...   the next n+1 pixels have the n+1 colour numbers that follow
+      11 n m      the next (n*256+m)+1 pixels equal the pixel one row up
+    Above the first row every pixel counts as colour number 0."""
+    stream = BLOB[off:off + length]
+    out = bytearray()
+    total = w * h
+    i = 0
+    while len(out) < total and i < len(stream):
+        kind, n = stream[i] >> 6, stream[i] & 0x3F
+        i += 1
+        if kind == 3:
+            n = (n << 8) | stream[i]
+            i += 1
+        if kind == 1:
+            out += bytes([stream[i]]) * (n + 1)
+            i += 1
+        elif kind == 2:
+            out += stream[i:i + n + 1]
+            i += n + 1
+        else:
+            for _ in range(n + 1):
+                out.append(out[len(out) - w] if len(out) >= w else 0)
+    return bytes(out[:total])
+
+
 class Screen:
     """A framebuffer, and the image's few ways of drawing into it."""
 
@@ -81,34 +115,28 @@ class Screen:
             for xx in range(x, min(W, x + w)):
                 self.put(xx, yy, rgb)
 
+    def picture(self, x: int, y: int, w: int, h: int, off: int, length: int, palette_off: int,
+                hole: int | None = None) -> None:
+        """Draw a stored colour picture of w x h pixels with its top left
+        corner at (x, y). Each pixel is a colour number into the palette at
+        `palette_off`; a pixel with colour number `hole` is not drawn."""
+        if x < 0 or y < 0:
+            raise ValueError("the image never starts a picture off the panel")
+        pal = BLOB[palette_off:palette_off + 768]
+        for at, c in enumerate(picture_numbers(off, length, w, h)):
+            if c != hole:
+                self.put(x + at % w, y + at // w, pal[3 * c:3 * c + 3])
+
     def background(self) -> None:
-        """Unpack the stored background picture over the whole screen."""
-        stream = BLOB[A["bg_off"]:A["bg_off"] + A["bg_len"]]
-        pal = BLOB[A["palette_off"]:A["palette_off"] + 768]
-        line = bytearray(W)  # the colour numbers of the row above, then of this row
-        i = at = 0
-        total = W * H
-        while at < total and i < len(stream):
-            kind, n = stream[i] >> 6, stream[i] & 0x3F
-            i += 1
-            if kind == 3:
-                n = (n << 8) | stream[i]
-                i += 1
-            if kind == 1:
-                colour = stream[i]
-                i += 1
-            for _ in range(n + 1):
-                if at >= total:
-                    break
-                x = at % W
-                if kind == 1:
-                    line[x] = colour
-                elif kind == 2:
-                    line[x] = stream[i]
-                    i += 1
-                c = line[x]
-                self.put(x, at // W, pal[3 * c:3 * c + 3])
-                at += 1
+        """The stored background picture: the whole screen, every pixel."""
+        self.picture(0, 0, W, H, A["bg_off"], A["bg_len"], A["palette_off"])
+
+    def sprite(self, name: str, x: int, y: int) -> None:
+        """One of the small colour pictures (a chip, or the bar's inside) with
+        its top left corner at (x, y). Colour number 0 is a pixel the picture
+        does not have: what is there stays."""
+        p = A["sprites"][name]
+        self.picture(x, y, p["w"], p["h"], p["off"], p["len"], A["sprite_palette_off"], hole=0)
 
     def mask(self, x: int, y: int, w: int, h: int, off: int, fg, bg) -> None:
         """Draw a stored mask of w x h coverage levels in colour fg over bg."""
@@ -157,43 +185,9 @@ class Screen:
                        font["cell_h"], C["BG_STATUS"])
         self.glyph(font, pen, L["TICK_Y"], ord(digit), C["AMBER"], C["BG_STATUS"])
 
-    def bar_cell(self, cell: int, lit: bool) -> None:
-        """One of the bar's cells, lit or dim. A cell's pixels are the same
-        pixels either way, so drawing it replaces whatever it showed."""
-        m = A["masks"]["BAR_CELL"]
-        self.mask(L["BAR_CELL_X"][cell], L["BAR_CELL_Y"], m["w"], m["h"], m["off"],
-                  C["BAR_LIT"] if lit else C["BAR_DIM"], C["BAR_DARK"])
-
     def word(self, m: dict, x: int, yc: int, fg, bg) -> None:
         """A stored word, its left edge at x and its middle line at yc."""
         self.mask(x + m["dx"], yc - m["up"], m["w"], m["h"], m["off"], fg, bg)
-
-    def chip(self, x: int, y: int, shape: str, colour: str, lit: bool, under) -> tuple:
-        """A chip's filled shape and outline; returns its fill colour, the
-        background of whatever is then written on it."""
-        state = "LIT" if lit else "OFF"
-        fill = C[f"CHIP_{colour}_FILL_{state}"]
-        f, ln = A["masks"][f"{shape}_FILL"], A["masks"][f"{shape}_LINE"]
-        self.mask(x, y, f["w"], f["h"], f["off"], fill, under)
-        self.mask(x, y, ln["w"], ln["h"], ln["off"], C[f"CHIP_{colour}_LINE_{state}"], fill)
-        return fill
-
-    def chip_text(self, x: int, y: int, shape: str, s: str, colour: str, lit: bool, under) -> None:
-        """A chip with text from the chip font, centred."""
-        fill = self.chip(x, y, shape, colour, lit, under)
-        font, f = A["fonts"]["CHIP"], A["masks"][f"{shape}_FILL"]
-        width = sum(font["adv16"][font["chars"].index(ch)] for ch in s)
-        pen = (x << 4) + ((f["w"] << 4) - width) // 2
-        fg = C[colour] if lit else C[f"CHIP_{colour}_TEXT_OFF"]
-        for ch in s:
-            pen = self.glyph(font, pen, y + f["h"] // 2, ord(ch), fg, fill)
-
-    def chip_word(self, x: int, y: int, shape: str, name: str, colour: str, under) -> None:
-        """A lit chip with a stored word centred on it."""
-        fill = self.chip(x, y, shape, colour, True, under)
-        f, m = A["masks"][f"{shape}_FILL"], A["masks"][name]
-        self.mask(x + (f["w"] - m["w"]) // 2, y + (f["h"] - m["h"]) // 2, m["w"], m["h"], m["off"],
-                  C[colour], fill)
 
 
 # --- what is drawn ------------------------------------------------------------
@@ -298,10 +292,7 @@ def draw(handoff: con.Handoff, page: bytes | None = None, mdp: int | None = 0,
 
     # self-test
     s.text(f["ROW1"], L["SELF_X"], L["ROW1_Y"], f"{selftest & 0xFFFF_FFFF:08X}", C["WHITE"], C["BG_ROW1"])
-    if selftest == SELFTEST_SUM:
-        s.chip_word(L["SELF_CHIP_X"], L["SELF_CHIP_Y"], "OK1", "OK", "GREEN", C["BG_ROW1"])
-    else:
-        s.chip_word(L["SELF_CHIP_X"], L["SELF_CHIP_Y"], "OK1", "BAD", "RED", C["BG_ROW1"])
+    s.sprite("OK_ROW1" if selftest == SELFTEST_SUM else "BAD_ROW1", L["SELF_CHIP_X"], L["SELF_CHIP_Y"])
 
     # registers
     for value, yc in zip((h.r0, h.r1, h.r2, h.r3), L["REG_Y"]):
@@ -309,16 +300,14 @@ def draw(handoff: con.Handoff, page: bytes | None = None, mdp: int | None = 0,
 
     # processor state: the value, then one chip for the mode and one for each bit
     def bits(word, row, chips):
-        yc = L["STAT_Y"][row]
-        s.text(f["VAL"], L["STAT_X"], yc, f"{word:08X}", C["AMBER"], body)
-        for x, (text, colour, lit) in zip(L["CHIP_X"], chips):
-            s.chip_text(x, yc - L["CHIP_H"] // 2, "BIT", text, colour, lit, body)
+        s.text(f["VAL"], L["STAT_X"], L["STAT_Y"][row], f"{word:08X}", C["AMBER"], body)
+        for x, name in zip(L["CHIP_X"], chips):
+            s.sprite(name, x, L["CHIP_Y"][row])
 
     def bit(letter, word, n):
-        on = (word >> n) & 1
-        return (f"{letter}:{on}", "GREEN" if on else "GREY", bool(on))
+        return f"BIT_{letter}{(word >> n) & 1}"
 
-    bits(h.cpsr, 0, [(MODE_NAMES.get(h.cpsr & 0x1F, "???"), "PURPLE", True),
+    bits(h.cpsr, 0, ["MODE_" + MODE_NAMES.get(h.cpsr & 0x1F, "UNKNOWN"),
                      bit("I", h.cpsr, 7), bit("F", h.cpsr, 6), bit("A", h.cpsr, 8), bit("T", h.cpsr, 5)])
     bits(h.sctlr, 1, [bit("M", h.sctlr, 0), bit("C", h.sctlr, 2), bit("I", h.sctlr, 12),
                       bit("A", h.sctlr, 1), bit("V", h.sctlr, 13)])
@@ -328,7 +317,7 @@ def draw(handoff: con.Handoff, page: bytes | None = None, mdp: int | None = 0,
     val = f["VAL"]
     s.text(val, L["INFO_X"], info_y[0], str(h.r1), C["WHITE"], body)
     s.text(val, L["INFO_X"], info_y[1], f"{h.entry:08X}", C["WHITE"], body)
-    s.chip_word(L["ENTRY_CHIP_X"], L["ENTRY_CHIP_Y"], "OK2", "OK", "GREEN", body)
+    s.sprite("OK_BODY", L["ENTRY_CHIP_X"], L["ENTRY_CHIP_Y"])
     s.text(val, L["INFO_X"], info_y[2], f"{h.r2:08X}", C["WHITE"], body)
 
     problem, tags, ended = _words(page, h.r2)
@@ -396,7 +385,7 @@ def draw(handoff: con.Handoff, page: bytes | None = None, mdp: int | None = 0,
 
     # why the list was not read to a proper end: one word on a red chip
     if problem:
-        s.chip_text(L["WARN_X"], L["WARN_Y"], "WARN", WARN_WORDS[problem], "RED", True, body)
+        s.sprite("WARN_" + WARN_WORDS[problem], L["WARN_X"], L["WARN_Y"])
     # what of the list is not on the screen
     if not_shown or n > shown:
         note = "NOT SHOWN:" + (f" {not_shown} TAGS" if not_shown else "") + \
@@ -418,8 +407,8 @@ def draw(handoff: con.Handoff, page: bytes | None = None, mdp: int | None = 0,
     tick &= 0xFFFF_FFFF
     for i, digit in enumerate(f"{tick:08X}"):
         s.tick_digit(i, digit)
-    for cell in range(len(L["BAR_CELL_X"])):
-        s.bar_cell(cell, cell == tick % len(L["BAR_CELL_X"]))
+    # the bar: as many sixteenths filled as the counter's last four bits say, plus one
+    s.sprite(f"BAR_{(tick & 15) + 1:02d}", L["BAR_X"], L["BAR_Y"])
     return s
 
 

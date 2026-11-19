@@ -4,8 +4,9 @@
 //! them; assets.rs says where they are). This file copies them to the panel.
 //! It computes no shapes, no blur and no fonts:
 //!
-//!   - `background` unpacks one whole-screen picture, stored as colour
-//!     numbers with a palette;
+//!   - `picture` unpacks a colour picture, stored as colour numbers with a
+//!     palette: the background, which is the whole screen, and the small
+//!     pictures of the chips and the bar;
 //!   - `mask` draws a small picture of coverage levels (0 to 15, four bits a
 //!     pixel) in one colour over a background whose colour is known, so it
 //!     never reads the framebuffer back;
@@ -30,8 +31,20 @@ pub type Rgb = [u8; 3];
 /// Bytes a pixel.
 const BPP: usize = 3;
 
-/// The widest background picture `background` can unpack.
+/// The widest picture `picture` can unpack.
 const MAX_WIDTH: usize = 1024;
+
+/// For `picture`: no colour number is a hole; every pixel is drawn.
+pub const NO_HOLE: usize = 256;
+
+/// A stored colour picture: `w` x `h` pixels, packed in `len` bytes at `off`
+/// in the stored pictures.
+pub struct Picture {
+    pub off: usize,
+    pub len: usize,
+    pub w: usize,
+    pub h: usize,
+}
 
 /// A stored font: one mask of `cell_w` x `cell_h` coverage levels for each
 /// glyph, one after the other from `off` in the stored pictures.
@@ -162,8 +175,8 @@ impl Screen {
         }
     }
 
-    /// Unpack a stored background picture over the whole panel, row by row
-    /// from the top.
+    /// Unpack a stored colour picture of `w` x `h` pixels with its top left
+    /// corner at column `x` of row `y`, row by row from the top.
     ///
     /// `stream` is a run of operations, each one byte with its kind in the
     /// top two bits and n in the low six:
@@ -174,23 +187,40 @@ impl Screen {
     ///   11 n m      the next (n*256+m)+1 pixels equal the pixel one row up
     ///
     /// `palette` holds red, green, blue for each colour number. Above the
-    /// first row every pixel counts as colour number 0. A stream that ends
+    /// picture's first row every pixel counts as colour number 0. A pixel
+    /// whose colour number is `hole` is not drawn: what the panel shows there
+    /// stays (`NO_HOLE` for a picture with no such pixels). The part of the
+    /// picture right of or below the panel is not drawn. A stream that ends
     /// early, or names a colour the palette does not have, stops the picture
     /// there. The framebuffer is never read: the row above is kept here, as
     /// colour numbers.
-    pub fn background(&self, stream: &[u8], palette: &[u8]) {
-        if self.width == 0 || self.width > MAX_WIDTH {
+    pub fn picture(
+        &self,
+        x: usize,
+        y: usize,
+        w: usize,
+        h: usize,
+        stream: &[u8],
+        palette: &[u8],
+        hole: usize,
+    ) {
+        if w == 0 || w > MAX_WIDTH || x >= self.width || y >= self.height {
             return;
         }
         // The colour numbers of the row above, replaced as this row is drawn.
         let mut line = [0u8; MAX_WIDTH];
         let mut bytes = stream.iter();
-        let total = self.width.saturating_mul(self.height);
-        // What a row's end adds to the byte offset: the row's padding.
-        let skip = self.stride.saturating_sub(self.width * BPP);
+        let total = w.saturating_mul(h);
+        // Rows of the picture that are on the panel: at least one.
+        let rows = self.height - y;
+        // The byte offset of the first pixel of the row being drawn, and of
+        // the pixel about to be drawn. x < width and y < height, so the
+        // first is inside the buffer; it moves on only while rows are left.
+        let mut row_at = y * self.stride + x * BPP;
+        let mut at = row_at;
         let mut done: usize = 0;
-        let mut x: usize = 0;
-        let mut at: usize = 0;
+        let mut px: usize = 0;
+        let mut py: usize = 0;
         while done < total {
             let op = match bytes.next() {
                 Some(&op) => op,
@@ -213,7 +243,7 @@ impl Screen {
             }
             count += 1;
             while count > 0 && done < total {
-                let slot = match line.get_mut(x) {
+                let slot = match line.get_mut(px) {
                     Some(slot) => slot,
                     None => return,
                 };
@@ -225,20 +255,49 @@ impl Screen {
                         None => return,
                     }
                 }
-                let entry = *slot as usize * 3;
-                match palette.get(entry..entry + 3) {
-                    Some(&[red, green, blue]) => self.put_at(at, [red, green, blue]),
-                    _ => return,
+                let number = *slot as usize;
+                if number != hole {
+                    match palette.get(number * 3..number * 3 + 3) {
+                        Some(&[red, green, blue]) => {
+                            // A pixel right of the panel is left out: its
+                            // bytes would be the start of the next row.
+                            if x + px < self.width {
+                                self.put_at(at, [red, green, blue]);
+                            }
+                        }
+                        _ => return,
+                    }
                 }
                 at += BPP;
-                x += 1;
-                if x == self.width {
-                    x = 0;
-                    at += skip;
+                px += 1;
+                if px == w {
+                    px = 0;
+                    py += 1;
+                    if py >= rows {
+                        // Every further row is below the panel.
+                        return;
+                    }
+                    row_at += self.stride;
+                    at = row_at;
                 }
                 done += 1;
                 count -= 1;
             }
+        }
+    }
+
+    /// Unpack a stored picture with its top left corner at (x, y).
+    pub fn stored_picture(
+        &self,
+        blob: &[u8],
+        picture: &Picture,
+        x: usize,
+        y: usize,
+        palette: &[u8],
+        hole: usize,
+    ) {
+        if let Some(stream) = blob.get(picture.off..picture.off + picture.len) {
+            self.picture(x, y, picture.w, picture.h, stream, palette, hole);
         }
     }
 

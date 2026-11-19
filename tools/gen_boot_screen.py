@@ -6,10 +6,12 @@ console design on the GT-I9195's 540x960 panel. The phone does not compute
 that design. It copies stored pictures:
 
   - one BACKGROUND picture of everything that never changes: the panels, their
-    glow, the logo, the icons, the titles and the fixed labels;
+    glow and gloss, the logo, the icons, the titles and the fixed labels;
+  - small COLOUR PICTURES: each chip with its letters, and the inside of the
+    bar at each of its sixteen lengths, in the design's gel look;
   - LETTERS, each a small picture with sixteen levels of coverage, for the
-    values that the phone finds out when it runs;
-  - a few small MASKS (the chips, and words such as OK).
+    values that the phone finds out when it runs, and a few whole WORDS of
+    the same kind.
 
 This tool draws all of that on the host and writes three files next to the
 image's sources:
@@ -142,17 +144,110 @@ def fit_p(path, pitch, fill=0.92, tall=TALL):
     return ImageFont.truetype(path, size), 1.0 / tall
 
 
+def fade_mask(size, weight):
+    """A mask whose value at (x, y) is 255 * weight(x, y), weight in 0..1."""
+    w, h = size
+    m = Image.new("L", size, 0)
+    m.putdata([int(255 * min(1.0, max(0.0, weight(x, y)))) for y in range(h) for x in range(w)])
+    return m
+
+
+def gel_plate(w, h, r, accent, strength, bg, glow):
+    """A chip's plate in the design's gel look: a soft glow around it, a body
+    that is darker at the top, light along the inside of its rim, a faint
+    gloss over its upper half and a rim that is brightest at the top left.
+    `strength` is 1 for a lit chip, less for an unlit one. Returns the plate
+    already laid over `bg`, with `glow` pixels of room on every side, and its
+    coverage (0 where the plate and its glow do not reach)."""
+    S = SS
+    tw, th = (w + 2 * glow) * S, (h + 2 * glow) * S
+    box = (glow * S, glow * S, (glow + w) * S - 1, (glow + h) * S - 1)
+
+    def rounded(inset=0.0, **how):
+        m = Image.new("L", (tw, th), 0)
+        b = (box[0] + inset * S, box[1] + inset * S, box[2] - inset * S, box[3] - inset * S)
+        ImageDraw.Draw(m).rounded_rectangle(b, max(1.0, r - inset) * S, **how)
+        return m
+
+    shape = rounded(fill=255)
+    out = Image.new("RGB", (tw, th), bg)
+    halo = shape.filter(ImageFilter.GaussianBlur(1.3 * S)).point(lambda v: int(v * 0.60 * strength))
+    out.paste(accent, (0, 0), halo)
+    fill = mix(bg, accent, 0.16 + 0.16 * strength)
+    top, bottom = mix(fill, (0, 0, 0), 0.34), mix(fill, accent, 0.10)
+    grad = Image.new("RGB", (1, th))
+    for y in range(th):
+        grad.putpixel((0, y), mix(top, bottom, min(1.0, max(0.0, (y - glow * S) / (h * S - 1)))))
+    out.paste(grad.resize((tw, th)), (0, 0), shape)
+    inner = rounded(outline=255, width=round(2.4 * S)).filter(ImageFilter.GaussianBlur(1.2 * S))
+    out.paste(accent, (0, 0), ImageChops.multiply(inner, shape).point(lambda v: int(v * 0.42 * strength)))
+    cap = Image.new("L", (tw, th), 0)
+    ImageDraw.Draw(cap).ellipse((box[0] - w * S * 0.25, box[1] - h * S * 0.80,
+                                 box[2] + w * S * 0.25, box[1] + h * S * 0.48), fill=255)
+    cap = ImageChops.multiply(cap, rounded(1.6, fill=255)).filter(ImageFilter.GaussianBlur(0.5 * S))
+    out.paste((255, 255, 255), (0, 0), cap.point(lambda v: int(v * 0.11)))
+    rim = rounded(outline=255, width=round(1.5 * S))
+    out.paste(mix(bg, accent, 0.62 + 0.38 * strength), (0, 0), rim)
+    shine = fade_mask((tw, th), lambda x, y: 1.0 - ((x - box[0]) + 1.6 * (y - box[1])) / (0.75 * w * S))
+    out.paste(mix(accent, WHITE, 0.75), (0, 0), ImageChops.multiply(rim, shine).point(lambda v: int(v * 0.8)))
+    size = (w + 2 * glow, h + 2 * glow)
+    return out.resize(size, Image.LANCZOS), ImageChops.lighter(shape, halo).resize(size, Image.BOX)
+
+
+def chip_sprite(text, fx, size, accent, strength, ink, bg, glow, tracking=0.5):
+    """A chip with its text, as a picture laid over `bg`."""
+    w, h = size
+    rgb, alpha = gel_plate(w, h, 5.5, accent, strength, bg, glow)
+    m, origin, total = text_mask(text, fx, tracking)
+    px, py = round(rgb.width / 2 - total / 2 - origin), round(rgb.height / 2 - m.height / 2)
+    soft = m.filter(ImageFilter.GaussianBlur(1.0)).point(lambda v: int(v * 0.45))
+    rgb.paste(ink, (px, py), soft)
+    rgb.paste(ink, (px, py), m)
+    return {"rgb": rgb, "alpha": alpha, "hole_below": 10}
+
+
+def bar_sprite(w, h, lit, cells, dark):
+    """The inside of the bar's track with `lit` of `cells` parts of it filled:
+    one piece, rounded, lighter at the top. The whole inside is drawn, filled
+    or dark, so that one picture replaces another."""
+    S = SS
+    shape = Image.new("L", (w * S, h * S), 0)
+    ImageDraw.Draw(shape).rounded_rectangle((0, 0, w * S - 1, h * S - 1), 3.2 * S, fill=255)
+    out = Image.new("RGB", (w * S, h * S), dark)
+    length = round(w * lit / cells)
+    fill = Image.new("L", (w * S, h * S), 0)
+    ImageDraw.Draw(fill).rounded_rectangle((0, 0, length * S - 1, h * S - 1), min(3.2, length / 2) * S, fill=255)
+    top, mid, low = mix(BAR, WHITE, 0.52), mix(BAR, WHITE, 0.10), mix(BAR, (20, 110, 190), 0.42)
+    grad = Image.new("RGB", (1, h * S))
+    for y in range(h * S):
+        t = y / (h * S - 1)
+        grad.putpixel((0, y), mix(top, mid, t / 0.4) if t < 0.4 else mix(mid, low, (t - 0.4) / 0.6))
+    out.paste(grad.resize((w * S, h * S)), (0, 0), fill)
+    gloss = Image.new("L", (w * S, h * S), 0)
+    ImageDraw.Draw(gloss).rounded_rectangle((2 * S, 1.6 * S, max(2 * S + 1, (length - 2) * S), 4.2 * S), 1.2 * S, fill=255)
+    gloss = ImageChops.multiply(gloss.filter(ImageFilter.GaussianBlur(0.7 * S)), fill)
+    out.paste((255, 255, 255), (0, 0), gloss.point(lambda v: int(v * 0.36)))
+    return {"rgb": out.resize((w, h), Image.LANCZOS), "alpha": shape.resize((w, h), Image.BOX), "hole_below": 128,
+            "exact": dark}
+
+
 def clean_icon(m):
     """An icon without what came with it from the design picture. The icons
     were cut out of that picture as brightness, so each carries a little of
     what was around it: a piece of its panel's top border as a line above it,
     and the panel's own brightness as a haze. Rows above the first and below
     the last row with real ink are emptied, the haze (the brightest pixel of
-    the icon's outer ring) is taken off everything, and what is left of it
-    below one coverage level is dropped."""
+    the outer ring of what is left) is taken off everything, and what is left
+    of it below one coverage level is dropped."""
     w, h = m.size
     px = [[m.getpixel((x, y)) for x in range(w)] for y in range(h)]
-    inked = [y for y in range(h) if max(px[y]) >= 128]
+
+    def drawn(row):
+        # Real ink is strong somewhere and absent somewhere else. A row that
+        # is about equally bright from end to end is a piece of border.
+        return max(row) >= 128 and max(row) - min(row) >= 0.45 * max(row)
+
+    inked = [y for y in range(h) if drawn(px[y])]
     for y in range(h):
         if y < inked[0] or y > inked[-1]:
             px[y] = [0] * w
@@ -193,9 +288,22 @@ class Canvas:
             cut.paste(255, (0, 0, w, sh))
             self.blend(mix(strip, accent, 0.05), x, y, ImageChops.multiply(rr(w, h, r), cut))
             self.rect(mix(body, accent, 0.5), x + 6, y + sh, w - 12, 1)
+        # Gloss: the corner where the title is catches the light. It lies on
+        # the upper part of the title strip (or, with no strip, on a narrow
+        # band under the top edge) and has faded out before half the panel's
+        # width, so that everything the image draws lands on a flat colour.
+        band = (sh if strip_to is not None else 12) * 0.62
+        gloss = fade_mask((w, h), lambda px, py: (1.0 - py / band) * (1.0 - px / (w * 0.44)) ** 1.4
+                          if px < w * 0.44 and py < band else 0.0)
+        self.img.paste(mix(accent, WHITE, 0.55), (x, y),
+                       ImageChops.multiply(gloss, rr(w, h, r)).point(lambda v: int(v * 0.38)))
         inner = rr(w, h, r, 1.6).filter(ImageFilter.GaussianBlur(1.8)).point(lambda v: int(v * 0.42))
         self.blend(accent, x, y, ImageChops.multiply(inner, rr(w, h, r)))
         self.blend(mix(accent, WHITE, 0.12), x, y, rr(w, h, r, 1.0).point(lambda v: int(v * 0.92)))
+        # and the border itself is brightest at that corner
+        shine = fade_mask((w, h), lambda px, py: 1.0 - (px + 2.2 * py) / (w * 0.36))
+        self.img.paste(mix(accent, WHITE, 0.82), (x, y),
+                       ImageChops.multiply(rr(w, h, r, 1.3), shine).point(lambda v: int(v * 0.9)))
 
     def text(self, x, yc, s, colour, fx, anchor="lm", glow=0.0, tracking=0.0):
         m, origin, total = text_mask(s, fx, tracking)
@@ -266,15 +374,16 @@ def pack_mask(mask):
     return bytes(out)
 
 
-def encode_background(indices):
-    """The background's palette indices (W*H of them, row after row) as a
-    stream of operations. Each starts with one byte, kind in the top two bits
-    and n in the low six:
-      00 n        the next n+1 pixels equal the pixel W places earlier
+def encode_picture(indices, width):
+    """A picture's colour numbers (`width` a row, row after row) as a stream
+    of operations. Each starts with one byte, kind in the top two bits and n
+    in the low six:
+      00 n        the next n+1 pixels equal the pixel one row up
       01 n c      the next n+1 pixels have colour c
       10 n c...   the next n+1 pixels have the n+1 colours that follow
-      11 n m      the next (n*256+m)+1 pixels equal the pixel W places earlier
-    Pixels before the first row count as colour 0."""
+      11 n m      the next (n*256+m)+1 pixels equal the pixel one row up
+    Pixels above the first row count as colour 0."""
+    W = width
     out = bytearray()
     lit = bytearray()
     total = len(indices)
@@ -317,8 +426,9 @@ def encode_background(indices):
     return bytes(out)
 
 
-def decode_background(stream):
-    """The inverse of encode_background, to check it."""
+def decode_picture(stream, width):
+    """The inverse of encode_picture, to check it."""
+    W = width
     out = bytearray()
     i = 0
     while i < len(stream):
@@ -390,31 +500,6 @@ def strict_font(path, pitch_design, chars):
     raise SystemExit("no font size fits the cell")
 
 
-def prop_font(fx, chars):
-    """A proportional font: each glyph keeps its own advance."""
-    font, xs = fx
-    pad = 2
-    raw, adv = {}, {}
-    for ch in chars:
-        m, origin, total = text_mask(ch, fx)
-        raw[ch] = (m, origin)
-        adv[ch] = total
-    _, top, _, bottom = ink_box([m for m, _ in raw.values()])
-    cell_w = math.ceil(max(adv.values())) + 2 * pad + 1
-    glyphs = []
-    for ch in chars:
-        m, origin = raw[ch]
-        left = round(origin) - pad
-        box = q16(m).getbbox()
-        if box and (box[0] < left or box[2] > left + cell_w):
-            raise SystemExit(f"glyph {ch!r} has ink outside its cell")
-        glyphs.append(m.crop((left, top, left + cell_w, bottom)))
-    any_mask = raw[chars[0]][0]
-    return {"chars": chars, "cell_w": cell_w, "cell_h": bottom - top, "up": any_mask.height // 2 - top,
-            "pad": pad, "adv16": [round(adv[ch] * 16) for ch in chars],
-            "space16": round(font.getlength(" ") * xs * 16), "glyphs": glyphs}
-
-
 def word_mask(s, fx, tracking=0.0):
     """A whole word as one mask, cut to its ink. `dx` is where the ink starts
     to the right of the word's left edge; `up` is how far its top lies above
@@ -423,10 +508,6 @@ def word_mask(s, fx, tracking=0.0):
     box = q16(m).getbbox()
     return {"mask": m.crop(box), "w": box[2] - box[0], "h": box[3] - box[1],
             "dx": box[0] - round(origin), "up": m.height // 2 - box[1]}
-
-
-def shape_mask(mask):
-    return {"mask": mask, "w": mask.width, "h": mask.height, "dx": 0, "up": 0}
 
 
 # --- the design ---------------------------------------------------------------
@@ -446,7 +527,7 @@ def build():
     f_par = fit_p(F_MONO_B, p_par, fill=1.0)
     f_hdr1 = fit_p(F_MONO, p_hdr1, fill=1.0, tall=1.3)
     f_hdr2 = fit_p(F_MONO, p_hdr2, fill=1.0, tall=1.3)
-    f_chip = fit_w(F_COND_B, "SVC", 38)
+    f_chip = fit_w(F_COND_B, "SVC", 41, tall=1.45)   # not the monospace font: its zero has a dot in it
     f_ok = fit_w(F_COND_B, "OK", 36)
     f_tick_l = fit_w(F_POP_B, "TICK", 60, tall=1.32)
     f_stat = fit_w(F_COND_B, "STATUS:", 86)
@@ -467,8 +548,9 @@ def build():
     c.art("pulse", (60, 226, 180))
     end = c.text(X(530), Y(124), "SELFTEST:", WHITE, f_row1, tracking=0.5)
     L["SELF_X"], L["ROW1_Y"] = end + 5, Y(124)
-    L["SELF_CHIP_X"], L["SELF_CHIP_Y"] = X(819), Y(107)
+    glow = 3   # room around every chip for its glow
     ok1 = (X(881) - X(819), Y(141) - Y(107))
+    L["SELF_CHIP_X"], L["SELF_CHIP_Y"] = X(819) - glow, Y(107) - glow
 
     # ---- row 2: CPU registers | CPU status ------------------------------
     c.panel(28, 170, 414, 341, CYAN, strip_to=213)
@@ -484,9 +566,9 @@ def build():
     c.text(X(449), Y(249), "CPSR", LABEL, f_lab)
     c.text(X(450), Y(299), "SCTLR", LABEL, f_lab)
     c.rect(mix(BODY, CYAN, 0.3), X(440), Y(274), X(955) - X(440), 1)
-    L["CHIP_X"] = [X(v) for v in (686, 741, 796, 849, 906)]
-    bit = (25, 20)
-    L["CHIP_W"], L["CHIP_H"] = bit
+    bit = (26, 24)
+    L["CHIP_X"] = [X(v) - glow for v in (686, 741, 796, 849, 906)]
+    L["CHIP_Y"] = [yc - bit[1] // 2 - glow for yc in L["STAT_Y"]]
 
     # ---- row 3: boot information | memory map ---------------------------
     c.panel(27, 361, 500, 615, PURPLE, strip_to=405)
@@ -495,11 +577,13 @@ def build():
     L["INFO_X"], L["INFO_Y"] = X(203), [Y(v) for v in (427, 454, 481, 509, 537, 564, 592)]
     for name, yc in zip(("MACH", "ENTRY", "ATAGS", "CORE", "INITRD2", "REVISION", "SERIAL"), L["INFO_Y"]):
         c.text(X(58), yc, name, LABEL, f_lab)
-    L["ENTRY_CHIP_X"], L["ENTRY_CHIP_Y"] = X(353), Y(441)
     ok2 = (X(405) - X(353), Y(468) - Y(441))
+    L["ENTRY_CHIP_X"], L["ENTRY_CHIP_Y"] = X(353) - glow, Y(441) - glow
     L["SZ_LABEL_X"], L["SZ_X"] = X(338), X(373)
+    # The red chip that says why a tag list was not read to its end: at the
+    # right-hand end of this panel's title, where nothing else is.
     warn = (46, 20)
-    L["WARN_X"], L["WARN_Y"] = X(353), Y(481) - warn[1] // 2
+    L["WARN_X"], L["WARN_Y"] = X(500) - 8 - warn[0] - glow, Y(381) + 1 - warn[1] // 2 - glow
     c.panel(518, 361, 968, 615, CYAN, strip_to=405)
     c.art("database", CYAN)
     c.text(X(603), Y(381), "MEMORY MAP", CYAN, f_title, glow=0.4, tracking=0.2)
@@ -562,13 +646,10 @@ def build():
     bar_dark = mix(STATUS_BODY, BAR, 0.12)
     c.blend(bar_dark, bx, by, rr(bw, bh, 6))
     c.blend(mix(STATUS_BODY, BAR, 0.75), bx, by, rr(bw, bh, 6, 1.1))
-    # Inside the track: sixteen cells. The image draws them, one lit and
-    # fifteen dim; the background holds only the empty track.
-    cell_w, cell_h, cell_step = 6, bh - 10, 8
-    first = bx + (bw - (15 * cell_step + cell_w)) // 2
-    L["BAR_CELL_X"] = [first + i * cell_step for i in range(16)]
-    L["BAR_CELL_Y"] = by + 5
-    bar_cell = rr(cell_w, cell_h, 2)
+    # The inside of the track is the image's: one of sixteen stored pictures,
+    # each the whole inside with so many sixteenths of it filled.
+    L["BAR_X"], L["BAR_Y"] = bx + 3, by + 3
+    bar_size = (bw - 6, bh - 6)
 
     fonts = {
         "VAL_REG": grid_font(f_val, p_val * SX, HEX + "-+"),
@@ -577,19 +658,33 @@ def build():
         "ROW1": grid_font(f_row1, round(f_row1[0].getlength("0") * f_row1[1] + 0.5), HEX),
         "TICK": strict_font(F_COND_B, p_tick, HEX),
         "PAR": grid_font(f_par, PP, "".join(chr(v) for v in range(0x20, 0x7F))),
-        "CHIP": prop_font(f_chip, "ABCDEFGHIJKLMNOPQRSTUVWXYZ01:?"),
     }
     masks = {
-        "OK": word_mask("OK", f_ok), "BAD": word_mask("BAD", f_ok),
         "HIDDEN": word_mask("HIDDEN", f_lab, 0.8), "MEM": word_mask("MEM", f_lab),
         "AT": word_mask("AT", f_lab), "SZ": word_mask("SZ", f_small),
-        "BIT_FILL": shape_mask(rr(bit[0], bit[1], 5)), "BIT_LINE": shape_mask(rr(bit[0], bit[1], 5, 1.1)),
-        "OK1_FILL": shape_mask(rr(ok1[0], ok1[1], 5)), "OK1_LINE": shape_mask(rr(ok1[0], ok1[1], 5, 1.1)),
-        "OK2_FILL": shape_mask(rr(ok2[0], ok2[1], 5)), "OK2_LINE": shape_mask(rr(ok2[0], ok2[1], 5, 1.1)),
-        "WARN_FILL": shape_mask(rr(warn[0], warn[1], 5)), "WARN_LINE": shape_mask(rr(warn[0], warn[1], 5, 1.1)),
         "READING": word_mask("Reading", f_stat, 0.3), "RUNNING": word_mask("Running", f_stat, 0.3),
-        "BAR_CELL": shape_mask(bar_cell),
     }
+
+    def sprites(colours):
+        """The chips and the bar as colour pictures, laid over the colours
+        that the finished background really has where they go."""
+        body, row1, title = colours["BG_BODY"], colours["BG_ROW1"], colours["BG_WARN"]
+        green_ink, grey_ink = mix(GREEN, WHITE, 0.62), (226, 230, 238)
+        out = {}
+        for name in ("USR", "FIQ", "IRQ", "SVC", "MON", "ABT", "HYP", "UND", "SYS"):
+            out[f"MODE_{name}"] = chip_sprite(name, f_chip, bit, PURPLE, 1.0, (240, 234, 248), body, glow)
+        out["MODE_UNKNOWN"] = chip_sprite("???", f_chip, bit, PURPLE, 1.0, (240, 234, 248), body, glow)
+        for letter in "IFATMCV":
+            out[f"BIT_{letter}0"] = chip_sprite(f"{letter}:0", f_chip, bit, GREY, 0.45, grey_ink, body, glow)
+            out[f"BIT_{letter}1"] = chip_sprite(f"{letter}:1", f_chip, bit, GREEN, 1.0, green_ink, body, glow)
+        for word in ("OUT", "ODD", "DTB", "SIZE", "PAST", "MANY", "KIND"):
+            out[f"WARN_{word}"] = chip_sprite(word, f_chip, warn, RED, 1.0, mix(RED, WHITE, 0.75), title, glow)
+        out["OK_ROW1"] = chip_sprite("OK", f_ok, ok1, GREEN, 1.0, green_ink, row1, glow)
+        out["BAD_ROW1"] = chip_sprite("BAD", f_ok, ok1, RED, 1.0, mix(RED, WHITE, 0.75), row1, glow)
+        out["OK_BODY"] = chip_sprite("OK", f_ok, ok2, GREEN, 1.0, green_ink, body, glow)
+        for lit in range(1, 17):
+            out[f"BAR_{lit:02d}"] = bar_sprite(bar_size[0], bar_size[1], lit, 16, colours["BAR_DARK"])
+        return out
     # The box the image clears before it draws a status word: it holds both words.
     words = (masks["READING"], masks["RUNNING"])
     left = min(m["dx"] for m in words)
@@ -600,19 +695,51 @@ def build():
     colours = {
         "AMBER": AMBER, "AMBER_SOFT": mix(AMBER, WHITE, 0.25), "WHITE": WHITE, "NAME": NAME, "CYAN": CYAN,
         "LABEL": LABEL, "GREEN": GREEN, "PURPLE": PURPLE, "GREY": GREY, "RED": RED, "DIM": DIM,
-        "BAR_LIT": BAR, "BAR_DIM": mix(bar_dark, BAR, 0.24),
-        # a chip: its fill, its outline and its text, lit and not lit, for each colour it can have
-        "CHIP_FILL_LIT": 0.24, "CHIP_FILL_OFF": 0.12, "CHIP_LINE_LIT": 0.95, "CHIP_LINE_OFF": 0.70,
-        "CHIP_TEXT_OFF": 0.55,
     }
     # places whose background colour the image must know, read back from the finished picture
     probes = {
         "BG_ROW1": (L["SELF_X"] + 30, L["ROW1_Y"]), "BG_BODY": (L["REG_X"] + 20, L["REG_Y"][1] + 9),
         "BG_LIST": (L["LIST_RIGHT_X"] - 40, L["LIST_Y"]), "BG_CFG": (L["MDP_X"] + 60, L["MDP_Y"]),
         "BG_TEXT": (L["TEXT_RIGHT_X"] - 40, L["TEXT_Y"]),
-        "BG_STATUS": (L["TICK_X"] + 20, L["TICK_Y"]), "BAR_DARK": (L["BAR_CELL_X"][8] + 2, L["BAR_CELL_Y"] + 4),
+        "BG_WARN": (L["WARN_X"] + glow + warn[0] // 2, L["WARN_Y"] + glow + warn[1] // 2),
+        "BG_STATUS": (L["TICK_X"] + 20, L["TICK_Y"]), "BAR_DARK": (L["BAR_X"] + 60, L["BAR_Y"] + 8),
     }
-    return c.img, L, fonts, masks, colours, probes
+    return c.img, L, fonts, masks, colours, probes, sprites
+
+
+def sprite_palette(pics):
+    """One palette for all the small colour pictures, and each picture as
+    colour numbers. Colour 0 means "no pixel here": the image leaves such a
+    pixel as it is. A picture's `exact` colour gets a palette entry of its
+    own, so that it comes out as exactly that colour."""
+    exact = sorted({pic["exact"] for pic in pics.values() if "exact" in pic})
+    shown = []
+    for pic in pics.values():
+        rgb, alpha = pic["rgb"].load(), pic["alpha"].load()
+        w, h = pic["rgb"].size
+        shown += [rgb[x, y] for y in range(h) for x in range(w) if alpha[x, y] >= pic["hole_below"]]
+    strip = Image.new("RGB", (len(shown), 1))
+    strip.putdata(shown)
+    room = 255 - len(exact)
+    q = strip.quantize(colors=room, method=Image.Quantize.MEDIANCUT, dither=Image.Dither.NONE)
+    found = q.getpalette()[:3 * room]
+    palette = [(0, 0, 0)] + exact + [tuple(found[i:i + 3]) for i in range(0, len(found), 3)]
+    numbers = iter(q.tobytes())
+    out = {}
+    for name, pic in pics.items():
+        rgb, alpha = pic["rgb"].load(), pic["alpha"].load()
+        w, h = pic["rgb"].size
+        idx = bytearray()
+        for y in range(h):
+            for x in range(w):
+                if alpha[x, y] < pic["hole_below"]:
+                    idx.append(0)
+                    continue
+                n = next(numbers)
+                idx.append(1 + exact.index(rgb[x, y]) if rgb[x, y] in exact else 1 + len(exact) + n)
+        out[name] = bytes(idx)
+    flat = bytes(v for colour in palette for v in colour)
+    return flat.ljust(768, b"\0"), out
 
 
 def rust_colour(c):
@@ -624,13 +751,13 @@ def main(argv):
     parser.add_argument("--preview", metavar="FILE.png", help="also write the background as a PNG")
     args = parser.parse_args(argv)
 
-    img, L, fonts, masks, colours, probes = build()
+    img, L, fonts, masks, colours, probes, sprites = build()
     pal_img = img.quantize(colors=256, method=Image.Quantize.MEDIANCUT, dither=Image.Dither.NONE)
     palette = bytes(pal_img.getpalette()[:768]).ljust(768, b"\0")
     indices = pal_img.tobytes()
     assert len(indices) == W * H
-    stream = encode_background(indices)
-    assert decode_background(stream) == indices, "the background does not survive encoding"
+    stream = encode_picture(indices, W)
+    assert decode_picture(stream, W) == indices, "the background does not survive encoding"
 
     def probe(xy):
         i = indices[xy[1] * W + xy[0]]
@@ -638,21 +765,22 @@ def main(argv):
 
     for name, xy in probes.items():
         colours[name] = probe(xy)
-    body = colours["BG_BODY"]
-    for key, t in list(colours.items()):
-        if isinstance(t, float):  # the chip colours, worked out here so both sides only copy numbers
-            del colours[key]
-    for cname in ("GREEN", "PURPLE", "GREY", "RED"):
-        base = colours[cname]
-        colours[f"CHIP_{cname}_FILL_LIT"] = mix(body, base, 0.24)
-        colours[f"CHIP_{cname}_FILL_OFF"] = mix(body, base, 0.12)
-        colours[f"CHIP_{cname}_LINE_LIT"] = mix(body, base, 0.95)
-        colours[f"CHIP_{cname}_LINE_OFF"] = mix(body, base, 0.70)
-        colours[f"CHIP_{cname}_TEXT_OFF"] = mix(base, WHITE, 0.55)
+    pics = sprites(colours)
+    del colours["BAR_DARK"]   # only the bar's pictures needed it
+    sprite_pal, sprite_idx = sprite_palette(pics)
 
     blob = bytearray(palette)
     index = {"width": W, "height": H, "palette_off": 0, "bg_off": len(blob), "bg_len": len(stream)}
     blob += stream
+    index["sprite_palette_off"] = len(blob)
+    blob += sprite_pal
+    index["sprites"] = {}
+    for name, pic in pics.items():
+        w, h = pic["rgb"].size
+        packed = encode_picture(sprite_idx[name], w)
+        assert decode_picture(packed, w) == sprite_idx[name], f"picture {name} does not survive encoding"
+        index["sprites"][name] = {"off": len(blob), "len": len(packed), "w": w, "h": h}
+        blob += packed
     index["fonts"] = {}
     for name, f in fonts.items():
         off = len(blob)
@@ -688,9 +816,9 @@ def main(argv):
          "//! assets.json holds the same facts for the host oracle; a unit test",
          "//! (tests/boot/test_screen_v3.py) fails if the three files disagree.",
          "",
-         "use crate::gfx::{Font, Mask, Rgb};",
+         "use crate::gfx::{Font, Mask, Picture, Rgb};",
          "",
-         "/// The stored pictures: palette, background, letters and masks.",
+         "/// The stored pictures: palettes, background, chips, bar, letters and masks.",
          'pub static BLOB: &[u8] = include_bytes!("assets.bin");',
          f"pub const BLOB_LEN: usize = {len(blob)};",
          f'pub const BLOB_SHA256: &str = "{index["blob_sha256"]}";',
@@ -700,7 +828,29 @@ def main(argv):
          f"pub const PALETTE_OFF: usize = {index['palette_off']};",
          f"pub const BG_OFF: usize = {index['bg_off']};",
          f"pub const BG_LEN: usize = {index['bg_len']};",
+         f"pub const SPRITE_PALETTE_OFF: usize = {index['sprite_palette_off']};",
          ""]
+
+    def picture(name):
+        v = index["sprites"][name]
+        return f"Picture {{ off: {v['off']}, len: {v['len']}, w: {v['w']}, h: {v['h']} }}"
+
+    for name in index["sprites"]:
+        if name.startswith("BIT_") and name.endswith("0"):
+            letter = name[4]
+            r.append(f"/// Bit {letter}: [0] when it is clear, [1] when it is set.")
+            r.append(f"pub const CHIP_BIT_{letter}: [Picture; 2] = [")
+            r.append(f"    {picture(name)},")
+            r.append(f"    {picture(f'BIT_{letter}1')},")
+            r.append("];")
+        elif not name.startswith(("BIT_", "BAR_")):
+            r.append(f"pub const CHIP_{name}: Picture = {picture(name)};")
+    r.append("/// The bar: BAR[n] has n + 1 sixteenths of it filled.")
+    r.append("pub static BAR: [Picture; 16] = [")
+    for lit in range(1, 17):
+        r.append(f"    {picture(f'BAR_{lit:02d}')},")
+    r.append("];")
+    r.append("")
     for name, f in index["fonts"].items():
         table = [0xFF] * 96
         for i, ch in enumerate(f["chars"]):
@@ -739,6 +889,9 @@ def main(argv):
     print(f"background: {len(stream)} bytes for {W * H} pixels, {len(set(indices))} colours")
     for name, f in index["fonts"].items():
         print(f"font {name}: {len(f['chars'])} glyphs, cell {f['cell_w']}x{f['cell_h']}")
+    chips = sum(v["len"] for k, v in index["sprites"].items() if not k.startswith("BAR_"))
+    bars = sum(v["len"] for k, v in index["sprites"].items() if k.startswith("BAR_"))
+    print(f"pictures: {len(index['sprites'])} ({chips} bytes of chips, {bars} bytes of bar)")
     print(f"assets.bin: {len(blob)} bytes, sha256 {index['blob_sha256']}")
     if args.preview:
         pal_img.convert("RGB").save(args.preview)

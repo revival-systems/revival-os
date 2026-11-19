@@ -10,10 +10,10 @@
 //!
 //! What this adds to the QEMU tests (tests/boot/run_screen.py): there the
 //! image draws only its own, well-formed pictures at its own places. Here the
-//! module is given what the image never gives it: rectangles and masks far
-//! outside the panel, pictures cut short, a palette that is too small, a font
-//! that points outside the stored pictures. Whatever it is given, it must not
-//! write outside its buffer.
+//! module is given what the image never gives it: rectangles, masks and
+//! pictures far outside the panel, pictures cut short, a palette that is too
+//! small, a font or a picture that points outside the stored pictures.
+//! Whatever it is given, it must not write outside its buffer.
 //!
 //! Build: rustc --edition 2021 --test tests/boot/screen_host.rs
 
@@ -23,7 +23,7 @@
 #[path = "../../boot/samsung-serranolte/screen/gfx.rs"]
 mod gfx;
 
-use gfx::{Font, Mask, Rgb, Screen};
+use gfx::{Font, Mask, Picture, Rgb, Screen, NO_HOLE};
 
 const GUARD: usize = 4096;
 /// What the memory holds before anything is drawn. No test draws this value,
@@ -145,7 +145,7 @@ fn row_padding_is_never_written() {
     let mut panel = Panel::with_stride(4, 3, 14);
     let screen = panel.screen();
     screen.fill_rect(0, 0, 4, 3, [9, 9, 9]);
-    screen.background(&[0x7F, 0x01], &[0, 0, 0, 7, 7, 7]);
+    screen.picture(0, 0, 4, 3, &[0x7F, 0x01], &[0, 0, 0, 7, 7, 7], NO_HOLE);
     assert_eq!(panel.written(), 12);
     for row in 0..3 {
         let padding = GUARD + row * 14 + 12;
@@ -309,10 +309,10 @@ fn rows(panel: &Panel) -> Vec<Vec<Rgb>> {
 }
 
 #[test]
-fn background_unpacks_every_operation() {
+fn picture_unpacks_every_operation() {
     let mut panel = Panel::new(4, 3);
     let screen = panel.screen();
-    screen.background(&PICTURE, &PALETTE);
+    screen.picture(0, 0, 4, 3, &PICTURE, &PALETTE, NO_HOLE);
     assert_eq!(
         rows(&panel),
         vec![vec![C1, C1, C1, C1], vec![C2, C0, C1, C1], vec![C2, C0, C1, C1]]
@@ -321,58 +321,147 @@ fn background_unpacks_every_operation() {
 }
 
 #[test]
-fn background_counts_colour_0_above_the_first_row() {
+fn picture_counts_colour_0_above_its_first_row() {
     let mut panel = Panel::new(4, 3);
     let screen = panel.screen();
     // Twelve pixels equal to the row above.
-    screen.background(&[0xC0, 0x0B], &PALETTE);
+    screen.picture(0, 0, 4, 3, &[0xC0, 0x0B], &PALETTE, NO_HOLE);
     assert_eq!(rows(&panel), vec![vec![C0; 4]; 3]);
 }
 
 #[test]
-fn background_stops_at_a_picture_cut_short() {
+fn picture_is_placed_and_clipped() {
+    // The picture's corner at (2, 1) of a panel of 5 x 3: its last column is
+    // right of the panel and its last row is below it.
+    let mut panel = Panel::new(5, 3);
+    let screen = panel.screen();
+    screen.picture(2, 1, 4, 3, &PICTURE, &PALETTE, NO_HOLE);
+    assert_eq!(
+        rows(&panel),
+        vec![
+            vec![UNDRAWN; 5],
+            vec![UNDRAWN, UNDRAWN, C1, C1, C1],
+            vec![UNDRAWN, UNDRAWN, C2, C0, C1]
+        ]
+    );
+    assert!(panel.guards_intact());
+    // The same on a panel whose rows have padding: the padding stays.
+    let mut padded = Panel::with_stride(5, 3, 19);
+    let screen = padded.screen();
+    screen.picture(2, 1, 4, 3, &PICTURE, &PALETTE, NO_HOLE);
+    assert_eq!(rows(&padded), rows(&panel));
+    for row in 0..3 {
+        let padding = GUARD + row * 19 + 15;
+        assert_eq!(padded.memory[padding..padding + 4], [NOISE; 4]);
+    }
+    assert!(padded.guards_intact());
+}
+
+#[test]
+fn picture_leaves_its_holes_alone() {
+    // With colour 1 as the hole, the first row and the ends of the others stay.
+    let mut panel = Panel::new(4, 3);
+    let screen = panel.screen();
+    screen.picture(0, 0, 4, 3, &PICTURE, &PALETTE, 1);
+    assert_eq!(
+        rows(&panel),
+        vec![vec![UNDRAWN; 4], vec![C2, C0, UNDRAWN, UNDRAWN], vec![C2, C0, UNDRAWN, UNDRAWN]]
+    );
+    // A hole needs no palette entry: two colours are enough when colour 2 is
+    // the hole.
+    let mut panel = Panel::new(4, 3);
+    let screen = panel.screen();
+    screen.picture(0, 0, 4, 3, &PICTURE, &PALETTE[..6], 2);
+    assert_eq!(
+        rows(&panel),
+        vec![vec![C1; 4], vec![UNDRAWN, C0, C1, C1], vec![UNDRAWN, C0, C1, C1]]
+    );
+    assert!(panel.guards_intact());
+}
+
+#[test]
+fn picture_off_the_panel_draws_nothing() {
+    let mut panel = Panel::new(4, 3);
+    let screen = panel.screen();
+    let big = usize::MAX;
+    for (x, y) in [(4usize, 0usize), (0, 3), (big, 0), (0, big), (big, big)] {
+        screen.picture(x, y, 4, 3, &PICTURE, &PALETTE, NO_HOLE);
+    }
+    screen.picture(0, 0, 0, 3, &PICTURE, &PALETTE, NO_HOLE);
+    screen.picture(0, 0, 4, 0, &PICTURE, &PALETTE, NO_HOLE);
+    screen.picture(0, 0, 1025, 3, &PICTURE, &PALETTE, NO_HOLE);
+    assert_eq!(panel.written(), 0);
+    // A picture far taller than the panel stops at the panel's last row.
+    screen.picture(1, 2, 2, big, &[0x7F, 0x02, 0xFF, 0xFF, 0xFF, 0xFF], &PALETTE, NO_HOLE);
+    assert_eq!(rows(&panel)[2], vec![UNDRAWN, C2, C2, UNDRAWN]);
+    assert_eq!(panel.written(), 2);
+    assert!(panel.guards_intact());
+}
+
+#[test]
+fn picture_stops_where_its_data_ends() {
     for (cut, drawn) in [(0usize, 0usize), (1, 0), (2, 4), (3, 4), (4, 5), (5, 6), (6, 8), (7, 8)] {
         let mut panel = Panel::new(4, 3);
         let screen = panel.screen();
-        screen.background(&PICTURE[..cut], &PALETTE);
+        screen.picture(0, 0, 4, 3, &PICTURE[..cut], &PALETTE, NO_HOLE);
         assert_eq!(panel.written(), drawn, "picture cut to {cut} bytes");
         assert!(panel.guards_intact());
     }
 }
 
 #[test]
-fn background_stops_at_a_colour_the_palette_lacks() {
+fn picture_stops_at_a_colour_the_palette_lacks() {
     let mut panel = Panel::new(4, 3);
     let screen = panel.screen();
     // Two colours only: the picture's fifth pixel has colour 2.
-    screen.background(&PICTURE, &PALETTE[..6]);
+    screen.picture(0, 0, 4, 3, &PICTURE, &PALETTE[..6], NO_HOLE);
     assert_eq!(panel.written(), 4);
     // A palette cut inside a colour does not have that colour.
     let mut panel = Panel::new(4, 3);
     let screen = panel.screen();
-    screen.background(&PICTURE, &PALETTE[..5]);
+    screen.picture(0, 0, 4, 3, &PICTURE, &PALETTE[..5], NO_HOLE);
     assert_eq!(panel.written(), 0);
     assert!(panel.guards_intact());
 }
 
 #[test]
-fn background_never_draws_more_than_the_panel() {
-    // A picture of 64 + 16384 pixels for a panel of twelve.
-    let mut panel = Panel::new(4, 3);
+fn picture_never_draws_more_than_it_is_told() {
+    // Operations for 64 + 16384 pixels, for a picture of twelve.
+    let mut panel = Panel::new(6, 5);
     let screen = panel.screen();
-    screen.background(&[0x7F, 0x02, 0xFF, 0xFF], &PALETTE);
-    assert_eq!(rows(&panel), vec![vec![C2; 4]; 3]);
+    screen.picture(1, 1, 4, 3, &[0x7F, 0x02, 0xFF, 0xFF], &PALETTE, NO_HOLE);
+    assert_eq!(panel.written(), 12);
+    assert_eq!((panel.pixel(1, 1), panel.pixel(4, 3)), (C2, C2));
+    assert_eq!((panel.pixel(0, 1), panel.pixel(5, 3), panel.pixel(1, 4)), (UNDRAWN, UNDRAWN, UNDRAWN));
     assert!(panel.guards_intact());
-    // A panel wider than the row the module keeps is not drawn at all.
-    let mut wide = Panel::new(1025, 1);
-    let screen = wide.screen();
-    screen.background(&[0x7F, 0x01], &PALETTE);
-    assert_eq!(wide.written(), 0);
     // A panel of no pixels.
     let mut none = Panel::new(0, 0);
     let screen = none.screen();
-    screen.background(&PICTURE, &PALETTE);
+    screen.picture(0, 0, 4, 3, &PICTURE, &PALETTE, NO_HOLE);
     screen.fill_rect(0, 0, 9, 9, [1, 1, 1]);
     screen.mask(0, 0, 3, 2, &MASK_3X2, [1, 1, 1], BLACK);
     assert!(none.guards_intact());
+}
+
+#[test]
+fn stored_picture_must_lie_inside_the_stored_pictures() {
+    let mut blob = vec![0xEEu8; 3];
+    blob.extend_from_slice(&PICTURE);
+    let mut panel = Panel::new(4, 3);
+    let screen = panel.screen();
+    let inside = Picture { off: 3, len: 8, w: 4, h: 3 };
+    screen.stored_picture(&blob, &inside, 0, 0, &PALETTE, NO_HOLE);
+    assert_eq!(panel.written(), 12);
+    let mut panel = Panel::new(4, 3);
+    let screen = panel.screen();
+    let outside = [
+        Picture { off: 4, len: 8, w: 4, h: 3 },
+        Picture { off: 12, len: 1, w: 4, h: 3 },
+        Picture { off: usize::MAX / 2, len: 8, w: 4, h: 3 },
+    ];
+    for picture in &outside {
+        screen.stored_picture(&blob, picture, 0, 0, &PALETTE, NO_HOLE);
+    }
+    assert_eq!(panel.written(), 0);
+    assert!(panel.guards_intact());
 }
