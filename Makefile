@@ -198,8 +198,8 @@ SCREEN_OPT_STAMP := $(SCREEN_OUT)/opt-level-$(SCREEN_OPT).stamp
 # frozen, and screen-frozen prints the hashes as a NOTE and tests nothing.
 # Once they are set, screen-frozen fails if either changes: the image is
 # frozen, and a change to it needs a new review.
-SCREEN_BIN_SHA256 :=
-SCREEN_IMG_SHA256 :=
+SCREEN_BIN_SHA256 := fb477f9d52ff949f902e2c2239fd6456c14d5e81db866120b7fd14276e0fe269
+SCREEN_IMG_SHA256 := dc4d81e723c69646208a619d83769deb7859aeb4aa456e9074487d1efdba8d48
 # gfx.rs, the module that does not know the board, built for this machine with
 # its host tests (tests/boot/screen_host.rs).
 SCREEN_HOST_TESTS := $(SCREEN_OUT)/screen-host-tests
