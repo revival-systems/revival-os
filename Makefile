@@ -487,6 +487,7 @@ screen-sizes: $(SCREEN_ELF) ## Print the boot screen image's size at opt-level 2
 	done
 	@echo "# largest symbols in $(notdir $(SCREEN_ELF)) (opt-level $(SCREEN_OPT)): address, size, kind, name"
 	@$(ARM_NM) -S -C --size-sort $(SCREEN_ELF) | tail -n 14
+	@echo "# (the stored pictures, $$(stat -c %s $(SCREEN_DIR)/assets.bin) bytes, have no name of their own and are not in this list)"
 	@echo "# screen_tick_wait: the instructions of one turn of the wait loop"
 	@$(ARM_OBJDUMP) -d --no-show-raw-insn $(SCREEN_ELF) | awk '/<screen_tick_wait>:/{on=1} on&&NF==0{exit} on'
 

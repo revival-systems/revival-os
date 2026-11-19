@@ -10,9 +10,10 @@ It is the console image's harness (tests/boot/run_console.py) with another
 oracle: the same QEMU machine, the same test-only entry shim, the same way of
 pausing the CPU inside the image's wait between two counter steps (here
 `screen_tick_wait`), the same noise in the framebuffer before the CPU starts
-(the byte 0x55, so that a dump equal to the oracle shows the image wrote every
-byte of the panel), and the same checks that the tag page and the memory on
-both sides of the framebuffer were not written.
+(every byte 0x55; no pixel of any expected screen has that value in all three
+of its bytes, which each case checks, so a dump equal to the oracle shows the
+image wrote every pixel of the panel), and the same checks that the tag page
+and the memory on both sides of the framebuffer were not written.
 
 Cases (PASS/FAIL line each):
 
@@ -21,9 +22,14 @@ Cases (PASS/FAIL line each):
                             0: the screen is byte-exact; the counter and its
                             bar are then watched, byte-exact at every look,
                             until the counter has passed 0x10 (so a carry into
-                            the next digit and a wrap of the bar have been
-                            drawn); and the whole screen is byte-exact again
+                            the next digit has been drawn, and the bar's lit
+                            cell has gone from its last cell back to its
+                            first); and the whole screen is byte-exact again
                             at the end.
+  qemu-screen-selftest-bad  A copy of the image with one bit of its self-test
+                            table flipped: the screen shows the sum of the
+                            changed table and a red BAD chip, byte-exact, and
+                            the image still runs.
   qemu-screen-device-handoff
                             Entered the way the phone enters it (r1 = 3727,
                             r2 = 0x80200100) with a sample tag list there and
@@ -81,8 +87,11 @@ FB_BASE = oracle.FB_BASE
 COUNT_PAST = 0x10
 COUNT_LOOK_EVERY = 0.2
 # The pixel rows that hold the counter's digits and its bar: what a look reads.
-BAND_TOP = min(oracle.TICK_TOP, oracle.L["BAR_Y"])
-BAND_END = max(oracle.TICK_TOP + oracle.TICK_ROWS, oracle.L["BAR_Y"] + oracle.L["BAR_H"])
+BAND_TOP = min(oracle.TICK_TOP, oracle.L["BAR_CELL_Y"])
+BAND_END = max(oracle.TICK_TOP + oracle.TICK_ROWS,
+               oracle.L["BAR_CELL_Y"] + oracle.A["masks"]["BAR_CELL"]["h"])
+# What the framebuffer holds before the CPU starts, in every byte.
+UNWRITTEN = bytes([rc.NOISE]) * oracle.BPP
 BAND_ADDR = FB_BASE + BAND_TOP * oracle.STRIDE
 BAND_BYTES = (BAND_END - BAND_TOP) * oracle.STRIDE
 
@@ -111,15 +120,31 @@ def require_running(state: str, psr: int, sp: int) -> None:
         raise CaseFailure(f"SP in screen_tick_wait is {sp:#x}, not word-aligned")
 
 
-def require_screen(fb: bytes, handoff: con.Handoff, page: bytes | None, mdp: int) -> int:
+def require_every_pixel_can_show(want: bytes) -> None:
+    """The framebuffer starts as the byte 0x55 everywhere. A pixel the image
+    never wrote would go unseen only if the expected screen had that very
+    value there in all three bytes. No expected screen may have such a pixel."""
+    at = want.find(UNWRITTEN)
+    while at >= 0:
+        if at % oracle.BPP == 0:   # a row is whole pixels, so this is one pixel's three bytes
+            y, rest = divmod(at, oracle.STRIDE)
+            raise CaseFailure(f"the expected screen has the framebuffer's start value at pixel "
+                              f"x={rest // oracle.BPP} y={y}: this test could not tell whether "
+                              f"that pixel was written")
+        at = want.find(UNWRITTEN, at + 1)
+
+
+def require_screen(fb: bytes, handoff: con.Handoff, page: bytes | None, mdp: int,
+                   selftest: int = oracle.SELFTEST_SUM) -> int:
     """The framebuffer must equal the oracle's screen for the counter value it
     shows. Returns that counter value."""
     tick = oracle.tick_of(fb)
     if tick is None:
         raise CaseFailure("the counter's eight cells are not eight digits; against the screen "
                           "with the counter at 0: "
-                          + first_difference(fb, oracle.expected_fb(handoff, page, mdp, 0)))
-    want = oracle.expected_fb(handoff, page, mdp, tick)
+                          + first_difference(fb, oracle.expected_fb(handoff, page, mdp, 0, selftest)))
+    want = oracle.expected_fb(handoff, page, mdp, tick, selftest)
+    require_every_pixel_can_show(want)
     if fb != want:
         raise CaseFailure("the framebuffer differs from the oracle: " + first_difference(fb, want))
     return tick
@@ -131,6 +156,11 @@ def band_of(fb: bytes) -> bytes:
 
 class Runner(rc.Runner):
     """The console harness's runner, with this image's oracle."""
+
+    def with_image(self, image: str) -> "Runner":
+        """This runner for another file with the same layout."""
+        return Runner(image, self.workdir, self.halt_addr, self.wait[0],
+                      self.wait[1] - self.wait[0], self.qemu, self.timeout)
 
     def screen(self, tag: str, handoff: con.Handoff, *, page: bytes | None = None,
                mdp: int | None = None, align: bool = False, shim: bool = True) -> bytes:
@@ -154,11 +184,12 @@ def case_plain(r: Runner) -> str:
         state, psr, sp = vm.settle(spans)
         require_running(state, psr, sp)
         seen = [require_screen(vm.read(FB_BASE, oracle.FB_BYTES), handoff, None, 0)]
-        # The image redraws only the digits that change, and the bar. Watch
-        # both until the counter has passed COUNT_PAST: by then a carry into
-        # the next digit and a wrap of the bar have been drawn. Each look reads
-        # only the rows they are in, and those rows must be byte for byte the
-        # oracle's rows for the value the counter shows.
+        # The image redraws only the digits that change, and two cells of the
+        # bar. Watch both until the counter has passed COUNT_PAST: by then a
+        # carry into the next digit has been drawn, and the bar's lit cell has
+        # gone from its last cell back to its first. Each look reads only the
+        # rows they are in, and those rows must be byte for byte the oracle's
+        # rows for the value the counter shows.
         first_tick_row = (oracle.TICK_TOP - BAND_TOP) * oracle.STRIDE
         while seen[-1] <= COUNT_PAST:
             state, psr, sp = vm.settle(spans, run_for=COUNT_LOOK_EVERY)
@@ -188,9 +219,42 @@ def case_plain(r: Runner) -> str:
         rc.require_untouched(vm, None)
     return (f"framebuffer byte-identical to the oracle with the counter at {seen[0]:#x} and "
             f"again at {seen[-1]:#x}; the counter's digits and its bar byte-exact at "
-            f"{len(seen)} values on the way, past the carry at {COUNT_PAST:#x}; every byte "
+            f"{len(seen)} values on the way, past the carry at {COUNT_PAST:#x}; every pixel "
             f"of the panel written; cpsr={handoff.cpsr:#x} sctlr={handoff.sctlr:#x}; "
             f"counting in SVC mode, sp={sp:#x}")
+
+
+def case_selftest_bad(r: Runner) -> str:
+    """The self-test must be able to fail. One bit of the table the image sums
+    is flipped in a copy of the image; everything else is the image."""
+    with open(r.image, "rb") as fh:
+        data = bytearray(fh.read())
+    table = struct.pack("<8I", *oracle.SELFTEST_TABLE)
+    at = data.find(table)
+    if at < 0 or data.find(table, at + 1) >= 0:
+        raise CaseFailure("the self-test table is not in the image exactly once")
+    words = list(oracle.SELFTEST_TABLE)
+    words[-1] ^= 1
+    data[at:at + len(table)] = struct.pack("<8I", *words)
+    want_sum = oracle.table_sum(words)
+    if want_sum == oracle.SELFTEST_SUM:
+        raise CaseFailure("the changed table has the same sum")
+    path = os.path.join(r.workdir, "selftest-bad.bin")
+    with open(path, "wb") as fh:
+        fh.write(data)
+    bad = r.with_image(path)
+    handoff = rc.qemu_handoff()
+    with bad.vm("selftest-bad") as vm:
+        state, psr, sp = vm.settle(bad.spans(LINK_ADDR))
+        require_running(state, psr, sp)
+        fb = vm.read(FB_BASE, oracle.FB_BYTES)
+        tick = require_screen(fb, handoff, None, 0, selftest=want_sum)
+        if fb == oracle.expected_fb(handoff, None, 0, tick):
+            raise CaseFailure("the screen is the screen of a good self-test")
+        rc.require_untouched(vm, None)
+    return (f"with bit 0 of the table's last word flipped at offset {at + len(table) - 4:#x}, "
+            f"the screen shows the sum {want_sum:08X} and a red BAD chip: framebuffer "
+            f"byte-identical to the oracle's screen for that sum; the image still counts")
 
 
 def sample_page() -> bytes:
@@ -253,20 +317,34 @@ def words_list(count: int, name: str = "w") -> bytes:
     return con.cmdline_tag(text) + con.end_tag()
 
 
+def word_of(chars: int, letter: bytes) -> bytes:
+    """A command-line word that takes exactly `chars` characters on screen:
+    a name, and a value of one character, shown as `name=<1>`."""
+    return letter * (chars - len("=<1>")) + b"=1"
+
+
 def tag_lists() -> list:
     """The console harness's edge cases, and those that only this screen has:
     more words, tags and letters than it has places for."""
     r2 = con.PHONE_R2
+    first = oracle.L["HEAD_FIRST_CHARS"]                 # the first word's place on the head line
+    second = oracle.L["HEAD_CHARS"] - first - 2          # what is then left for the second
+    left, right = oracle.L["COL_CHARS"]
     extra = [
         ("words-21", words_list(21)),
         ("words-22", words_list(22)),
         ("words-25", words_list(25)),
         ("words-26", words_list(26)),
         ("words-200", words_list(200, "a_longer_name_")),
-        ("head-line-full", con.cmdline_tag(b"f" * 60 + b"=1 second=2 third=3") + con.end_tag()),
-        ("head-line-exact", con.cmdline_tag(b"g" * 46 + b"=1 h=22 third=3") + con.end_tag()),
-        ("column-exact", con.cmdline_tag(b"a=1 b=2 " + b"c" * 28 + b"=1 " + b"d" * 26 + b"=1 "
-                                         + b"e" * 29 + b"=1 " + b"f" * 27 + b"=1") + con.end_tag()),
+        ("head-line-full", con.cmdline_tag(b"f" * 500 + b"=1 second=2 third=3") + con.end_tag()),
+        ("head-line-exact", con.cmdline_tag(word_of(first, b"g") + b" " + word_of(second, b"h")
+                                            + b" third=3") + con.end_tag()),
+        ("head-line-one-over", con.cmdline_tag(word_of(first + 1, b"g") + b" "
+                                               + word_of(second + 1, b"h") + b" third=3")
+         + con.end_tag()),
+        ("column-exact", con.cmdline_tag(b"a=1 b=2 " + word_of(left, b"c") + b" "
+                                         + word_of(right, b"d") + b" " + word_of(left + 1, b"e")
+                                         + b" " + word_of(right + 1, b"f")) + con.end_tag()),
         ("seven-memory-tags", con.tag(con.ATAG_MEM, 0x100, 0x200) * 7 + con.end_tag()),
         ("every-kind-twice",
          (con.tag(con.ATAG_CORE, 0, 0x1000, 0) + con.tag(con.ATAG_INITRD2, 0x8120_0000, 0x10)
@@ -330,6 +408,7 @@ def case_moved(r: Runner) -> str:
             raise CaseFailure(f"SP at the halt is {sp:#x}, not 8-byte aligned")
         fb = vm.read(FB_BASE, oracle.FB_BYTES)
         want = oracle.moved_fb()
+        require_every_pixel_can_show(want)
         if fb != want:
             raise CaseFailure("the framebuffer is not the stripes: " + first_difference(fb, want))
         rc.require_untouched(vm, None)
@@ -347,6 +426,7 @@ def case_fault(r: Runner) -> str:
     if not 0 < in_ram < oracle.FB_BYTES:
         raise CaseFailure(f"RAM end {ram_end:#x} is not inside the framebuffer")
     want = oracle.background_fb()[:in_ram]
+    require_every_pixel_can_show(want)
     with r.vm("fault", ram_mib=rc.FAULT_RAM_MIB) as vm:
         state, psr, _sp = vm.settle(r.spans(LINK_ADDR))
         if state != "halt":
@@ -367,6 +447,7 @@ def case_fault(r: Runner) -> str:
 
 CASES = (
     (NAME, case_plain),
+    (f"{NAME}-selftest-bad", case_selftest_bad),
     (f"{NAME}-device-handoff", case_device_handoff),
     (f"{NAME}-phone-list", case_phone_list),
     (f"{NAME}-alignment-control", rc.case_align_control),
