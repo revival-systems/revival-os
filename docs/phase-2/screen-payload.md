@@ -1,0 +1,223 @@
+# Phase 2 image 3: the boot screen
+
+**Status: new. No build of this image has been reviewed, its hashes are not pinned, it has never been written to the phone, and it is not approved for a write.** A write needs an amendment in the write plan's issue (#28) that names this image's commit, size and SHA-256 ([AGENTS.md](../../AGENTS.md), hardware safety contract, rule 1). Nothing in this document is a hardware result.
+
+The console image ([console-payload.md](console-payload.md)) showed, as white text on black, what the bootloader hands over. It ran on the phone on 2026-11-19 ([session record](../evidence/phase-2/2026-11-19-console-session.md)).
+
+This image shows the same information in the owner's design: panels, colours, smooth letters, the Revival OS mark. It reads nothing the console image did not read and writes nowhere the console image did not write. What is new is how it draws.
+
+It is **not** a shell and not a kernel. Nothing can be typed into it. It draws one screen and then counts.
+
+## Labels
+
+| Label | Meaning |
+| --- | --- |
+| **Measured** | Read from the owner's phone in the sessions of 2026-11-18 and 2026-11-19; the session records hold it. |
+| **Source** | Stated in a cited file, or in published code. Not checked on the phone. |
+| **Inference** | Our conclusion. No source states it. |
+| **Unknown** | Not known for this phone. The entry says what resolves it. |
+| **Emulator** | Seen in QEMU by `make test-screen`. Not a hardware result. |
+
+## The screen
+
+![The boot screen the host oracle draws for the values the phone gave on 2026-11-19](screen-sample.png)
+
+This picture is not a photograph. The host oracle (`tests/boot/screen_v3.py`) drew it for the registers and the tag list the phone gave on 2026-11-19, with the counter at 0x56. The values of the command-line words are made up; the screen shows only their names and lengths. `make screen-sample` writes the same picture to `build/boot-serrano-screen/screen-sample.png`, and a unit test fails if the picture here is not the oracle's.
+
+The design is the owner's: a picture of 999 × 1280 pixels. Every position on this screen is the design's own position, mapped onto the 540 × 960 panel. Letters are not squeezed with it; they are made tall and narrow so that they fill the taller panel.
+
+| Part | What it shows | Drawn by |
+| --- | --- | --- |
+| Header, panel frames, titles, icons, labels | Nothing that is found out. They are one stored picture. | The background |
+| `PHASE 2: IMAGE 3` | Which image this is. | The background |
+| `SELFTEST: 22BECBA4` and its chip | The image summed its own eight-word table on the phone. The chip is green `OK` when the sum is the expected one, red `BAD` when it is not. | The image |
+| CPU REGISTERS | r0 to r3 as the bootloader left them. | The image |
+| CPU STATUS | CPSR and SCTLR. After CPSR: the mode by name, then the IRQ mask, the FIQ mask, the abort mask and the Thumb bit. After SCTLR: MMU, data cache, instruction cache, alignment checking, high vectors. A chip is green with `1` when its bit is set and grey with `0` when it is not. | The image |
+| BOOT INFORMATION | `MACH`: r1 in decimal. `ENTRY`: the address the image was entered at; the `OK` chip is drawn only when that is the address it is linked for. `ATAGS`: r2. Then the tag list's first `CORE` tag (its page size, or `-` if it carries none), the first `INITRD2` tag (start, and `SZ` size), the first `REVISION` tag, and `HIDDEN` if a serial tag is present. A row stays empty if the list has no such tag. | The image |
+| MEMORY MAP | The first six memory tags: size, `AT`, start. | The image |
+| BOOT PARAMETERS (CMDLINE) | The kernel command line: for each word its name and the **length** of its value, `name=<length>`, or `<length>` alone for a word with no `=`. | The image |
+| CONFIGURATION | The command line's last three words, and `MDP4`: the display controller's framebuffer-address register, with `IS FB` if it names the buffer the image draws in and a red `NOT FB` if it does not. | The image |
+| `TICK` | A counter that goes up by one after every 4,194,304 turns of a wait loop, for as long as the phone is on. | The image |
+| `STATUS:` | `Reading` while the display register has not been read. `Running` once the image is counting. | The image |
+| The bar | The counter's last four bits as a length: one sixteenth more at each step, then back to one sixteenth. It is there so that a step can be seen from further away than a digit can be read. **It is not a progress bar.** The image has nothing to be part-way through. | The image |
+
+The design picture had `STATUS: Booting…` and a bar at 68%. Nothing in this image is 68% done, so the screen does not say so (reviewer's ruling on the design, 2026-11-19).
+
+### The command line
+
+The words keep the order the bootloader gave them. Nothing is picked out and nothing is sorted:
+
+1. the first two words go on the line that starts `> CMDLINE`;
+2. the next words fill the two columns, row by row, left then right;
+3. the last three go into the CONFIGURATION panel: left, left below, right.
+
+The columns have eight rows, which with the other places holds 21 words. That is the number the console image showed on 2026-11-19 (**Measured**: 21 words were on its screen; whether the list has more is **Unknown**, because the console's screen was full). A list with more words gets nine or ten rows, closer together, which holds up to 25. Ten rows is the limit: closer than that, the letters of one row would run into the next.
+
+A word longer than its place is cut, and its last character is then `~`.
+
+### When something is wrong or missing
+
+| What appears | Where | Meaning |
+| --- | --- | --- |
+| A red chip with one word | Beside the `ATAGS` value | Why the tag list was not read, or not read to a proper end. `OUT`: r2 does not point into the tag page. `ODD`: r2 is not a multiple of four. `DTB`: a device tree is there, not a tag list. `SIZE`: a tag claims a size of 1 word, or of more than 2,048. `PAST`: a tag would run past the end of the tag page. `MANY`: more than 64 tags. `KIND`: the tag that ends the list has a kind other than 0. With `OUT`, `ODD` and `DTB` nothing is read. With the other four, the tags before the fault are shown. |
+| `NOT SHOWN: n TAGS m WORDS`, in red | The right-hand end of the BOOT PARAMETERS title | The list holds things this screen has no place for. Tags: a kind with no place here, or one more of a kind than there are places (a seventh memory tag, a second `CORE`). Words: command-line words past the twenty-fifth. Either part is left out when its number is 0. |
+| `CMDLINE UNTERMINATED`, in red | The right-hand end of the CONFIGURATION title | A command-line tag's text has no terminating zero byte: it was cut off at the end of its tag. |
+| An empty `MDP4` value, `STATUS: Reading`, no counter | | The read of the display register did not come back. |
+| Stripes | The whole panel | The image was entered at another address than it is linked for; see below. |
+
+When none of these appears, the whole list is on the screen and it ended properly.
+
+This screen shows less of a strange tag list than the console image does. The console prints one line for each tag, known or not; this screen counts the tags it has no place for. For a list that needs reading tag by tag, the console image is the tool.
+
+## What it never shows
+
+The same as the console image, by the same means. A photograph of this screen is evidence, and evidence gets shared; the repository's rule 7 forbids serial numbers and other identifiers. The tag list is read by the console image's own `atags.rs`, used unchanged, which gives the rest of the image a word's name and the length of its value and never a byte of the value. So this image **cannot** draw:
+
+- **Command-line values**, and words with no `=`: only their lengths.
+- **The serial tag's words**: only the fact that the tag is there.
+- **Tags of unknown kinds**: they are only counted.
+- **A device tree**: only the fact that it is one.
+
+What is drawn: register values, addresses and sizes of memory regions, the board revision, and the names of command-line words. A byte of a name that is not printable ASCII is drawn as `?`.
+
+## What it touches
+
+| | What | Notes |
+| --- | --- | --- |
+| Writes | The framebuffer, 0x88100000 to 0x8827BB00 | Every write goes through one routine that checks the address against the buffer's size. |
+| Writes | Its own stack, the 64 KiB after the image | As the console image; this image also keeps one row of the background there while it unpacks it (1,024 bytes). |
+| Reads | The seven words `kstart.S` captured | On that stack. |
+| Reads | Its own code, constants and stored pictures | |
+| Reads | The tag page, 0x80200000 to 0x80208000 | Only if r2 is inside it and a multiple of 4; only whole words; never past its end. Read twice: once to count the command line's words, once to draw. |
+| Reads | One register, 0x05190008 (MDP4 `DMA_P` buffer address) | Once, after everything else is on the screen. **Measured:** both earlier images read it on the phone; it returned 0x88100000 and did not hang. Never written. |
+
+It writes nothing else: no peripheral register and no other memory. It uses no storage and does not reset the phone. **It never reads the framebuffer.** It changes no processor setting: the caches and the MMU stay off, as the bootloader leaves them. Under rule 1's standing approval it is therefore a "further test image", not an image that "does something new to the hardware" (reviewer's reading; the amendment in the issue will state it).
+
+No heap, no allocator, no interrupts, no timer, no watchdog, no `svc`, no `core::fmt`, and no code path that can panic.
+
+| Region | Range | Source |
+| --- | --- | --- |
+| Tag page | 0x80200000 to 0x80208000 | **Source:** boot-image parameters. **Measured:** r2 = 0x80200100. |
+| Image and its 64 KiB stack | from 0x80208000; the image may be at most 128 KiB, so under 200 KiB in all, and `link.ld` allows at most 16 MiB (to 0x81208000) | `boot/samsung-serranolte/link.ld`. **Measured:** entry at 0x80208000. |
+| Framebuffer | 0x88100000 to 0x8827BB00 (1,555,200 bytes) | **Measured:** the buffer the panel shows starts at 0x88100000. Its size follows from the panel geometry, which is **Source**. |
+
+The three do not overlap. The image is about ten times the size of the console image; it is still far from anything else in memory.
+
+## How it is built
+
+| File | What it is |
+| --- | --- |
+| `boot/samsung-serranolte/kstart.S`, `link.ld` | **The first image's files, unchanged.** Everything that runs before Rust is the code that has already run on the phone. |
+| `console/atags.rs`, `console/board.rs` | **The console image's files, unchanged**, used from where they are: the tag-list reader, and every address and size with its evidence label. |
+| `screen/main.rs` | The entry `payload_main`: which value goes where, the command line's layout, the counter. |
+| `screen/gfx.rs` | The framebuffer and the four ways of drawing on it. The only code that writes to the screen. It does not know the board. |
+| `screen/assets.bin` | The stored pictures: 60,422 bytes. |
+| `screen/assets.rs` | Where each picture is in `assets.bin`, every position and every colour, as Rust constants. Generated. |
+| `screen/assets.json` | The same facts for the host oracle. Generated. |
+| `screen/art.png`, `art.json` | The Revival OS mark and the nine icons, cut from the owner's design picture, and where each was cut from. Input to the generator. |
+| `tools/gen_boot_screen.py` | The generator: draws the background, the letters and the small shapes on the build machine and writes the three `assets` files. |
+
+Nothing under `boot/samsung-serranolte/console/` is changed: the console image stays frozen at its bytes, and `make check` still checks that.
+
+**The generator is not part of the build.** `assets.bin`, `assets.rs` and `assets.json` are committed, and a build only reads them. The generator needs Pillow and three font files, and what it draws depends on their versions, so it would not give the same bytes on every machine. It is run by hand to change the design, and its three output files are committed together. A unit test fails if the three disagree with each other.
+
+**Fonts.** The letters in the stored pictures were drawn from DejaVu Sans Mono, DejaVu Sans Condensed (version 2.37) and Poppins (version 4.004). The repository holds pictures of letters, not the font files. The fonts' licences are in [docs/licenses/](../licenses/README.md).
+
+`make screen` builds `build/boot-serrano-screen/screen.bin` (the kernel-slot bytes) and `screen.img` (the Android boot image around them, packed by `tools/pack_bootimg.py` as the other two images are). The directory is its own, so that the write plan's host check keeps finding one image in each directory.
+
+## The stored pictures
+
+Everything the phone draws is a copy of something stored. It computes no shape, no blur, no glow and no letter.
+
+**The background** is the whole screen with everything that never changes on it. It is stored as one colour number for each pixel, with a palette of up to 256 colours, and packed: most pixels are equal to the pixel above them or to their left neighbour. The packed form is a run of operations, each one byte with its kind in the top two bits and a number n in the low six:
+
+| Kind | Bytes | Meaning |
+| --- | --- | --- |
+| `00` | `n` | The next n+1 pixels equal the pixel one row up. |
+| `01` | `n`, `c` | The next n+1 pixels have colour number c. |
+| `10` | `n`, then n+1 bytes | The next n+1 pixels have the colour numbers that follow. |
+| `11` | `n`, `m` | The next n×256+m+1 pixels equal the pixel one row up. |
+
+Above the first row every pixel counts as colour number 0. The 518,400 pixels of this background take 30,615 bytes.
+
+**Letters and small shapes** are masks: for each pixel a coverage level from 0 to 15, four bits, two pixels a byte. A mask is drawn in one colour over a background whose colour the image knows:
+
+```text
+result = (background × (15 − level) + colour × level + 7) / 15      for each of red, green, blue
+```
+
+A level of 0 draws nothing. That is what makes the letters smooth, and it needs no read of the framebuffer: every value is drawn in a place where the background is one flat colour, and `assets.rs` says which. A unit test draws four screens and fails if any value lands on a pixel of another colour.
+
+There are seven sets of letters (five of digits for the different rows, one of all 95 printable characters for the command line, one for the chips) and a few whole words (`OK`, `BAD`, `HIDDEN`, `MEM`, `AT`, `SZ`, `Reading`, `Running`) and chip shapes.
+
+A text is placed with a pen that moves in sixteenths of a pixel, so that the letters keep the design's spacing; each letter is drawn at the pen's whole pixel.
+
+## Design decisions
+
+**Stored pictures, not computed ones.** The implementer's design notes said that smooth letters and glow could not be had in an image of this kind. They can, if they are stored and not computed: the cost is size, 60 KiB instead of 6. The limit for this image is 128 KiB; a test fails above it.
+
+**The background first, from the top.** The image's first write is the top-left pixel of the background and it goes on row by row. So the bootloader's picture is replaced from the top down, and a photograph of a screen that stopped early shows how far it got. The values are drawn after the whole background.
+
+**How long it takes to draw is Unknown.** The caches are off, so every instruction is fetched from memory. The background is 518,400 pixels at some tens of instructions each: about the work of one counter step (25 million instructions in the console image), and one counter step took under 14 seconds on 2026-11-19 by the reviewer's reading of that session, which is a bound and not a measurement. The screen may appear at once or wipe down over some seconds. The session's video gives the time; it is this image's one new measurement. If it is slow, the cure is the instruction cache, which is a change to the processor's state and belongs to a later image with its own approval.
+
+**The order of risk.** Everything that only reads memory comes first. The status word is set to `Reading`, then the one register is read, then its value, `Running` and the counter are drawn. A hang or fault at the read leaves the whole screen without those.
+
+**`Running` means the image reached its counting loop**, no more. The bar and the counter are what show that it still runs.
+
+**Faults.** As in the earlier images, every exception vector is `kstart.S`'s halt. A fault draws nothing and stops; what was drawn stays.
+
+**No panic.** The image contains no panic code at all, which a test checks in the linked file. Lookups are checked, nothing is divided by a number that is not a constant, and nothing is indexed with a number that could be out of range.
+
+**If the image is loaded somewhere else.** The image is linked for 0x80208000 and reaches its stored pictures through absolute addresses. Entered anywhere else it draws the console image's 20 white and black stripes, which need nothing stored, and stops. **Measured:** the phone entered both earlier images at 0x80208000, so stripes are not expected.
+
+**The counter.** Each digit has its own cell. A cell is cleared and its digit drawn; at a step only the digits that changed are redrawn. The wait between two steps is the console image's loop, with the same number of turns.
+
+**Alignment.** As the console image: the bootloader hands over with alignment checking on and the MMU off, so the image must make no unaligned word access. It reads words only from the tag page, at addresses it has checked, and the Rust target never generates an unaligned access. The QEMU tests run it in that state, after showing that the QEMU in use faults an unaligned load there.
+
+**Optimisation level 2.** The console image was built for size (level z) to stay under 8 KiB. This image's size is its pictures, and on the phone fewer instructions is what makes it draw sooner. `make screen-sizes` prints the size at levels 2, s and z.
+
+## Tests
+
+`make test-screen` (part of `make check`). Everything here is **Emulator** evidence or a build check. The host oracle is `tests/boot/screen_v3.py`; the QEMU harness is `tests/boot/run_screen.py`, which is the console image's harness with this oracle; the unit tests are `tests/boot/test_screen_v3.py` (run by `make test-unit`).
+
+The oracle and the image share data, not code. Both read `assets.bin`, and the positions and colours come from the same generator run (`assets.json` for the oracle, `assets.rs` for the image; a unit test compares the two). What is drawn where, and from which value, is written twice: in Rust in the image and in Python in the oracle. The harness fills the framebuffer with a byte the image never writes before each run, so a dump that equals the oracle shows that the image wrote every byte of the panel.
+
+| Test | What it can show |
+| --- | --- |
+| `unit-python` (`test_screen_v3.py`) | The three `assets` files describe the same pictures, which fill `assets.bin` with no gap. The background is exactly one screen. The fonts the layout counts characters in are fixed-pitch; the counter's cells do not overlap; every word a chip can carry fits its chip; every place for a command-line word stays inside its panel. Every value is drawn on the background colour the image assumes. The rule for placing words. Each fault of a tag list has its own mark. Replacing every hidden value changes no byte of the screen. The picture in this document is the oracle's. |
+| `screen-size` | The flat image is within 131,072 bytes. |
+| `screen-no-system-calls`, `screen-symbols`, `screen-elf-attributes` | As for the other images: no `svc`, nothing undefined, ARMv7-A soft-float. |
+| `screen-no-panic-code` | The linked image has no `core::panicking` and no `core::fmt` symbol. |
+| `screen-corrupt-image-rejected`, `screen-image-unchanged` | A one-byte change is caught by the SHA-256. |
+| `screen-host-tests` | `gfx.rs` itself, on the build machine (`tests/boot/screen_host.rs`), built without optimisation so that arithmetic overflow is checked, against memory with guard bytes on both sides. It is given what the image never gives it: rectangles and masks far outside the panel, a background cut short at every byte, a palette that is too small, a font that points outside the stored pictures. It never writes a guard byte or a row's padding. |
+| `screen-vector-header` | The image starts with `kstart.S`'s vectors and zImage words, and holds `assets.bin` byte for byte. |
+| `qemu-screen` | With no handoff, the whole screen is byte-exact. The counter's digits and its bar are then watched, byte-exact at every look, until the counter has passed 0x10, so a carry into the next digit and a wrap of the bar have been drawn. Then the whole screen is byte-exact again. |
+| `qemu-screen-device-handoff` | Entered as the phone enters it, with a sample tag list and the register reading 0x88100000: byte-exact, and byte-identical to the oracle's screen for the same list with every hidden value replaced; the tag page is unchanged. |
+| `qemu-screen-phone-list` | The registers and the tag list recorded on 2026-11-19, with made-up command-line values: byte-exact. This is the screen in the picture above, except for CPSR and SCTLR, which are QEMU's. |
+| `qemu-screen-alignment-control` | In the phone's state (alignment checking on, MMU off) this QEMU faults a word load from an odd address, and the same load from an aligned address works. |
+| `qemu-screen-alignment-checked` | The device handoff with alignment checking on, as on the phone: byte-exact, no fault. |
+| `qemu-screen-tag-lists` | The console image's twenty-one malformed and edge-case tag lists, and twelve more that only this screen can get wrong: 21, 22, 25, 26 and 200 command-line words; a first word longer than the head line; words exactly as long as their places and one longer; seven memory tags; every kind twice; two command-line tags; a command line with no terminating zero after thirty words. One run each, alignment checking on: byte-exact, no fault. |
+| `qemu-screen-noise` | Four tag pages of pseudo-random bytes: byte-exact, no fault, and the walk stays inside the page. |
+| `qemu-screen-moved` | Loaded and started at another address: the stripes, then a halt, no fault. |
+| `qemu-screen-fault-halts` | With memory that ends inside the framebuffer, the background's write past its end faults, the processor rests in the halt loop in abort mode, and everything drawn before is byte-exact. |
+| `screen-bootimg-valid` | An independent reader accepts every field of `screen.img`. |
+| `screen-repro-identical` | Two clean builds give identical bytes. |
+| `screen-frozen` | Not a test yet: it prints the two hashes. Once they are pinned it fails if either changes. |
+
+After every QEMU run the harness also checks that the tag page still holds exactly what was stored and that 64 KiB on each side of the framebuffer were not written.
+
+What the emulator cannot show: the panel, its colours, how long anything takes, what the bootloader passes, and whether the register read behaves again as it did. Those are what a session is for.
+
+## What is not known
+
+| Question | Label | What resolves it |
+| --- | --- | --- |
+| How long the screen takes to draw | **Unknown** | A session's video. |
+| Whether the colours on the panel are the design's | **Inference** that they are: the byte order blue, green, red is **Measured**, but only blue, white and black have been seen on this panel | A photograph of this screen. A phone photograph does not show colours exactly. |
+| Whether the small letters can be read on the panel and in a photograph | **Unknown**: the command line's letters are about 7 pixels wide, a third of the console image's | A photograph of this screen. |
+| Whether the command line has more than 21 words | **Unknown** | This screen: all words are shown, or a red note says how many are not. |
+| How long one counter step takes | **Unknown** (a bound only) | A session's video. |
+
+## Not in this image
+
+No input, no scrolling, no second page, no fault report, no timer, no interrupts, no caches. Each comes when a milestone needs it ([ROADMAP.md](../../ROADMAP.md)).

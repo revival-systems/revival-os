@@ -99,6 +99,10 @@ Emulator-only exception reporting, a step toward ROADMAP 3a: vectors ([exc_vecto
 
 The Phase 2 console image, run in QEMU from the exact bytes built for the phone. Every screen is compared byte for byte with a host oracle. The tests, what each can show and what the emulator cannot show are listed in [console-payload.md](phase-2/console-payload.md#tests). Emulator results; not hardware results.
 
+### `make test-screen`
+
+The Phase 2 boot screen image, run in QEMU from the exact bytes built for the phone. Every pixel of every screen is compared with a host oracle, which reads the same stored pictures as the image. Its drawing module is also built for the build machine and tested there against memory with guard bytes. The tests, what each can show and what the emulator cannot show are listed in [screen-payload.md](phase-2/screen-payload.md#tests). Emulator results; not hardware results.
+
 ### `make test-repro`
 
 | Test | Pass when |
