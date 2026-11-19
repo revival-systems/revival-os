@@ -254,6 +254,19 @@ No step failed and no stop condition was met. The transfer-failure procedure, th
 - **`r3`'s meaning,** and the part of the report past line 38.
 - **`RECOVERY`'s bytes:** not read back (section 10).
 
+## Reviewer's rulings, 2026-11-19
+
+Given by the reviewer after reviewing this record at `04ec16af328b3f830e64284f3bd9a3afe6045c74`, and added to it by the reviewer. "My" and "I" are the reviewer.
+
+1. **The session passes amendment 1's criterion.** The report was the same in 3 of 3 trials (Owner-confirmed), with `SELFTEST 22BECBA4 OK` on the photograph read (Measured by the implementer), and S3 and S4 were shown.
+2. **The counter went up.** The image draws `TICK 00000000` once and after that only adds one at each step (Source: `boot/samsung-serranolte/console/main.rs`; Emulator: test `qemu-console`). The photograph shows `TICK 00000056`, so the image had made 86 steps when it was taken. This is an Inference from one Measured value, and it settles the point. Amendment 1 said "seen to go up in the video" because I did not expect one still to be enough; it is.
+3. **The time of one step stays open, with a bound.** All three trials lie between the cable's disconnect at 09:56:47 and the owner's message at 10:16 (section 7), so 86 steps took less than 20 minutes: one step took **less than 14 seconds** (1,200 / 86). If the photograph was taken inside a window as the procedure asks, at most 10 minutes, one step took at most 7 seconds (600 / 86). There is no lower bound.
+4. **What the `+` shows.** At least the line after the command line (` END n TAGS`) did not fit on the screen. Whether more words or more tags follow is not established. The next image must show the whole list.
+5. **Departures 1 to 4 of section 9: accepted.** None changed the order of the steps or a result. For the 42 minutes in Download mode after the write, the plan sets no limit, nothing was typed, and the bus showed nothing.
+6. **Nothing more is asked of the owner for this session.** The photographs and times listed in section 13 stay "not received". They gate nothing.
+
+**The reviewer's own check of the typed screen.** I have not seen the photograph. I checked the typed text in section 7 another way. I gave the host oracle (`tests/boot/console_v2.py` at `b170d3c`) the handoff of 2026-11-18 with `r3 = 0x00001141`, the display register reading `0x88100000`, the counter at `0x56`, and a tag list built from the typed lines: an empty `CORE`, `INITRD2`, `REVISION`, a serial tag, the six memory regions in the order shown, and a command line of the 21 words shown, each with a value of the length shown, followed by one more word. The oracle's 40 lines equal the 40 typed lines character for character, including the three words that run past the 30th column and the `+`. So the typed screen is exactly what the image's layout rules give for such a tag list; a mistyped length or a miscounted wrap would have shown as a difference. This does not check the letters of the names against the phone, and it is not a second reading of the photograph.
+
 ## Not committed
 
 Private, outside every repository: the session log, the host's kernel log, the owner's videos and photographs, and the implementer's notes and typed screen text. No identifier, serial number, photograph or log is in this file.
