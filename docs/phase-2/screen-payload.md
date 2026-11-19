@@ -39,9 +39,11 @@ The design is the owner's: a picture of 999 × 1280 pixels. Every position on th
 | CONFIGURATION | The command-line words that come after the columns are full, up to three, and `MDP4`: the display controller's framebuffer-address register, with `IS FB` if it names the buffer the image draws in and a red `NOT FB` if it does not. | The image |
 | `TICK` | A counter that goes up by one after every 4,194,304 turns of a wait loop, for as long as the phone is on. | The image |
 | `STATUS:` | `Reading` while the display register has not been read. `Running` once the image is counting. | The image |
-| The bar | Sixteen cells, one of them lit: the cell that the counter's last four bits name. At each step the lit cell moves one place to the right, and after the last cell it starts again at the first. It is there so that a step can be seen from further away than a digit can be read. **It is not a progress bar.** The image has nothing to be part-way through. | The image |
+| The bar | One piece, as the design draws it, filled as far as the counter's last four bits say: a sixteenth more at each step, and after the full bar from one sixteenth again. It is there so that a step can be seen from further away than a digit can be read. **It is not a progress bar.** The image has nothing to be part-way through, and no number stands beside it. | The image |
 
-The design picture had `STATUS: Booting…` and a bar filled to 68%. Nothing in this image is 68% done, so the screen does not say so, and the bar does not fill: a bar that fills reads as progress even with no number beside it (reviewer's rulings on the design, 2026-11-19).
+The design picture had `STATUS: Booting…`, a bar filled to 68% and that number beside it. Nothing in this image is 68% done, so the screen has neither the word nor the number (reviewer's ruling on the design, 2026-11-19). The bar itself is the design's: one piece, with its gloss. A bar that fills can be read as progress even with no number beside it, which is why the implementer's review proposed sixteen separate cells; the owner chose the design's bar (2026-11-19), and this table says what its length means.
+
+The chips, the bar and the corner of each panel where its title stands have the design's gel look: a soft glow, a rim that is brightest at the top left, a gloss over the upper part. None of that is computed on the phone; it is in the stored pictures.
 
 ### The command line
 
@@ -61,7 +63,7 @@ A word longer than its place is cut, and its last character is then `~`. **A wor
 
 | What appears | Where | Meaning |
 | --- | --- | --- |
-| A red chip with one word | Beside the `ATAGS` value | Why the tag list was not read, or not read to a proper end. `OUT`: r2 does not point into the tag page. `ODD`: r2 is not a multiple of four. `DTB`: a device tree is there, not a tag list. `SIZE`: a tag claims a size of 1 word, or of more than 2,048. `PAST`: a tag would run past the end of the tag page. `MANY`: more than 64 tags. `KIND`: the tag that ends the list has a kind other than 0. With `OUT`, `ODD` and `DTB` nothing is read. With the other four, the tags before the fault are shown. |
+| A red chip with one word | The right-hand end of the BOOT INFORMATION title | Why the tag list was not read, or not read to a proper end. `OUT`: r2 does not point into the tag page. `ODD`: r2 is not a multiple of four. `DTB`: a device tree is there, not a tag list. `SIZE`: a tag claims a size of 1 word, or of more than 2,048. `PAST`: a tag would run past the end of the tag page. `MANY`: more than 64 tags. `KIND`: the tag that ends the list has a kind other than 0. With `OUT`, `ODD` and `DTB` nothing is read. With the other four, the tags before the fault are shown. |
 | `NOT SHOWN: n TAGS m WORDS`, in red | The right-hand end of the BOOT PARAMETERS title | The list holds things this screen has no place for. Tags: a kind with no place here, or one more of a kind than there are places (a seventh memory tag, a second `CORE`). Words: command-line words past the twenty-fifth. Either part is left out when its number is 0. |
 | `CMDLINE UNTERMINATED`, in red | The right-hand end of the CONFIGURATION title | A command-line tag's text has no terminating zero byte: it was cut off at the end of its tag. |
 | An empty `MDP4` value, `STATUS: Reading`, no counter | | The read of the display register did not come back. |
@@ -103,7 +105,7 @@ No heap, no allocator, no interrupts, no timer, no watchdog, no `svc`, no `core:
 | Image and its 64 KiB stack | from 0x80208000. The first build (79,204 bytes) ended with its stack top at 0x8022B568; the console image's was at 0x802198F0. The image may be at most 128 KiB, so image and stack stay under 200 KiB, and `link.ld` allows at most 16 MiB (to 0x81208000). | `boot/samsung-serranolte/link.ld`. **Measured:** entry at 0x80208000; the bootloader lists this memory as RAM (`MEM 07E00000 AT 80200000`, 2026-11-19). |
 | Framebuffer | 0x88100000 to 0x8827BB00 (1,555,200 bytes) | **Measured:** the buffer the panel shows starts at 0x88100000. Its size follows from the panel geometry, which is **Source**. |
 
-The three do not overlap. The image is about twelve times the size of the console image, so it and its stack use about 70 KiB of memory above where the console image's stack ended. That memory is ordinary RAM, far inside the region where the bootloader loads an Android kernel of several megabytes (**Inference**). In QEMU the stack in use while counting was 1.3 KiB of the 64 (task R-19).
+The three do not overlap. The first build was about twelve times the size of the console image, and this version's pictures are 21 KiB more, so the image and its stack use about 90 KiB of memory above where the console image's stack ended. That memory is ordinary RAM, far inside the region where the bootloader loads an Android kernel of several megabytes (**Inference**). In QEMU the stack in use while counting was 1.3 KiB of the 64 (task R-19).
 
 ## How it is built
 
@@ -113,7 +115,7 @@ The three do not overlap. The image is about twelve times the size of the consol
 | `console/atags.rs`, `console/board.rs` | **The console image's files, unchanged**, used from where they are: the tag-list reader, and every address and size with its evidence label. |
 | `screen/main.rs` | The entry `payload_main`: which value goes where, the command line's layout, the counter. |
 | `screen/gfx.rs` | The framebuffer and the four ways of drawing on it. The only code that writes to the screen. It does not know the board. |
-| `screen/assets.bin` | The stored pictures: 58,698 bytes. |
+| `screen/assets.bin` | The stored pictures: 81,144 bytes. |
 | `screen/assets.rs` | Where each picture is in `assets.bin`, every position and every colour, as Rust constants. Generated. |
 | `screen/assets.json` | The same facts for the host oracle. Generated. |
 | `screen/art.png`, `art.json` | The Revival OS mark and the nine icons, cut from the owner's design picture, and where each was cut from. Input to the generator. |
@@ -133,7 +135,9 @@ The icons were cut out of the design picture as brightness, so each brought a li
 
 Everything the phone draws is a copy of something stored. It computes no shape, no blur, no glow and no letter.
 
-**The background** is the whole screen with everything that never changes on it. It is stored as one colour number for each pixel, with a palette of up to 256 colours, and packed: most pixels are equal to the pixel above them or to their left neighbour. The packed form is a run of operations, each one byte with its kind in the top two bits and a number n in the low six:
+**Colour pictures.** The background is the whole screen with everything that never changes on it. Each chip, with its letters, is a small picture of its own, one for each thing a chip can say: ten for the processor mode, two for each of seven bits, seven red ones for a tag list that fails, `OK` in two sizes and `BAD`. The inside of the bar is sixteen pictures, one for each length. That is 50 small pictures.
+
+A colour picture is stored as one colour number for each pixel, with a palette of up to 256 colours, and packed: most pixels are equal to the pixel above them or to their left neighbour. The packed form is a run of operations, each one byte with its kind in the top two bits and a number n in the low six:
 
 | Kind | Bytes | Meaning |
 | --- | --- | --- |
@@ -142,23 +146,25 @@ Everything the phone draws is a copy of something stored. It computes no shape, 
 | `10` | `n`, then n+1 bytes | The next n+1 pixels have the colour numbers that follow. |
 | `11` | `n`, `m` | The next n×256+m+1 pixels equal the pixel one row up. |
 
-Above the first row every pixel counts as colour number 0. The 518,400 pixels of this background take 29,883 bytes.
+Above a picture's first row every pixel counts as colour number 0. The background has a palette of its own and takes 33,120 bytes for its 518,400 pixels. The small pictures share a second palette; the chips take 21,817 bytes and the bar's sixteen pictures 3,253.
 
-**Letters and small shapes** are masks: for each pixel a coverage level from 0 to 15, four bits, two pixels a byte. A mask is drawn in one colour over a background whose colour the image knows:
+In the small pictures colour number 0 means "no pixel here": the image leaves such a pixel as it is. A chip's corners are such pixels, and so are the corners of the bar's inside. A chip's soft edge and glow were laid over the flat colour of the place it goes when the picture was made, so the image only copies. The sixteen pictures of the bar draw exactly the same pixels, filled or dark, so the one drawn last is all that shows; a unit test checks that.
+
+**Letters and a few words** are masks: for each pixel a coverage level from 0 to 15, four bits, two pixels a byte. A mask is drawn in one colour over a background whose colour the image knows:
 
 ```text
 result = (background × (15 − level) + colour × level + 7) / 15      for each of red, green, blue
 ```
 
-A level of 0 draws nothing. That is what makes the letters smooth, and it needs no read of the framebuffer: every value is drawn in a place where the background is one flat colour, and `assets.rs` says which. A unit test draws four screens and fails if any value lands on a pixel of another colour.
+A level of 0 draws nothing. That is what makes the letters smooth, and it needs no read of the framebuffer: every value is drawn in a place where the background is one flat colour, and `assets.rs` says which. The gloss on a panel's title has faded out before the places where the image writes. A unit test draws four screens and fails if any letter, chip or cleared box lands on a pixel of another colour than the one it was made for.
 
-There are seven sets of letters (five of digits for the different rows, one of all 95 printable characters for the command line, one for the chips), a few whole words (`OK`, `BAD`, `HIDDEN`, `MEM`, `AT`, `SZ`, `Reading`, `Running`), the chip shapes and the bar's cell.
+There are six sets of letters (five of digits for the different rows, one of all 95 printable characters for the command line) and six whole words (`HIDDEN`, `MEM`, `AT`, `SZ`, `Reading`, `Running`).
 
-A text is placed with a pen that moves in sixteenths of a pixel; each letter is drawn at the pen's whole pixel. In six of the seven sets every letter has the same width, and that width is a whole number of pixels, so every gap between two letters is the same. (The design's own spacing is not: at 7.3 pixels a letter, every third or fourth gap came out a pixel wider, and `sysscope` read as `syss cope`. The spacing is the design's, moved to the nearest whole pixel.) The chips' letters keep their own widths.
+A text is placed with a pen that moves in sixteenths of a pixel; each letter is drawn at the pen's whole pixel. In every set each letter has the same width, and that width is a whole number of pixels, so every gap between two letters is the same. (The design's own spacing is not: at 7.3 pixels a letter, every third or fourth gap came out a pixel wider, and `sysscope` read as `syss cope`. The spacing is the design's, moved to the nearest whole pixel.)
 
 ## Design decisions
 
-**Stored pictures, not computed ones.** The implementer's design notes said that smooth letters and glow could not be had in an image of this kind. They can, if they are stored and not computed: the cost is size, about 77 KiB where the console image is 6. The limit for this image is 128 KiB; a test fails above it.
+**Stored pictures, not computed ones.** The implementer's design notes said that smooth letters and glow could not be had in an image of this kind. They can, if they are stored and not computed: the cost is size, about 100 KiB where the console image is 6. The limit for this image is 128 KiB; a test fails above it.
 
 **The background first, from the top.** The image's first write is the top-left pixel of the background and it goes on row by row. So the bootloader's picture is replaced from the top down, and a photograph of a screen that stopped early shows how far it got. The values are drawn after the whole background.
 
@@ -174,7 +180,7 @@ A text is placed with a pen that moves in sixteenths of a pixel; each letter is 
 
 **If the image is loaded somewhere else.** The image is linked for 0x80208000 and reaches its stored pictures through absolute addresses. Entered anywhere else it draws the console image's 20 white and black stripes, which need nothing stored, and stops. **Measured:** the phone entered both earlier images at 0x80208000, so stripes are not expected.
 
-**The counter.** Each digit has its own cell. A cell is cleared and its digit drawn; at a step only the digits that changed are redrawn, and two cells of the bar. The wait between two steps is the console image's loop in source, with the same number of turns. It is not the same length: built at level 2, one turn is five instructions here, where the console image's (level z) is six (the implementer's disassembly, task R-19). So a step here should be somewhat shorter than the console's, and the bound from the console session does not carry over exactly.
+**The counter.** Each digit has its own cell. A cell is cleared and its digit drawn; at a step only the digits that changed are redrawn, and the inside of the bar. The wait between two steps is the console image's loop in source, with the same number of turns. It is not the same length: built at level 2, one turn is five instructions here, where the console image's (level z) is six (the implementer's disassembly, task R-19). So a step here should be somewhat shorter than the console's, and the bound from the console session does not carry over exactly.
 
 **Alignment.** As the console image: the bootloader hands over with alignment checking on and the MMU off, so the image must make no unaligned word access. It reads words only from the tag page, at addresses it has checked, and the Rust target never generates an unaligned access. The QEMU tests run it in that state, after showing that the QEMU in use faults an unaligned load there.
 
@@ -194,14 +200,14 @@ The oracle and the image share data, not code. Both read `assets.bin`, and the p
 
 | Test | What it can show |
 | --- | --- |
-| `unit-python` (`test_screen_v3.py`) | The three `assets` files describe the same pictures, which fill `assets.bin` with no gap. The background is exactly one screen. The fonts the layout counts characters in are fixed-pitch, in whole pixels; the counter's cells do not overlap; every word a chip can carry fits its chip; every place for a command-line word stays inside its panel. Every value is drawn on the background colour the image assumes. The rule for placing words, and that the head line's second word is drawn whatever the first is. Each fault of a tag list has its own mark. The bar has one lit cell, the one the counter names. Replacing every hidden value changes no byte of the screen. The picture in this document is the oracle's. |
+| `unit-python` (`test_screen_v3.py`) | The three `assets` files describe the same pictures, which fill `assets.bin` with no gap. The background is exactly one screen. The fonts the layout counts characters in are fixed-pitch, in whole pixels; the counter's cells do not overlap; every word a chip can carry fits its chip; every place for a command-line word stays inside its panel. Every value is drawn on the background colour the image assumes. The rule for placing words, and that the head line's second word is drawn whatever the first is. Each fault of a tag list has its own mark. Each name the image has for a chip leads to the picture the oracle's name leads to. The bar's sixteen pictures replace one another, each longer than the one before. Replacing every hidden value changes no byte of the screen. The picture in this document is the oracle's. |
 | `screen-size` | The flat image is within 131,072 bytes. |
 | `screen-no-system-calls`, `screen-symbols`, `screen-elf-attributes` | As for the other images: no `svc`, nothing undefined, ARMv7-A soft-float. |
 | `screen-no-panic-code` | The linked image has no `core::panicking` and no `core::fmt` symbol. |
 | `screen-corrupt-image-rejected`, `screen-image-unchanged` | A one-byte change is caught by the SHA-256. |
-| `screen-host-tests` | `gfx.rs` itself, on the build machine (`tests/boot/screen_host.rs`), built without optimisation so that arithmetic overflow is checked, against memory with guard bytes on both sides. It is given what the image never gives it: rectangles and masks far outside the panel, a background cut short at every byte, a palette that is too small, a font that points outside the stored pictures. It never writes a guard byte or a row's padding. |
+| `screen-host-tests` | `gfx.rs` itself, on the build machine (`tests/boot/screen_host.rs`), built without optimisation so that arithmetic overflow is checked, against memory with guard bytes on both sides. It is given what the image never gives it: rectangles, masks and pictures far outside the panel, a picture cut short at every byte, a palette that is too small, a font or a picture that points outside the stored pictures. It never writes a guard byte or a row's padding. |
 | `screen-vector-header` | The image starts with `kstart.S`'s vectors and zImage words, and holds `assets.bin` byte for byte. |
-| `qemu-screen` | With no handoff, the whole screen is byte-exact. The counter's digits and its bar are then watched, byte-exact at every look, until the counter has passed 0x10, so a carry into the next digit has been drawn and the bar's lit cell has gone from its last cell back to its first. Then the whole screen is byte-exact again. |
+| `qemu-screen` | With no handoff, the whole screen is byte-exact. The counter's digits and its bar are then watched, byte-exact at every look, until the counter has passed 0x10, so a carry into the next digit has been drawn and the bar has gone from full back to one sixteenth. Then the whole screen is byte-exact again. |
 | `qemu-screen-selftest-bad` | The self-test can fail. In a copy of the image, one bit of the table it sums is flipped: the screen shows the sum of the changed table and the red `BAD` chip, byte-exact, and the image still runs. |
 | `qemu-screen-device-handoff` | Entered as the phone enters it, with a sample tag list and the register reading 0x88100000: byte-exact, and byte-identical to the oracle's screen for the same list with every hidden value replaced; the tag page is unchanged. |
 | `qemu-screen-phone-list` | The registers and the tag list recorded on 2026-11-19, with made-up command-line values: byte-exact. This is the screen in the picture above, except for CPSR and SCTLR, which are QEMU's. |
@@ -221,14 +227,17 @@ What the emulator cannot show: the panel, its colours, how long anything takes, 
 
 ## Changes after the first build
 
-The first version of this image was built and tested by the implementer on 2026-11-19 (task R-19, [the report](https://github.com/revival-systems/revival-os/pull/36#issuecomment-7014327202)): it compiled as written, every test passed, and the review found no safety defect. That version was never written to the phone. Four things in what is drawn were changed after it, all from that report:
+The first version of this image was built and tested by the implementer on 2026-11-19 (task R-19, [the report](https://github.com/revival-systems/revival-os/pull/36#issuecomment-7014327202)): it compiled as written, every test passed, and the review found no safety defect. That version was never written to the phone. What is drawn was changed after it:
 
 | Change | Why |
 | --- | --- |
-| The head line's first word is limited, so that the second always has room. | A first word of 52 characters or more left the second one out with no mark, against this document's own rule. It could not happen with the phone's recorded list. |
-| The bar is sixteen cells with one lit, not a bar that fills. | A bar that fills reads as progress. |
-| Letters step a whole number of pixels. | Uneven gaps: `sysscope` read as `syss cope`, a risk when a photograph is typed out. |
-| The icons are cleaned of the piece of border and the haze that came with them. | A thin stray line showed above each panel's icon. |
+| The head line's first word is limited, so that the second always has room. | The report: a first word of 52 characters or more left the second one out with no mark, against this document's own rule. It could not happen with the phone's recorded list. |
+| Letters step a whole number of pixels. | The report: uneven gaps. `sysscope` read as `syss cope`, a risk when a photograph is typed out. |
+| The icons are cleaned of the piece of border and the haze that came with them. | The report: a thin stray line showed above each panel's icon. |
+| The chips, the bar and the corner of each panel's title have the design's gel look. The chips and the bar became stored colour pictures for that; before, they were flat shapes with letters drawn on them. | The owner, 2026-11-19, from two close-ups of the design. |
+| The red chip for a failed tag list moved from beside the `ATAGS` value to the end of the panel's title. | With its glow it no longer fitted between the rows. |
+
+The reviewer had also replaced the bar by sixteen cells with one lit, as the report proposed. That version was not built: the owner asked for the design's one-piece bar, and it is back.
 
 The self-test's failing case was added to the QEMU tests, and three sentences of this document that the report showed to be wrong were corrected.
 
