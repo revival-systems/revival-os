@@ -1,6 +1,6 @@
 # Phase 2 image 2: the text console
 
-**Status: built for the phone, tested only in QEMU, never written to the phone, and not approved for a write.** A write needs an amendment in the write plan's issue (#28) that names this image's commit, size and SHA-256 ([AGENTS.md](../../AGENTS.md), hardware safety contract, rule 1; [write-plan-draft.md](write-plan-draft.md), "Next images"). Nothing in this document is a hardware result.
+**Status: ran on the phone on 2026-11-19, in 3 of 3 trials, under amendment 1 in the write plan's issue (#28). The [session record](../evidence/phase-2/2026-11-19-console-session.md) says what it showed.** This document was written before that session and is kept as it was written: where it says **Unknown** and "until this image runs", the session record has the answer or says that it is still open. Nothing in this document is itself a hardware result.
 
 The first image ([boot-payload-research.md](boot-payload-research.md), `boot/samsung-serranolte/payload.rs`) proved that our code runs on the GT-I9195. It showed nine numbers as rows of white and black cells, which had to be decoded from a photograph ([session record of 2026-11-18](../evidence/phase-2/2026-11-18-v5-session.md)).
 

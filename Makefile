@@ -174,13 +174,44 @@ CONSOLE_IMG_SHA256 := 9457fd486719ccb379a4bc7f1aa166214cab948129898d23f1b41908b9
 # host tests (tests/boot/console_host.rs).
 CONSOLE_HOST_TESTS := $(CONSOLE_OUT)/console-host-tests
 
+# Phase 2 image 3: the boot screen (docs/phase-2/screen-payload.md). Its Rust is
+# in $(SCREEN_DIR), with the stored pictures it shows (assets.bin, made by
+# tools/gen_boot_screen.py and committed; a build never runs that tool). It
+# reads the tag list with the console image's atags.rs and takes the board's
+# addresses from its board.rs, both used unchanged, and is entered through the
+# first image's kstart.S and link.ld like the console. Its own output
+# directory. Built here and tested only in QEMU; no target flashes it.
+SCREEN_DIR  := $(PAYLOAD_DIR)/screen
+SCREEN_OUT  := $(OUT)/boot-serrano-screen
+SCREEN_ELF  := $(SCREEN_OUT)/screen.elf
+SCREEN_BIN  := $(SCREEN_OUT)/screen.bin
+SCREEN_IMG  := $(SCREEN_OUT)/screen.img
+SCREEN_SRC  := $(wildcard $(SCREEN_DIR)/*.rs) $(SCREEN_DIR)/assets.bin \
+               $(CONSOLE_DIR)/atags.rs $(CONSOLE_DIR)/board.rs
+# Optimisation level of the boot screen image: 2. Its size is its pictures, not
+# its code, and on the phone the caches are off, so fewer instructions is what
+# makes it draw sooner. `make screen-sizes` compares 2, s and z.
+SCREEN_OPT  ?= 2
+SCREEN_MAX_BYTES := 131072
+SCREEN_OPT_STAMP := $(SCREEN_OUT)/opt-level-$(SCREEN_OPT).stamp
+# The two hashes of the reviewed build. While they are empty no build has been
+# frozen, and screen-frozen prints the hashes as a NOTE and tests nothing.
+# Once they are set, screen-frozen fails if either changes: the image is
+# frozen, and a change to it needs a new review.
+SCREEN_BIN_SHA256 := fb477f9d52ff949f902e2c2239fd6456c14d5e81db866120b7fd14276e0fe269
+SCREEN_IMG_SHA256 := dc4d81e723c69646208a619d83769deb7859aeb4aa456e9074487d1efdba8d48
+# gfx.rs, the module that does not know the board, built for this machine with
+# its host tests (tests/boot/screen_host.rs).
+SCREEN_HOST_TESTS := $(SCREEN_OUT)/screen-host-tests
+
 SHELL_SCRIPTS := $(wildcard tools/*.sh tests/*.sh tests/*/*.sh)
 PY_FILES      := $(wildcard tests/*.py tests/*/*.py tools/*.py)
 OWN_C         := $(wildcard $(FIXTURE)/*.c tests/host/*.c tests/build/link-negative/*.c)
 
 .PHONY: help doctor install-toolchain build payload payload-invalid test test-build test-unit test-qemu \
         test-rust test-tasks test-exceptions test-payload test-repro lint check-docs check clean qemu-run qemu-debug \
-        measure-tasks need-goose need-arm need-qemu need-rust console console-sizes console-sample test-console
+        measure-tasks need-goose need-arm need-qemu need-rust console console-sizes console-sample test-console \
+        screen screen-sizes screen-sample test-screen
 
 help: ## List the targets
 	@echo "Revival OS local development (docs/DEVELOPMENT.md):"
@@ -418,10 +449,58 @@ console-sample: ## Write the host oracle's sample console screen as a PNG pictur
 	@mkdir -p $(CONSOLE_OUT)
 	@$(PYTHON) -m tests.boot.console_v2 --png $(CONSOLE_OUT)/console-sample.png
 
-build: $(PROBE_ELFS) $(PROBE_BINS) $(ALLOC_ELF) $(KERNEL_ELFS) $(TASKS_ELFS) $(EXC_ELFS) $(PAYLOAD_BIN) $(PAYLOAD_IMG) $(CONSOLE_BIN) $(CONSOLE_IMG) ## Build every artifact that exists today (the ARMv7-A probe, allocator, Rust kernel, task-experiment, exception-report and the two Phase 2 images)
+# ---- Phase 2 image 3: the boot screen (device image) ------------------------
+
+$(SCREEN_OPT_STAMP):
+	@mkdir -p $(@D)
+	@rm -f $(SCREEN_OUT)/opt-level-*.stamp
+	@touch $@
+
+# As for the console: the same kstart.o, the same link.ld. main.rs is the crate
+# root; it takes atags.rs and board.rs from the console's directory and
+# includes assets.bin as bytes.
+$(SCREEN_ELF): $(SCREEN_SRC) $(PAYLOAD_OUT)/kstart.o $(PAYLOAD_DIR)/link.ld $(SCREEN_OPT_STAMP) | need-rust need-arm
+	@mkdir -p $(@D)
+	$(RUSTC) $(RUST_FLAGS) -C opt-level=$(SCREEN_OPT) --crate-name revival_screen \
+	    $(RUST_PAYLOAD_LINK) -C link-arg=$(PAYLOAD_OUT)/kstart.o \
+	    --emit link -o $@ $(SCREEN_DIR)/main.rs
+
+$(SCREEN_BIN): $(SCREEN_ELF)
+	$(ARM_OBJCOPY) -O binary $< $@
+
+$(SCREEN_IMG): $(SCREEN_BIN) tools/pack_bootimg.py
+	$(PYTHON) -I tools/pack_bootimg.py --kernel $< --output $@
+
+# gfx.rs built for this machine with the standard test harness. No
+# optimisation, so arithmetic overflow is checked while the tests run.
+$(SCREEN_HOST_TESTS): tests/boot/screen_host.rs $(SCREEN_DIR)/gfx.rs | need-rust
+	@mkdir -p $(@D)
+	$(RUSTC) --edition 2021 --test -D warnings -C linker=$(HOST_CC) \
+	    --remap-path-prefix $(CURDIR)=. -o $@ tests/boot/screen_host.rs
+
+screen: $(SCREEN_BIN) $(SCREEN_IMG) ## Build the Phase 2 boot screen image (.bin kernel slot + .img boot image)
+	@cd $(SCREEN_OUT) && sha256sum screen.bin screen.img
+
+screen-sizes: $(SCREEN_ELF) ## Print the boot screen image's size at opt-level 2, s and z, its largest functions and its wait loop (information, not a test)
+	@for opt in 2 s z; do \
+	  $(MAKE) --no-print-directory -s BUILD=$(OUT)/screen-opt-$$opt SCREEN_OPT=$$opt screen >/dev/null; \
+	  echo "screen.bin at opt-level $$opt: $$(stat -c %s $(OUT)/screen-opt-$$opt/boot-serrano-screen/screen.bin) bytes"; \
+	done
+	@echo "# largest symbols in $(notdir $(SCREEN_ELF)) (opt-level $(SCREEN_OPT)): address, size, kind, name"
+	@$(ARM_NM) -S -C --size-sort $(SCREEN_ELF) | tail -n 14
+	@echo "# (the stored pictures, $$(stat -c %s $(SCREEN_DIR)/assets.bin) bytes, have no name of their own and are not in this list)"
+	@echo "# screen_tick_wait: the instructions of one turn of the wait loop"
+	@$(ARM_OBJDUMP) -d --no-show-raw-insn $(SCREEN_ELF) | awk '/<screen_tick_wait>:/{on=1} on&&NF==0{exit} on'
+
+screen-sample: ## Write the host oracle's boot screen for the phone's recorded values as a PNG picture (no build needed)
+	@mkdir -p $(SCREEN_OUT)
+	@$(PYTHON) -m tests.boot.screen_v3 --png $(SCREEN_OUT)/screen-sample.png
+
+build: $(PROBE_ELFS) $(PROBE_BINS) $(ALLOC_ELF) $(KERNEL_ELFS) $(TASKS_ELFS) $(EXC_ELFS) $(PAYLOAD_BIN) $(PAYLOAD_IMG) $(CONSOLE_BIN) $(CONSOLE_IMG) $(SCREEN_BIN) $(SCREEN_IMG) ## Build every artifact that exists today (the ARMv7-A probe, allocator, Rust kernel, task-experiment, exception-report and the three Phase 2 images)
 	@cd $(QEMU_OUT) && sha256sum probe-*.elf probe-*.bin alloc.elf kernel-*.elf $(notdir $(TASKS_ELFS)) $(notdir $(EXC_ELFS))
 	@cd $(PAYLOAD_OUT) && sha256sum payload.elf payload.bin payload.img
 	@cd $(CONSOLE_OUT) && sha256sum console.elf console.bin console.img
+	@cd $(SCREEN_OUT) && sha256sum screen.elf screen.bin screen.img
 
 # ---- link check (build-link-map) -------------------------------------------
 
@@ -473,7 +552,7 @@ $(HOST_OUT)/probe_host_asan: $(HOST_OUT)/probe_gen_asan.o $(HOST_OUT)/probe_main
 
 # ---- tests -----------------------------------------------------------------
 
-test: test-build test-unit test-qemu test-rust test-tasks test-exceptions test-payload test-console test-repro ## Run every automated test (build, unit, QEMU, Rust kernel, task experiment, exception reports, the two Phase 2 images, reproducibility)
+test: test-build test-unit test-qemu test-rust test-tasks test-exceptions test-payload test-console test-screen test-repro ## Run every automated test (build, unit, QEMU, Rust kernel, task experiment, exception reports, the three Phase 2 images, reproducibility)
 
 test-build: build $(QEMU_OUT)/hosted_probe.o $(LINK_CHECKED) ## Check the freestanding build: link inputs, symbols, ELF attributes, no system calls
 	@mkdir -p $(LOGS)
@@ -738,6 +817,58 @@ test-console: $(CONSOLE_BIN) $(CONSOLE_IMG) $(CONSOLE_HOST_TESTS) tests/boot/run
 	  elif [ "$$bin" = "$(CONSOLE_BIN_SHA256)" ] && [ "$$img" = "$(CONSOLE_IMG_SHA256)" ]; then \
 	    echo "PASS console-frozen (console.bin $$bin, console.img $$img: the reviewed bytes)"; \
 	  else echo "FAIL console-frozen: console.bin $$bin (want $(CONSOLE_BIN_SHA256)), console.img $$img (want $(CONSOLE_IMG_SHA256)); the image is frozen, a change needs a new review"; exit 1; fi
+
+test-screen: $(SCREEN_BIN) $(SCREEN_IMG) $(SCREEN_HOST_TESTS) tests/boot/run_screen.py tests/boot/screen_v3.py tests/boot/run_console.py tests/boot/console_v2.py tests/boot/run_payload.py tests/boot/serrano_v1.py tests/boot/read_bootimg.py $(SCREEN_DIR)/assets.json tests/build/check_image_integrity.sh | need-qemu need-arm need-rust ## Boot the Phase 2 boot screen image in QEMU (every pixel byte-exact for plain, device-like, the phone's recorded, malformed and random tag lists, alignment checking on, a moved image and a fault), run its drawing module's host tests, and check its size, its build attributes, that it has no panic code, the packer, reproducibility and the pinned hashes
+	@mkdir -p $(LOGS) $(SCREEN_OUT)/neg
+	@echo "# (a) build checks on the boot screen image"
+	@size=$$(stat -c %s $(SCREEN_BIN)); \
+	  if [ "$$size" -le $(SCREEN_MAX_BYTES) ]; then echo "PASS screen-size (screen.bin is $$size bytes at opt-level $(SCREEN_OPT), of which $$(stat -c %s $(SCREEN_DIR)/assets.bin) are its stored pictures; limit $(SCREEN_MAX_BYTES))"; \
+	  else echo "FAIL screen-size: screen.bin is $$size bytes at opt-level $(SCREEN_OPT); limit $(SCREEN_MAX_BYTES)"; exit 1; fi
+	@n=$$($(ARM_OBJDUMP) -d $(SCREEN_ELF) | grep -cE '\s(svc|swi|smc|hvc)\s' || true); \
+	  if [ "$$n" = 0 ]; then echo "PASS screen-no-system-calls (zero svc/swi/smc/hvc)"; \
+	  else echo "FAIL screen-no-system-calls: found $$n"; exit 1; fi
+	@u=$$($(ARM_NM) -u $(SCREEN_ELF) | wc -l | tr -d ' '); \
+	  if [ "$$u" = 0 ]; then echo "PASS screen-symbols (no undefined symbols; Rust links its own core)"; \
+	  else echo "FAIL screen-symbols: $$u undefined"; $(ARM_NM) -u $(SCREEN_ELF); exit 1; fi
+	@a=$$($(ARM_READELF) -A $(SCREEN_ELF)); \
+	  grep -q 'Tag_CPU_arch: v7$$' <<<"$$a" && grep -q 'Tag_CPU_arch_profile: Application' <<<"$$a" \
+	  && $(ARM_READELF) -h $(SCREEN_ELF) | grep -q 'soft-float ABI' \
+	  && echo "PASS screen-elf-attributes (ARMv7-A, Application, soft-float EABI)" \
+	  || { echo "FAIL screen-elf-attributes"; exit 1; }
+	@p=$$($(ARM_NM) $(SCREEN_ELF) | grep -cE 'panicking|4core3fmt' || true); \
+	  if [ "$$p" = 0 ]; then echo "PASS screen-no-panic-code (no core::panicking and no core::fmt symbol in the linked image: nothing in it can panic)"; \
+	  else echo "FAIL screen-no-panic-code: $$p symbols"; $(ARM_NM) -C $(SCREEN_ELF) | grep -E 'panicking|core::fmt'; exit 1; fi
+	@tests/build/check_image_integrity.sh $(SCREEN_BIN) $(SCREEN_OUT)/neg screen
+	@echo "# (b) the drawing module, built for this machine, passes its host tests"
+	@$(EXPECT) screen-host-tests 0 "test result: ok" $(LOGS)/screen-host.log -- $(SCREEN_HOST_TESTS)
+	@echo "# (c) run the exact kernel-slot bytes in QEMU; every screen must match the host oracle byte for byte"
+	@syms=$$($(ARM_NM) -S $(SCREEN_ELF)); \
+	  halt=$$(awk '$$NF=="halt_loop"{print $$1}' <<<"$$syms"); \
+	  wait=$$(awk 'NF==4 && $$4=="screen_tick_wait"{print $$1}' <<<"$$syms"); \
+	  size=$$(awk 'NF==4 && $$4=="screen_tick_wait"{print $$2}' <<<"$$syms"); \
+	  if [ -z "$$halt" ] || [ -z "$$wait" ] || [ -z "$$size" ]; then \
+	    echo "FAIL qemu-screen: halt_loop, or screen_tick_wait with its size, is not in $(SCREEN_ELF)"; exit 1; fi; \
+	  $(PYTHON) -m tests.boot.run_screen --image $(SCREEN_BIN) --workdir $(SCREEN_OUT)/qemu \
+	      --halt-addr 0x$$halt --wait-addr 0x$$wait --wait-size 0x$$size
+	@echo "# (d) packer: an independent reader validates every boot-image field"
+	@$(EXPECT) screen-bootimg-valid 0 "OK" $(LOGS)/screen-read.log -- \
+	    $(PYTHON) -m tests.boot.read_bootimg $(SCREEN_IMG)
+	@echo "# (e) reproducibility: two clean builds are byte-identical"
+	@rm -rf $(OUT)/screen-repro-a $(OUT)/screen-repro-b
+	@$(MAKE) --no-print-directory -s BUILD=$(OUT)/screen-repro-a screen >/dev/null
+	@$(MAKE) --no-print-directory -s BUILD=$(OUT)/screen-repro-b screen >/dev/null
+	@if cmp -s $(OUT)/screen-repro-a/boot-serrano-screen/screen.bin $(OUT)/screen-repro-b/boot-serrano-screen/screen.bin \
+	    && cmp -s $(OUT)/screen-repro-a/boot-serrano-screen/screen.img $(OUT)/screen-repro-b/boot-serrano-screen/screen.img \
+	    && cmp -s $(OUT)/screen-repro-a/boot-serrano-screen/screen.bin $(SCREEN_BIN); then \
+	  echo "PASS screen-repro-identical (screen.bin and screen.img byte-identical across two clean builds, and screen.bin identical to this build's)"; \
+	else echo "FAIL screen-repro-identical"; exit 1; fi
+	@echo "# (f) frozen image: screen.bin and screen.img are the reviewed bytes"
+	@bin=$$(sha256sum < $(SCREEN_BIN) | cut -d' ' -f1); img=$$(sha256sum < $(SCREEN_IMG) | cut -d' ' -f1); \
+	  if [ -z "$(SCREEN_BIN_SHA256)" ] && [ -z "$(SCREEN_IMG_SHA256)" ]; then \
+	    echo "NOTE screen-frozen: no hash is pinned yet, so this is not a test; screen.bin $$bin ($$(stat -c %s $(SCREEN_BIN)) bytes), screen.img $$img ($$(stat -c %s $(SCREEN_IMG)) bytes)"; \
+	  elif [ "$$bin" = "$(SCREEN_BIN_SHA256)" ] && [ "$$img" = "$(SCREEN_IMG_SHA256)" ]; then \
+	    echo "PASS screen-frozen (screen.bin $$bin, screen.img $$img: the reviewed bytes)"; \
+	  else echo "FAIL screen-frozen: screen.bin $$bin (want $(SCREEN_BIN_SHA256)), screen.img $$img (want $(SCREEN_IMG_SHA256)); the image is frozen, a change needs a new review"; exit 1; fi
 
 test-repro: ## Build twice from scratch in separate directories and require identical outputs
 	@rm -rf $(OUT)/repro-a $(OUT)/repro-b
