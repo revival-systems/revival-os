@@ -1,6 +1,6 @@
 # Phase 2 image 3: the boot screen
 
-**Status: tested only in QEMU, never written to the phone, and not approved for a write.** A write needs an amendment in the write plan's issue (#28) that names this image's commit, size and SHA-256 ([AGENTS.md](../../AGENTS.md), hardware safety contract, rule 1). The image is frozen once its two hashes are pinned in the Makefile (`SCREEN_BIN_SHA256`, `SCREEN_IMG_SHA256`); `make test-screen` prints them, as a NOTE while they are not pinned and as a test once they are. Nothing in this document is a hardware result.
+**Status: frozen, tested only in QEMU, never written to the phone, and not approved for a write.** The frozen image is `screen.img`, 104,464 bytes, SHA-256 `dc4d81e723c69646208a619d83769deb7859aeb4aa456e9074487d1efdba8d48`; its kernel-slot bytes are `screen.bin`, 98,640 bytes, SHA-256 `fb477f9d52ff949f902e2c2239fd6456c14d5e81db866120b7fd14276e0fe269`. `make check` pins both (test `screen-frozen`); a change to either needs a new review. They were built, tested and reviewed by the implementer in task R-20 ([the report](https://github.com/revival-systems/revival-os/pull/36#issuecomment-7016550824)). A write needs an amendment in the write plan's issue (#28) that names this image's commit, size and SHA-256 ([AGENTS.md](../../AGENTS.md), hardware safety contract, rule 1). Nothing in this document is a hardware result.
 
 The console image ([console-payload.md](console-payload.md)) showed, as white text on black, what the bootloader hands over. It ran on the phone on 2026-11-19 ([session record](../evidence/phase-2/2026-11-19-console-session.md)).
 
@@ -102,10 +102,10 @@ No heap, no allocator, no interrupts, no timer, no watchdog, no `svc`, no `core:
 | Region | Range | Source |
 | --- | --- | --- |
 | Tag page | 0x80200000 to 0x80208000 | **Source:** boot-image parameters. **Measured:** r2 = 0x80200100. |
-| Image and its 64 KiB stack | from 0x80208000. The first build (79,204 bytes) ended with its stack top at 0x8022B568; the console image's was at 0x802198F0. The image may be at most 128 KiB, so image and stack stay under 200 KiB, and `link.ld` allows at most 16 MiB (to 0x81208000). | `boot/samsung-serranolte/link.ld`. **Measured:** entry at 0x80208000; the bootloader lists this memory as RAM (`MEM 07E00000 AT 80200000`, 2026-11-19). |
+| Image and its 64 KiB stack | The frozen image is at 0x80208000 to 0x80220150, and its stack is the 64 KiB above it, up to 0x80230150 (the console image's stack top was 0x802198F0). The image may be at most 128 KiB, and `link.ld` allows at most 16 MiB (to 0x81208000). | `boot/samsung-serranolte/link.ld`; the addresses are from the linked file (task R-20). **Measured:** entry at 0x80208000; the bootloader lists this memory as RAM (`MEM 07E00000 AT 80200000`, 2026-11-19). |
 | Framebuffer | 0x88100000 to 0x8827BB00 (1,555,200 bytes) | **Measured:** the buffer the panel shows starts at 0x88100000. Its size follows from the panel geometry, which is **Source**. |
 
-The three do not overlap. The first build was about twelve times the size of the console image, and this version's pictures are 21 KiB more, so the image and its stack use about 90 KiB of memory above where the console image's stack ended. That memory is ordinary RAM, far inside the region where the bootloader loads an Android kernel of several megabytes (**Inference**). In QEMU the stack in use while counting was 1.3 KiB of the 64 (task R-19).
+The three do not overlap. The image is about fifteen times the size of the console image, so it and its stack use 92,256 bytes of memory above where the console image's stack ended. That memory is ordinary RAM, far inside the region where the bootloader loads an Android kernel of several megabytes (**Inference**). In QEMU the stack in use while counting was 332 bytes; from the frame sizes the deepest use is about 1.4 KiB of the 64 (task R-20).
 
 ## How it is built
 
@@ -168,7 +168,9 @@ A text is placed with a pen that moves in sixteenths of a pixel; each letter is 
 
 **The background first, from the top.** The image's first write is the top-left pixel of the background and it goes on row by row. So the bootloader's picture is replaced from the top down, and a photograph of a screen that stopped early shows how far it got. The values are drawn after the whole background.
 
-**How long it takes to draw is Unknown.** The caches are off, so every instruction is fetched from memory. From the disassembly of the first build, the implementer counted about 23 million instructions for the whole screen (36 for each background pixel in the common case), against 21 million for one counter step of this image (task R-19). So the screen should take about as long to appear as one counter step takes. One step of the console image took under 14 seconds on 2026-11-19 by the reviewer's reading of that session, which is a bound and not a measurement. The screen may appear at once or wipe down over some seconds. The session's video gives the time; it is this image's one new measurement. If it is slow, there are cheaper ways to write the pixels (task R-19 lists three), and beyond those the instruction cache, which is a change to the processor's state and belongs to a later image with its own approval.
+**How long it takes to draw is Unknown.** The caches are off, so every instruction is fetched from memory, and every load and store is a memory access. From the disassembly of the frozen build, the implementer counted about 31 million instructions for the whole screen, against 21 million for one counter step of this image (task R-20). So the screen should take about as long to appear as one and a half counter steps take. One step of the console image took under 14 seconds on 2026-11-19 by the reviewer's reading of that session, which is a bound and not a measurement. The screen may appear at once or wipe down over some seconds. The session's video gives the time; it is this image's one new measurement.
+
+The background is slower here than it was in the first build: 51 instructions for a pixel in the common case, where the first build took 36. The cause is that the background now goes through the same routine as the small pictures, which tests every pixel for a hole and for the panel's right edge and keeps more of its numbers on the stack. If the session shows a slow draw, the cheapest cure is a path of its own for the background; beyond that there are cheaper ways to write the pixels (task R-19 lists three), and then the instruction cache, which is a change to the processor's state and belongs to a later image with its own approval.
 
 **The order of risk.** Everything that only reads memory comes first. The status word is set to `Reading`, then the one register is read, then its value, `Running` and the counter are drawn. A hang or fault at the read leaves the whole screen without those.
 
@@ -240,6 +242,19 @@ The first version of this image was built and tested by the implementer on 2026-
 The reviewer had also replaced the bar by sixteen cells with one lit, as the report proposed. That version was not built: the owner asked for the design's one-piece bar, and it is back.
 
 The self-test's failing case was added to the QEMU tests, and three sentences of this document that the report showed to be wrong were corrected.
+
+The version with all of this was built, tested and reviewed by the implementer on 2026-11-19 (task R-20, [the report](https://github.com/revival-systems/revival-os/pull/36#issuecomment-7016550824)): it compiled as written, 126 PASS lines with the hashes pinned, and nothing the review found would block a write. It is the frozen image.
+
+## Known weaknesses, accepted for this image
+
+From the R-20 review. None changes what the image touches; each would change its bytes, so each waits for the next image.
+
+| Weakness | Why it is accepted |
+| --- | --- |
+| The red `BAD` chip is the hardest thing on the screen to read: its word nearly fills the chip, pale pink on dark red. | It appears only if the self-test fails. Then the chip is red where it is otherwise green, and the sum beside it is not `22BECBA4`; neither needs the word to be read. |
+| The background takes 51 instructions a pixel where it could take 36. | How long the screen takes is not known at all yet. The session measures it first. |
+| The gloss on the title corners is faint and will probably not show in a photograph. | Cosmetic. |
+| The bar fills, and a bar that fills can be read as progress. | The owner's choice; the screen has no percentage, and this document says what the length means. |
 
 ## What is not known
 
