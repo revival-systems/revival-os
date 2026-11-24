@@ -1,0 +1,5 @@
+quarkslab-samsung-boot-chain|https://blog.quarkslab.com/attacking-the-samsung-galaxy-a-boot-chain.html|Attacking the Samsung Galaxy A Boot Chain
+projectzero-forcedentry-rce|https://projectzero.google/2021/12/a-deep-dive-into-nso-zero-click.html|Project Zero FORCEDENTRY RCE
+projectzero-forcedentry-sandbox|https://projectzero.google/2022/03/forcedentry-sandbox-escape.html|Project Zero FORCEDENTRY Sandbox Escape
+citizenlab-blastpass|https://citizenlab.ca/blastpass-nso-group-iphone-zero-click-zero-day-exploit-captured-in-the-wild/|Citizen Lab BLASTPASS
+amnesty-pegasus-evolution|https://securitylab.amnesty.org/latest/2026/07/inside-pegasus-the-evolution-of-the-worlds-most-notorious-spyware/|Amnesty Inside Pegasus
