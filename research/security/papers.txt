@@ -1,0 +1,4 @@
+qualcomm-secure-boot|https://www.qualcomm.com/content/dam/qcomm-martech/dm-assets/documents/secure-boot-and-image-authentication.pdf|Qualcomm Secure Boot and Image Authentication
+bootstomp-usenix-2017|https://www.usenix.org/system/files/conference/usenixsecurity17/sec17-redini.pdf|BootStomp research paper
+pegasus-blackhat-2016|https://papers.put.as/papers/ios/2016/eu-16-Bazaliy-Mobile-Espionage-in-the-Wild-Pegasus-and-Nation-State-Level-Attacks.pdf|Black Hat Pegasus presentation slides
+blackhat-bootloader-bugs|https://i.blackhat.com/EU-24/Presentations/EU-24-Nolscher-The-Bugs-in-Your-Bootloaders.pdf|Black Hat bootloader security slides

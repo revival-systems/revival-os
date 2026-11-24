@@ -1,0 +1,5 @@
+01-pegasus-blackhat|https://www.youtube.com/watch?v=Y6e_ctKqSqM|Mobile Espionage in the Wild — Pegasus and Nation-State Level Attacks
+02-pegasus-documentary|https://www.youtube.com/watch?v=lfOgm1IcBd0|How Israeli Technology Became One of the World's Most Feared Spyware
+03-bootloader-bugs|https://www.youtube.com/watch?v=eZczwNFzxus|The Bugs in Your Bootloaders — Black Hat
+04-secure-boot-a-to-z|https://www.youtube.com/watch?v=jtLQ8SzfrDU|Secure Boot from A to Z — Bootlin
+05-bootstomp|https://www.youtube.com/watch?v=n2pmGR0oUHk|BootStomp — USENIX Security 2017

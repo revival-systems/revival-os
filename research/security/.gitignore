@@ -1,0 +1,11 @@
+.venv/
+**/audio.wav
+**/video.mp4
+**/video.mkv
+**/video.webm
+**/transcript.*
+papers/*.pdf
+articles/*.html
+papers/*.txt
+articles/*.txt
+*.part
