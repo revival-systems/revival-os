@@ -7,6 +7,7 @@
 - [The Bugs in Your Bootloaders — Black Hat](https://www.youtube.com/watch?v=eZczwNFzxus) — `03-bootloader-bugs`
 - [Secure Boot from A to Z — Bootlin](https://www.youtube.com/watch?v=jtLQ8SzfrDU) — `04-secure-boot-a-to-z`
 - [BootStomp — USENIX Security 2017](https://www.youtube.com/watch?v=n2pmGR0oUHk) — `05-bootstomp`
+- [Hunting LANDFALL — Black Hat USA 2026 (uploaded video)](videos/06-landfall-blackhat-2026/analysis.md) — `06-landfall-blackhat-2026` (local video/transcript; [source metadata](videos/06-landfall-blackhat-2026/source.md))
 
 ## Papers
 
